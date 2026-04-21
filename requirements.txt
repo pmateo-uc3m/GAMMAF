@@ -1,0 +1,13 @@
+datasets
+langchain-core
+langchain-openai
+python-dotenv
+pydantic
+tqdm
+numpy
+PyYAML
+sentence-transformers
+transformers
+torch
+scikit-learn
+torch-geometric
