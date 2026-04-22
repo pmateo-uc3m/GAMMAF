@@ -11,7 +11,7 @@ from typing import Any, cast
 from Utils import load_config
 from tqdm import tqdm
 
-from TextProcessinManager import RoundProcessor
+from TextProcessingManager import RoundProcessor
 
 
 def to_jsonable(obj):
@@ -315,8 +315,6 @@ def main():
         print("=" * 72)
         
         config = DebateConfig(
-            model_name=args.model_name,
-            base_url=args.base_url,
             timeout=args.timeout,
             is_random_topology = True if topo_name=="random" else False,
             random_topology_data = {

@@ -447,7 +447,9 @@ class LiveDebateOrchestration:
             )
             return index, topo_name, r
         
-        executor = ThreadPoolExecutor(max_workers=self.config.max_concurrent_inference/self.config.num_agents)
+        max_workers = int(self.config.max_concurrent_inference // self.config.num_agents)
+        max_workers = max(1, max_workers)
+        executor = ThreadPoolExecutor(max_workers=max_workers)
         future_to_key = {
             executor.submit(process_single_question, idx, q_data, topo_name): (idx, topo_name)
             for topo_name in topologies_dict.keys()
@@ -520,7 +522,12 @@ class LiveDebateOrchestration:
             )
             return index, topo_name, r
         
-        executor = ThreadPoolExecutor(max_workers=self.config.max_concurrent_inference/self.config.num_agents)  # We want to limit concurrent inference calls, so we set max_workers to max_concurrent_inference divided by number of agents (since each task runs inference for all agents sequentially)
+        # We want to limit concurrent inference calls, so we set max_workers to
+        # max_concurrent_inference divided by number of agents (since each task
+        # runs inference for all agents sequentially).
+        max_workers = int(self.config.max_concurrent_inference // self.config.num_agents)
+        max_workers = max(1, max_workers)
+        executor = ThreadPoolExecutor(max_workers=max_workers)
         future_to_key = {
             executor.submit(process_single_question, idx, q_data, topo_name): (idx, topo_name)
             for topo_name in topologies_dict.keys()
