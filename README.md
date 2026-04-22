@@ -32,6 +32,10 @@ python MainEvaluation.py config-examples/evaluation-config.yaml
 
 Next we offer a comprehensive guide on how to modify the architecture for specific tests: adding new defense models, adding new text output processing logic and adding new tasks datasets.
 
+#### LLM compatibility
+
+This architecture is compatible with any Open AI compatible API. For local inference, we recommend using ```vLLM```.
+
 ## Customized Benchmarking
 ### Adding new defense architectures
 ### Adding new model output processing
