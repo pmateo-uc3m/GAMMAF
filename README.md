@@ -56,41 +56,38 @@ Create a YAML file (e.g., `config-examples/generation-config.yaml`):
 ```yaml
 # Generation pipeline config (TrainDataGeneration.py)
 
-timeout: 60
-parallel_questions: 20
-verbose: false
+timeout: # Time to timeout on inference API requests
+parallel_questions: # Number of concurrent questions sent to inference API
 
-# Prompt template file (JSON) used by agents
-prompts: prompts/prompts_gsm8k.json
+prompts: # Prompt template file (JSON) used by agents, see example in ./prompts
 
-# Dataset selection (must match a class TAG in DatasetManager.py)
-dataset_tag: GSM8K
-questions_random_seed: 28
+dataset_tag: # Dataset selection (must match a class TAG in DatasetManager.py)
+questions_random_seed: # Seed for question selection
 
 # Output
-save_data_dir: data
-file_name: train-data.pkl
+save_data_dir: # Directory to save generated data
+file_name: # Name of data file (must be .pkl)
 
 # Optional post-processing
-process_text: true          # add embeddings with TextProcessingManager.RoundProcessor
-clean_data: true            # drop debates with empty/invalid agent outputs
+process_text: true          # Turn text output in embeddings with TextProcessingManager.RoundProcessor
+clean_data: true            # Drop debates with empty/invalid agent outputs (suggested to leave as true)
 text_process_workers: 0     # 0 = auto; GPU processors will be forced to sequential
 
 # Debate parameters
 debate_config:
-	num_agents: 5
-	num_malicious: 2
-	max_rounds: 3
-	consensus_threshold: 1.0
-	malicious_randomization_seed: 42
+	num_agents: # Number of agents in MAS
+	num_malicious: # Number of malicious agents in the debate (for generation of unsupervised model training data leave as 0)
+	max_rounds: # Maximum number of debate rounds for each task
+	consensus_threshold: # Threshold of consensus among agents to agree final answer and stop debate
+	malicious_randomization_seed: # Seed to choose malicious agents in debate
 
 	# Question counts per topology
-	n_questions: 50
-	n_questions_random_topo: 50
+	n_questions: # Number of questions on each fixed topology (tree, chain, star)
+	n_questions_random_topo: # Number of questions on random topologies
 
 	# Random topology generation (only used for the "random" topology)
 	random_topo_seed: 24
-	density:
+	density: # Minimum and maximum network density for random topologies
 		min: 0.3
 		max: 0.7
 ```
@@ -117,22 +114,20 @@ Create a YAML file (e.g., `config-examples/evaluation-config.yaml`):
 
 ```yaml
 # Main evaluation config (MainEvaluation.py)
-
-models_directory: defense-models
-output_file: results/eval-results.json
+models_directory: # Directory that contains all the defense models that are going to be benchmarked
+output_file: # json file where the evaluation results will be saved
 
 # One config section per defense model file in models_directory (file stem must match)
 defense_model_train_configs:
 	BlindGuard:
-		pkl_train: data/train-data.pkl
+		pkl_train: # Path to the pkl with the training data
 		seed: 42
-		device: cpu
+		device: cpu # Device for model training
 		# Data perturbation (used to simulate anomalies in training)
 		anomaly_rate: 0.2
 		anomaly_scale: 0.5
 		anomalize_data: true
-		no_balance: false
-		topologies: null
+		no_balance: false # Set to true to disable class balancing before training (better to leave it as false)
 
 		# Training hyperparameters (required)
 		input_dim: 1152
@@ -151,15 +146,10 @@ defense_model_train_configs:
 		# split_seed: 42
 		# dataloader_seed: 42
 
-		# Optional checkpointing
-		save_model: false
-		save_path: ""
-
 	XG-Guard:
-		pkl_train: data/train-data.pkl
+		pkl_train: # Path to the pkl with the training data
 		seed: 42
-		device: cpu
-		topologies: null
+		device: cpu # Device for model training
 
 		# Training hyperparameters (required)
 		feat_dim_s: 384
@@ -176,13 +166,9 @@ defense_model_train_configs:
 		# split_seed: 42
 		# dataloader_seed: 42
 
-		# Optional checkpointing (training loop may be extended to use these)
-		save_model: false
-		save_path: ""
-
 live_evaluation_config:
-	timeout: 60
-	prompts_file: prompts/prompts_gsm8k.json
+	timeout: # Time to timeout on inference API requests
+	prompts_file: # Prompt template file (JSON) used by agents, see example in ./prompts
 
 	# Question loader
 	questions_path: DatasetManager.py
@@ -195,29 +181,30 @@ live_evaluation_config:
 	malicious_seed: 123
 	max_rounds: 3
 	consensus_threshold: 1.0
-	no_consensus_check: false
-	check_consensus_only_unflagged: true
+	no_consensus_check: false # If enabled to true, debates will continue until max_rounds even if there is consensus
+	check_consensus_only_unflagged: true # For consensus check, take into account only unglagged agents
 
 	# Defense settings
-	top_k_defense: 2
-	no_defense_baseline: true
+	top_k_defense: 2 # For top-k based defense (as is the case of the baselines)
+	no_defense_baseline: true # Wether to include the no defense baseline (takes up much inference cost and time)
 
 	# Concurrency
-	max_concurrent_inference: 20
+	max_concurrent_inference: # Maximum concurrent inference requests allowed
 
-	# Topologies
-	new_random_each_question: false
-	n_questions_on_random_topo: 50
+	# Questions
+	num_questions: # Number of questions on each fixed topology (start, tree, chain)
+	new_random_each_question: true # Wehter to generate a new random topology for each random topo question (leave as true)
+	n_questions_on_random_topo: 50 # Number of questions over random topologies
 	topologies_seed: 24
-	density_range_for_random_topo: [0.3, 0.7]
+	density_range_for_random_topo: [0.3, 0.7] # Density range for random topologies
 
-	# Text processing used during live evaluation (embeds each round)
-	text_processor_path: TextProcessingManager.py
-	text_processor_class_name: RoundProcessor
+	# Text processor needed for the embeddings of the defense models
+	text_processor_path: TextProcessingManager.py # Python file containing the class that defines the processor
+	text_processor_class_name: RoundProcessor # Name of the class that defines the processor
 
 	# Debug artifacts
-	save_traces: false
-	clean_debates_with_empty_responses: true
+	save_traces: false # Wether to save the debates (if set to true, will take much storage space)
+	clean_debates_with_empty_responses: true # Discard debates with empty responses from agents (usually ocurrs due to timeouts)
 ```
 
 Run:
