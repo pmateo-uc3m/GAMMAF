@@ -576,12 +576,12 @@ class LiveDebateOrchestration:
     def run_evaluation_multiple_defense_models_all_topos(self, defense_models_list, topologies_dict):
         questions = self.dataloader.get_formatted_questions()
         all_traces = {}
-        if self.config.no_defense_baseline:
+        if self.config.defense_baseline:
             print()
             print("=" * 72)
             print("[INFO] Evaluating no-defense baseline")
             print("=" * 72)
-            all_traces["no_defense_baseline"] = self.run_debate_no_defense(questions, topologies_dict)
+            all_traces["defense_baseline"] = self.run_debate_no_defense(questions, topologies_dict)
         for model_name, defense_model in defense_models_list:
             print()
             print("=" * 72)
