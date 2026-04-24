@@ -186,7 +186,7 @@ live_evaluation_config:
 
 	# Defense settings
 	top_k_defense: 2 # For top-k based defense (as is the case of the baselines)
-	defense_baseline: true # Wether to include the no defense baseline (takes up much inference cost and time)
+	no_defense_baseline: true # Wether to include the no defense baseline (takes up much inference cost and time)
 
 	# Concurrency
 	max_concurrent_inference: # Maximum concurrent inference requests allowed
