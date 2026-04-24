@@ -589,8 +589,8 @@ class Master:
         self.args = load_config_from_path(config_path)
         
     def _run(self):
-        if self.args.save_model and not self.args.save_path:
-            raise ValueError("If --save_model is True, you must provide a --save_path to save the model.")
+        # if self.args.save_model and not self.args.save_path:
+        #     raise ValueError("If --save_model is True, you must provide a --save_path to save the model.")
         
         # Set random seeds for reproducibility
         random.seed(self.args.seed)
@@ -627,8 +627,8 @@ class Master:
         print("Class distribution on combined training data:", np.bincount(combined_topology['labels']))
         scl_loop.train(combined_topology)
         print('Combined model trained.')
-        if self.args.save_model:
-            scl_loop.save_model(self.args.save_path)
+        # if self.args.save_model:
+        #     scl_loop.save_model(self.args.save_path)
             
         # Keep same return shape expected by MainEvaluation.
         return {}, scl_loop
@@ -639,8 +639,8 @@ if __name__ == "__main__":
     parsed_config = arguments.parse_args()
     args = load_config(parsed_config)
     
-    if args.save_model and not args.save_path:
-        raise ValueError("If --save_model is True, you must provide a --save_path to save the model.")
+    # if args.save_model and not args.save_path:
+    #     raise ValueError("If --save_model is True, you must provide a --save_path to save the model.")
     
     # Set random seeds for reproducibility
     random.seed(args.seed)
@@ -679,8 +679,8 @@ if __name__ == "__main__":
     print("Class distribution on combined training data:", np.bincount(combined_topology['labels']))
     scl_loop.train(combined_topology)
     print('Combined model trained.')
-    if args.save_model:
-        scl_loop.save_model(args.save_path)
+    # if args.save_model:
+    #     scl_loop.save_model(args.save_path)
 
 
 
