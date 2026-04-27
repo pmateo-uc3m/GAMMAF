@@ -135,9 +135,37 @@ class DebateOrchestration:
                 ))
                 
         return agents
+
+    def _merge_prompt_format_data(self, format_data: dict, question_format_data: dict | None) -> dict:
+        """Merge per-question fields into the prompt formatting dict.
+
+        - Does not overwrite reserved keys already present in format_data.
+        - Excludes ground-truth fields like 'answer' to avoid leaking labels into prompts.
+        """
+        if not question_format_data:
+            return format_data
+
+        if not isinstance(question_format_data, dict):
+            return format_data
+
+        excluded_keys = {"answer"}
+        for k, v in question_format_data.items():
+            if k in excluded_keys:
+                continue
+            if k in format_data:
+                continue
+            format_data[k] = v
+        return format_data
         
     # What will happen if we scale the number of agents so not all can run concurrently?
-    def generate_round_1_concurrent(self, question: str, choices: str, agents: List[DebateAgent], mal_answer: str = ""):
+    def generate_round_1_concurrent(
+        self,
+        question: str,
+        choices: str,
+        agents: List[DebateAgent],
+        mal_answer: str = "",
+        question_format_data: dict | None = None,
+    ):
                 
         def single_agent_round_1(agent: DebateAgent):
             format_data={
@@ -145,6 +173,7 @@ class DebateOrchestration:
                 "question" : question,
                 "choices" : choices,
             }
+            format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
                 format_data['wrong_answer'] = str(mal_answer)
 
@@ -182,7 +211,17 @@ class DebateOrchestration:
         
         return round_responses
     
-    def generate_debate_round_concurrent(self, question, choices, previous_round_responses, agents: List[DebateAgent], round, topology, mal_answer: str = ""):
+    def generate_debate_round_concurrent(
+        self,
+        question,
+        choices,
+        previous_round_responses,
+        agents: List[DebateAgent],
+        round,
+        topology,
+        mal_answer: str = "",
+        question_format_data: dict | None = None,
+    ):
         
         def single_agent_round_debate(agent: DebateAgent, topology = topology):
             # Ensure topology is a list of lists
@@ -204,6 +243,7 @@ class DebateOrchestration:
                 "neighbors_messages" : format_neighbors,
                 "round_num" : round,
             }
+            format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
                 format_data['wrong_answer'] = str(mal_answer)
 
@@ -278,7 +318,15 @@ class DebateOrchestration:
             print(f"Error comparing answers: final_answer={final_answer}, correct_answer={correct_answer}, error={e}")
             return False
     
-    def debate_question(self, question:str, choices:str, pbar=None, mal_answer: str = "", question_index: int = None):
+    def debate_question(
+        self,
+        question: str,
+        choices: str,
+        pbar=None,
+        mal_answer: str = "",
+        question_index: int = None,
+        question_format_data: dict | None = None,
+    ):
         agents = self.generate_agents(question_index=question_index)
         all_rounds_responses = []
         
@@ -302,7 +350,13 @@ class DebateOrchestration:
             # So we just pick a random choice A-D
             mal_answer = random.choice(["A", "B", "C", "D"])
         
-        round_1_responses = self.generate_round_1_concurrent(question, choices, agents, mal_answer=mal_answer)
+        round_1_responses = self.generate_round_1_concurrent(
+            question,
+            choices,
+            agents,
+            mal_answer=mal_answer,
+            question_format_data=question_format_data,
+        )
         if pbar:
             pbar.update(1)
         all_rounds_responses.append(round_1_responses)
@@ -320,6 +374,8 @@ class DebateOrchestration:
                 round=i,
                 topology=topology,
                 mal_answer=mal_answer
+                ,
+                question_format_data=question_format_data,
             )
             if pbar:
                 pbar.update(1)
@@ -345,7 +401,14 @@ class DebateOrchestration:
             
             pbar = progress_bars.get(index) if progress_bars else None
             
-            debate_result, malicious_indexes, topology = self.debate_question(question_text, choices_text, pbar=pbar, mal_answer=mal_answer, question_index=index)
+            debate_result, malicious_indexes, topology = self.debate_question(
+                question_text,
+                choices_text,
+                pbar=pbar,
+                mal_answer=mal_answer,
+                question_index=index,
+                question_format_data=question_data,
+            )
             expanded_result = {
                 "question": question_text,
                 "choices": choices_text,

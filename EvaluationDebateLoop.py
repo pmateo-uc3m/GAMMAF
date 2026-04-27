@@ -136,6 +136,27 @@ class LiveDebateOrchestration:
             base_url = base_url,
             timeout = config.timeout,
         ) | RunnableLambda(self.dataloader.parse_model_output)
+
+    def _merge_prompt_format_data(self, format_data: dict, question_format_data: dict | None) -> dict:
+        """Merge per-question fields into the prompt formatting dict.
+
+        - Does not overwrite reserved keys already present in format_data.
+        - Excludes ground-truth fields like 'answer' to avoid leaking labels into prompts.
+        """
+        if not question_format_data:
+            return format_data
+
+        if not isinstance(question_format_data, dict):
+            return format_data
+
+        excluded_keys = {"answer"}
+        for k, v in question_format_data.items():
+            if k in excluded_keys:
+                continue
+            if k in format_data:
+                continue
+            format_data[k] = v
+        return format_data
         
     def generate_agents(self, question_index=None):
         agents = []
@@ -156,7 +177,15 @@ class LiveDebateOrchestration:
             )
         return agents
     
-    def generate_round_1_concurrent(self, question: str, choices: str, agents: List[DebateAgent], mal_answer: str = ""):
+    def generate_round_1_concurrent(
+        self,
+        question: str,
+        choices: str,
+        agents: List[DebateAgent],
+        mal_answer: str = "",
+        question_format_data: dict | None = None,
+        round_num: int | None = 1,
+    ):
                 
         def single_agent_round_1(agent: DebateAgent):
             format_data={
@@ -164,6 +193,10 @@ class LiveDebateOrchestration:
                 "question" : question,
                 "choices" : choices,
             }
+            if round_num is not None:
+                format_data["round_num"] = round_num
+
+            format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
                 format_data['wrong_answer'] = str(mal_answer)
 
@@ -200,7 +233,17 @@ class LiveDebateOrchestration:
         
         return round_responses
     
-    def generate_debate_round_concurrent(self, adjacency_matrix, question, choices, previous_round_responses, agents, round, mal_answer = ""):
+    def generate_debate_round_concurrent(
+        self,
+        adjacency_matrix,
+        question,
+        choices,
+        previous_round_responses,
+        agents,
+        round,
+        mal_answer = "",
+        question_format_data: dict | None = None,
+    ):
         def single_agent_debate_round(agent: DebateAgent):
             neighbors =[
                 (j, previous_round_responses[j]) for j in range(len(previous_round_responses)) if (adjacency_matrix[agent.agent_id][j] == 1 and j != agent.agent_id)
@@ -218,6 +261,7 @@ class LiveDebateOrchestration:
                 "neighbors_messages" : format_neighbors,
                 "round_num" : round,
             }
+            format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
                 format_data['wrong_answer'] = str(mal_answer)
                 
@@ -282,7 +326,17 @@ class LiveDebateOrchestration:
         final_answer = self.get_answer(round_responses)
         return self.dataloader.validate_answer(final_answer, correct_answer)
     
-    def debate_question(self, defense_model, question, question_groundtruth, choices, adjacency_matrix, mal_answer = "", question_index = None):
+    def debate_question(
+        self,
+        defense_model,
+        question,
+        question_groundtruth,
+        choices,
+        adjacency_matrix,
+        mal_answer = "",
+        question_index = None,
+        question_format_data: dict | None = None,
+    ):
         agents = self.generate_agents(question_index=question_index)
         debate_trace = []
         flags = [0] * len(agents)
@@ -292,7 +346,14 @@ class LiveDebateOrchestration:
         if not mal_answer and sum(flags_ground_truth) > 0:
             mal_answer = answer_rng.choice(["A", "B", "C", "D"]).item()
             
-        last_round_responses = self.generate_round_1_concurrent(question, choices, agents, mal_answer=mal_answer)
+        last_round_responses = self.generate_round_1_concurrent(
+            question,
+            choices,
+            agents,
+            mal_answer=mal_answer,
+            question_format_data=question_format_data,
+            round_num=1,
+        )
         
         debate_embeddings = self.text_processor.process_round(last_round_responses)
         flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix, top_k = self.config.top_k_defense)
@@ -324,7 +385,14 @@ class LiveDebateOrchestration:
                     break
             
             last_round_responses = self.generate_debate_round_concurrent(
-                adjacency_matrix, question, choices, last_round_responses, agents, round=i, mal_answer=mal_answer
+                adjacency_matrix,
+                question,
+                choices,
+                last_round_responses,
+                agents,
+                round=i,
+                mal_answer=mal_answer,
+                question_format_data=question_format_data,
             )
             
             debate_embeddings = self.text_processor.process_round(last_round_responses)
@@ -443,7 +511,14 @@ class LiveDebateOrchestration:
                 mal_answer = chr(wrong_answer_idx + 65)
             
             r = self.debate_question(
-                defense_model, question, question_data['answer'], choices, adjacency_matrix, mal_answer=mal_answer, question_index=index
+                defense_model,
+                question,
+                question_data['answer'],
+                choices,
+                adjacency_matrix,
+                mal_answer=mal_answer,
+                question_index=index,
+                question_format_data=question_data,
             )
             return index, topo_name, r
         

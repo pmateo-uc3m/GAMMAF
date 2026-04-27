@@ -188,7 +188,7 @@ live_evaluation_config:
 
 	# Defense settings
 	top_k_defense: 2 # For top-k based defense (as is the case of the baselines)
-	no_defense_baseline: true # Wether to include the no defense baseline (takes up much inference cost and time)
+	no_defense_baseline: false # Wether to include the no defense baseline (takes up much inference cost and time) Set to false to include the no-defense baseline, true to skip it
 
 	# Concurrency
 	max_concurrent_inference: # Maximum concurrent inference requests allowed
@@ -219,7 +219,9 @@ python MainEvaluation.py config-examples/evaluation-config.yaml
 
 ### Adding new defense architectures
 
-Defense models are discovered dynamically from `models_directory` (e.g., `defense-models/`). Each `*.py` file is imported, and if it defines a `Master` class it will be trained and then evaluated.
+Defense models are discovered dynamically from `models_directory` (e.g., `defense-models/`). Each `*.py` file is imported, and if it defines a `Master` class it will be trained and then evaluated. If at any point one of the baseline defenses is to be skipped, simply move it out of this directory.
+
+The `Master` class must be initialized loading the coonfig for the evaluation of the defense model. `Master` must include a `_run()` method that returns `(placeholder, defense_model_instance)`. This `defense_model_instance` is the class that defines the model itself and contains a `predict` method as described below. The `Master` class is in charge of laoding the appropiate config adn training data and execute the defense model training loop, in order to return a trained model that is able to make predictions.
 
 **What you need to implement**
 
@@ -270,12 +272,14 @@ To change the required format, implement/override `parse_model_output` in your d
 - Offline generation (`TrainDataGeneration.py`) can embed rounds if `process_text: true`.
 - Live evaluation (`EvaluationDebateLoop.py`) embeds each round using a configurable processor class.
 
-To customize embeddings, create a new processor class with a `process_round(round_data)` method that returns the same structure as `TextProcessingManager.RoundProcessor` (i.e., each agent dict includes `st_embedding` and `tk_embedding`). Then point the configs to it:
+To customize embeddings, create a new processor class with a `process_round(round_data)` method that returns the same structure as `TextProcessingManager.RoundProcessor`. Then point the configs to it:
 
 ```yaml
 text_processor_path: path/to/my_processor.py
 text_processor_class_name: MyRoundProcessor
 ```
+
+**BE AWARE: If the baseline defenses XG-Guard and BlindGuard are run, each agent dict with the processed text must include `st_embedding` and `tk_embedding` since these are the embeddings that this models use for training.**
 
 ### Adding new tasks datasets
 
@@ -313,3 +317,66 @@ questions_dataset_tag: MYDATASET
 # or:
 # questions_class_name: MyQuestionsLoader
 ```
+
+
+### Adding new prompts and modifying the prompt's placeholders
+
+Prompt templates are plain JSON files (see `prompts/`) and are rendered using Python string formatting (`str.format`).
+
+**1) How placeholders work**
+
+- Placeholders are written as `{placeholder_name}`.
+- At runtime, GAMMAF builds a `format_data` dictionary and calls `prompt_template.format(**format_data)`.
+- If your prompt JSON contains a placeholder that is not present in `format_data`, execution will fail immediately with a formatting error (typically a `KeyError`).
+- If you need literal braces in your prompt, escape them as `{{` and `}}`.
+
+**2) Built-in placeholders (always available)**
+
+These keys are provided by the orchestration logic in both the generation pipeline and the live evaluation pipeline:
+
+- `agent_id`
+- `question`
+- `choices`
+
+These are available depending on the round / prompt type:
+
+- `neighbors_messages` (debate rounds; included in `DEBATE_PROMPT*` formatting)
+- `round_num` (round index; included for round 1 and later rounds)
+- `wrong_answer` (only for malicious prompts when a malicious answer is provided)
+
+**3) Dataset-specific placeholders (custom keys)**
+
+Your question loader can now provide additional prompt placeholders by returning extra keys in each item of `get_formatted_questions()` (i.e., whatever your loader builds in `format_questions()`).
+
+Those per-question fields are automatically merged into the prompt formatting dictionary. This means you can add keys like `context`, `subject`, `passage`, `difficulty`, etc. and reference them directly in your prompt JSON as `{context}`, `{subject}`, etc.
+
+Notes:
+
+- The merge is **non-overwriting**: if your dataset returns a key that already exists in the built-in set (like `question`), the built-in value wins.
+- The ground-truth key `answer` is **intentionally excluded** from prompt formatting to avoid leaking labels into prompts. You should still return `answer` in the dataset loader for evaluation/metrics, but you cannot reference `{answer}` in prompts by default.
+
+**Example**
+
+If your loader returns questions like:
+
+```python
+{
+	"question": "...",
+	"choices": "...",
+	"answer": "B",
+	"context": "Some background passage...",
+	"subject": "physics",
+}
+```
+
+You can write prompts that use:
+
+```text
+Context:\n{context}\n\nQuestion:\n{question}\n\nChoices:\n{choices}
+```
+
+And those `{context}` / `{subject}` placeholders will be filled automatically.
+
+## Citations
+
+If you liked this repository and used our work for your publications, please cite us as:
