@@ -53,45 +53,45 @@ This stage runs debates and optionally **embeds the agent "reason" fields** into
 
 ### Minimal generation config (YAML)
 
-Create a YAML file (e.g., `config-examples/generation-config.yaml`):
+Create a YAML file (e.g., [config-examples/generation-config.yaml](`config-examples/generation-config.yaml`)):
 
 ```yaml
 # Generation pipeline config (TrainDataGeneration.py)
 
-timeout: # Time to timeout on inference API requests
-parallel_questions: # Number of concurrent questions sent to inference API
+timeout:                # Timeout for inference API requests
+parallel_questions:     # Number of concurrent questions sent to inference API
 
-prompts: # Prompt template file (JSON) used by agents, see example in ./prompts
+prompts:                # Prompt template file (JSON), see ./prompts
 
-dataset_tag: # Dataset selection (must match a class TAG in DatasetManager.py)
-questions_random_seed: # Seed for question selection
+dataset_tag:            # Dataset selection (must match a class TAG in DatasetManager.py)
+questions_random_seed:  # Seed for question selection
 
 # Output
-save_data_dir: # Directory to save generated data
-file_name: # Name of data file (must be .pkl)
+save_data_dir:          # Directory to save generated data
+file_name:              # Name of data file (must be .pkl)
 
 # Optional post-processing
-process_text: true          # Turn text output in embeddings with TextProcessingManager.RoundProcessor
-clean_data: true            # Drop debates with empty/invalid agent outputs (suggested to leave as true)
-text_process_workers: 0     # 0 = auto; GPU processors will be forced to sequential
+process_text: true          # Convert text outputs into embeddings via TextProcessingManager.RoundProcessor
+clean_data: true            # Drop debates with empty/invalid outputs (recommended: true)
+text_process_workers: 0     # 0 = auto; GPU forces sequential processing
 
 # Debate parameters
 debate_config:
-	num_agents: # Number of agents in MAS
-	num_malicious: # Number of malicious agents in the debate (for generation of unsupervised model training data leave as 0)
-	max_rounds: # Maximum number of debate rounds for each task
-	consensus_threshold: # Threshold of consensus among agents to agree final answer and stop debate
-	malicious_randomization_seed: # Seed to choose malicious agents in debate
+  num_agents:                # Number of agents in MAS
+  num_malicious:             # Number of malicious agents (set 0 for unsupervised training data)
+  max_rounds:                # Maximum number of debate rounds per task
+  consensus_threshold:       # Threshold for consensus to stop debate
+  malicious_randomization_seed:  # Seed to select malicious agents
 
-	# Question counts per topology
-	n_questions: # Number of questions on each fixed topology (tree, chain, star)
-	n_questions_random_topo: # Number of questions on random topologies
+  # Question counts per topology
+  n_questions:               # Number of questions for each fixed topology (tree, chain, star)
+  n_questions_random_topo:   # Number of questions for random topologies
 
-	# Random topology generation (only used for the "random" topology)
-	random_topo_seed: 24
-	density: # Minimum and maximum network density for random topologies
-		min: 0.3
-		max: 0.7
+  # Random topology generation (used only for "random" topology)
+  random_topo_seed: 24
+  density:
+    min: 0.3
+    max: 0.7
 ```
 
 Run:
@@ -112,101 +112,103 @@ This stage:
 
 ### Minimal evaluation config (YAML)
 
-Create a YAML file (e.g., `config-examples/evaluation-config.yaml`):
+Create a YAML file (e.g., [config-examples/evaluation-config.yaml](`config-examples/evaluation-config.yaml`)):
 
 ```yaml
 # Main evaluation config (MainEvaluation.py)
-models_directory: # Directory that contains all the defense models that are going to be benchmarked
-output_file: # json file where the evaluation results will be saved
+
+models_directory:  # Directory that contains all the defense models that are going to be benchmarked
+output_file:       # JSON file where the evaluation results will be saved
 
 # One config section per defense model file in models_directory (file stem must match)
 defense_model_train_configs:
-	BlindGuard:
-		pkl_train: # Path to the pkl with the training data
-		seed: 42
-		device: cpu # Device for model training
-		# Data perturbation (used to simulate anomalies in training)
-		anomaly_rate: 0.2
-		anomaly_scale: 0.5
-		anomalize_data: true
-		no_balance: false # Set to true to disable class balancing before training (better to leave it as false)
+  BlindGuard:
+    pkl_train:     # Path to the pkl with the training data
+    seed: 42
+    device: cpu    # Device for model training
 
-		# Training hyperparameters (required)
-		input_dim: 1152
-		hidden_dim: 256
-		emb_dim: 128
-		batch_size: 256
-		val_split: 0.2
-		num_epochs: 20
-		temperature: 0.07
-		learning_rate: 0.001
-		weight_decay: 0.0001
-		scheduler_t_max: 20
+    # Data perturbation (used to simulate anomalies in training)
+    anomaly_rate: 0.2
+    anomaly_scale: 0.5
+    anomalize_data: true
+    no_balance: false  # Disable class balancing if true (recommended: false)
 
-		# Optional reproducibility seeds
-		# data_seed: 42
-		# split_seed: 42
-		# dataloader_seed: 42
+    # Training hyperparameters (required)
+    input_dim: 1152
+    hidden_dim: 256
+    emb_dim: 128
+    batch_size: 256
+    val_split: 0.2
+    num_epochs: 20
+    temperature: 0.07
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    scheduler_t_max: 20
 
-	XG-Guard:
-		pkl_train: # Path to the pkl with the training data
-		seed: 42
-		device: cpu # Device for model training
+    # Optional reproducibility seeds
+    # data_seed: 42
+    # split_seed: 42
+    # dataloader_seed: 42
 
-		# Training hyperparameters (required)
-		feat_dim_s: 384
-		feat_dim_t: 384
-		hidden_dim: 256
-		batch_size: 8
-		val_split: 0.2
-		num_epochs: 5
-		learning_rate: 0.001
-		weight_decay: 0.0001
-		alpha: 0.5
+  XG-Guard:
+    pkl_train:     # Path to the pkl with the training data
+    seed: 42
+    device: cpu    # Device for model training
 
-		# Optional reproducibility seeds
-		# split_seed: 42
-		# dataloader_seed: 42
+    # Training hyperparameters (required)
+    feat_dim_s: 384
+    feat_dim_t: 384
+    hidden_dim: 256
+    batch_size: 8
+    val_split: 0.2
+    num_epochs: 5
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    alpha: 0.5
+
+    # Optional reproducibility seeds
+    # split_seed: 42
+    # dataloader_seed: 42
 
 live_evaluation_config:
-	timeout: # Time to timeout on inference API requests
-	prompts_file: # Prompt template file (JSON) used by agents, see example in ./prompts
+  timeout:         # Timeout for inference API requests
+  prompts_file:    # Prompt template file (JSON), see ./prompts
 
-	# Question loader
-	questions_path: DatasetManager.py
-	questions_dataset_tag: GSM8K
-	questions_random_seed: 28
+  # Question loader
+  questions_path: DatasetManager.py
+  questions_dataset_tag: MMLU
+  questions_random_seed: 28
 
-	# Debate + attacker settings
-	num_agents: 5
-	num_malicious_agents: 2
-	malicious_seed: 123
-	max_rounds: 3
-	consensus_threshold: 1.0
-	no_consensus_check: false # If enabled to true, debates will continue until max_rounds even if there is consensus
-	check_consensus_only_unflagged: true # For consensus check, take into account only unglagged agents
+  # Debate + attacker settings
+  num_agents: 5
+  num_malicious_agents: 2
+  malicious_seed: 123
+  max_rounds: 3
+  consensus_threshold: 1.0
+  no_consensus_check: false                # Continue until max_rounds even if consensus is reached
+  check_consensus_only_unflagged: true     # Only consider unflagged agents for consensus
 
-	# Defense settings
-	top_k_defense: 2 # For top-k based defense (as is the case of the baselines)
-	no_defense_baseline: false # Wether to include the no defense baseline (takes up much inference cost and time) Set to false to include the no-defense baseline, true to skip it
+  # Defense settings
+  top_k_defense: 2
+  no_defense_baseline: false               # false = include baseline, true = skip
 
-	# Concurrency
-	max_concurrent_inference: # Maximum concurrent inference requests allowed
+  # Concurrency
+  max_concurrent_inference:                # Maximum concurrent inference requests
 
-	# Questions
-	num_questions: # Number of questions on each fixed topology (start, tree, chain)
-	new_random_each_question: true # Wehter to generate a new random topology for each random topo question (leave as true)
-	n_questions_on_random_topo: 50 # Number of questions over random topologies
-	topologies_seed: 24
-	density_range_for_random_topo: [0.3, 0.7] # Density range for random topologies
+  # Questions
+  num_questions:                           # Number of questions per fixed topology
+  new_random_each_question: true           # Generate new random topology per question
+  n_questions_on_random_topo: 50
+  topologies_seed: 24
+  density_range_for_random_topo: [0.3, 0.7]
 
-	# Text processor needed for the embeddings of the defense models
-	text_processor_path: TextProcessingManager.py # Python file containing the class that defines the processor
-	text_processor_class_name: RoundProcessor # Name of the class that defines the processor
+  # Text processor (for defense model embeddings)
+  text_processor_path: TextProcessingManager.py
+  text_processor_class_name: RoundProcessor
 
-	# Debug artifacts
-	save_traces: false # Wether to save the debates (if set to true, will take much storage space)
-	clean_debates_with_empty_responses: true # Discard debates with empty responses from agents (usually ocurrs due to timeouts)
+  # Debug artifacts
+  save_traces: false                       # Saves debates (high storage usage)
+  clean_debates_with_empty_responses: true # Remove debates with empty responses
 ```
 
 Run:
