@@ -381,4 +381,4 @@ And those `{context}` / `{subject}` placeholders will be filled automatically.
 
 ## Citations
 
-If you liked this repository and used our work for your publications, please cite us as:
+If you liked this repository and used our work for your publications, please cite our framework as:
