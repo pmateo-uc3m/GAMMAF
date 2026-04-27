@@ -165,6 +165,7 @@ class DebateOrchestration:
         agents: List[DebateAgent],
         mal_answer: str = "",
         question_format_data: dict | None = None,
+        round_num: int | None = 1,
     ):
                 
         def single_agent_round_1(agent: DebateAgent):
@@ -173,6 +174,8 @@ class DebateOrchestration:
                 "question" : question,
                 "choices" : choices,
             }
+            if round_num is not None:
+                format_data["round_num"] = round_num
             format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
                 format_data['wrong_answer'] = str(mal_answer)
