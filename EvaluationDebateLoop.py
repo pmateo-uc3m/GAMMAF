@@ -424,7 +424,16 @@ class LiveDebateOrchestration:
         
         return r
     
-    def debate_question_no_defense(self, question, question_groundtruth, choices, adjacency_matrix, mal_answer = "", question_index = None):
+    def debate_question_no_defense(
+        self,
+        question,
+        question_groundtruth,
+        choices,
+        adjacency_matrix,
+        mal_answer = "",
+        question_index = None,
+        question_format_data: dict | None = None,
+    ):
         agents = self.generate_agents(question_index=question_index)
         debate_trace = []
         flags = [0] * len(agents)
@@ -434,7 +443,14 @@ class LiveDebateOrchestration:
         if not mal_answer and sum(flags_ground_truth) > 0:
             mal_answer = answer_rng.choice(["A", "B", "C", "D"]).item()
             
-        last_round_responses = self.generate_round_1_concurrent(question, choices, agents, mal_answer=mal_answer)
+        last_round_responses = self.generate_round_1_concurrent(
+            question,
+            choices,
+            agents,
+            mal_answer=mal_answer,
+            question_format_data=question_format_data,
+            round_num=1,
+        )
 
         debate_trace.append({
             "round": 1,
@@ -453,7 +469,14 @@ class LiveDebateOrchestration:
                 break
             
             last_round_responses = self.generate_debate_round_concurrent(
-                adjacency_matrix, question, choices, last_round_responses, agents, round=i, mal_answer=mal_answer
+                adjacency_matrix,
+                question,
+                choices,
+                last_round_responses,
+                agents,
+                round=i,
+                mal_answer=mal_answer,
+                question_format_data=question_format_data,
             )
             
             debate_trace.append({
@@ -593,7 +616,13 @@ class LiveDebateOrchestration:
                 mal_answer = chr(wrong_answer_idx + 65)
                 
             r = self.debate_question_no_defense(
-                question, question_data['answer'], choices, adjacency_matrix, mal_answer=mal_answer, question_index=index
+                question,
+                question_data['answer'],
+                choices,
+                adjacency_matrix,
+                mal_answer=mal_answer,
+                question_index=index,
+                question_format_data=question_data,
             )
             return index, topo_name, r
         
