@@ -382,3 +382,15 @@ And those `{context}` / `{subject}` placeholders will be filled automatically.
 ## Citations
 
 If you liked this repository and used our work for your publications, please cite our framework as:
+
+```
+@misc{mateotorrejón2026gammafcommonframeworkgraphbased,
+      title={GAMMAF: A Common Framework for Graph-Based Anomaly Monitoring Benchmarking in LLM Multi-Agent Systems}, 
+      author={Pablo Mateo-Torrejón and Alfonso Sánchez-Macián},
+      year={2026},
+      eprint={2604.24477},
+      archivePrefix={arXiv},
+      primaryClass={cs.CR},
+      url={https://arxiv.org/abs/2604.24477}, 
+}
+```
