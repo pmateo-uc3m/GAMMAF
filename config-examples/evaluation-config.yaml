@@ -46,6 +46,9 @@ defense_model_train_configs:
 
     topologies: null
 
+  MyModel:
+    
+
 live_evaluation_config:
   timeout: 20 # Added a default value
   prompts_file: prompts/prompts_blindguard.json # Added a path
@@ -66,7 +69,7 @@ live_evaluation_config:
 
   # Defense settings
   top_k_defense: 2 
-  no_defense_baseline: false
+  no_defense_baseline: true
 
   # Concurrency
   max_concurrent_inference: 10 # Added a default value
