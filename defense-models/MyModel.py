@@ -4,9 +4,10 @@ from sklearn.cluster import KMeans
 import torch
 import yaml
 from types import SimpleNamespace
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 import umap
 from sklearn.cluster import KMeans
+from Utils import load_config_from_path
 
 def dict_to_ns(d):
     if isinstance(d, dict):

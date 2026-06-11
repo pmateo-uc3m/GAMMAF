@@ -23,7 +23,7 @@ text_processor_path: TextProcessingManager.py
 # Debate parameters
 # Debate parameters
 debate_config:
-  num_agents: 3
+  num_agents: 5
   num_malicious: 0
   max_rounds: 3
   consensus_threshold: 1.0

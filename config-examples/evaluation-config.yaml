@@ -29,7 +29,7 @@ defense_model_train_configs:
     topologies: null
 
   XG-Guard:
-    pkl_train: data/test_data.pkl
+    pkl_train: data/train_debug.pkl
     seed: 42
     device: cpu
 
@@ -47,7 +47,46 @@ defense_model_train_configs:
     topologies: null
 
   MyModel:
-    
+    data:
+      target_topologies: null
+      train_pkl_path: data/train_debug.pkl
+    kmeans_config:
+      random_state: 102
+      threshold: 0.75
+      max_k: 5
+      
+      # Following parameters correspond to the uMAP reduction
+      n_components: 5
+      n_neighbors: 15
+      min_dist: 0.1
+      metric: cosine
+
+    # Model parameters
+    d_model: 384
+    intraNode_layers: 3
+    intraNode_heads: 3
+    interNode_layers: 3
+    interNode_heads: 3
+
+    device: cuda
+
+    # Training parameters
+    learning_rate:
+    weight_decay:
+    scheduler_config:
+      factor: 0.5
+      patience: 5
+      threshold: 0.001
+    batch_size:
+    temperature:
+    node_weight:
+    graph_weight:
+    global_weight:
+
+    epochs: 20
+    save_path: debug_results.pkl
+
+  
 
 live_evaluation_config:
   timeout: 20 # Added a default value
