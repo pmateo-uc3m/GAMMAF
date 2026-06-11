@@ -44,7 +44,7 @@ class TrainDataLoader:
         processed_data = []
         # We first process the data to get a list format        
         for i, record in enumerate(data): 
-            if record['topology_name'] not in self.target_topologies:
+            if self.target_topologies and record['topology_name'] not in self.target_topologies:
                 continue
             
             results = record.get('results', {})
