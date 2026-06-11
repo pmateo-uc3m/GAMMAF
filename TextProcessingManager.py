@@ -131,8 +131,6 @@ class WindowEmbeddings:
                     window_vectors.append(pooled_np)
             
             # Set the values on the response dict
-            r['text'] = text
-            r['reason'] = text  # preserve reason to prevent breaking legacy code
             if 'label' in agent:
                 r['label'] = agent['label']
                                         
