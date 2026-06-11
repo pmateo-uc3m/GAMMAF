@@ -55,7 +55,8 @@ class TrainDataLoader:
                 round_ids = []
                 
                 for round_id, round_data in enumerate(debate['debate_rounds']):
-                    for agent_id, agent_embeddings in enumerate(round_data['window_embeddings']):
+                    for agent_id, agent_data in enumerate(round_data):
+                        agent_embeddings = agent_data['window_embeddings']
                         # This should be a list or array of embeddings
                         for i in range(len(agent_embeddings)):
                             embeddings.append(agent_embeddings[i])
