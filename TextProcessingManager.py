@@ -70,11 +70,8 @@ class WindowEmbeddings:
         """
         embedded_round = []
         for agent in round_data:
-            # Copy all fields except 'reason' (which will be replaced by 'text' and 'reason')
-            # and any existing embedding fields to avoid duplication or conflicts.
-            excluded_keys = {'reason', 'st_embedding', 'st_embeddings', 'tk_embedding', 'tk_embeddings', 'window_embeddings'}
             r = {
-                key: agent[key] for key in agent if key not in excluded_keys
+                key: agent[key] for key in agent if key != 'reason'
             }
             
             # Retrieve text — support both 'reason' (GAMMAF default) and 'text'
@@ -82,6 +79,7 @@ class WindowEmbeddings:
             
             # 1. Generate standard SentenceTransformer embedding (single vector)
             st_embed = self.st_model.encode(text, device=self.device)
+            r["st_embedding"] = st_embed
             
             # 2. Generate per-token embeddings from HuggingFace model (original tk_embedding logic)
             inputs = self.hf_tokenizer(text, padding=True, truncation=True, return_tensors="pt")
@@ -90,7 +88,8 @@ class WindowEmbeddings:
                 outputs = self.hf_model(**inputs)
             
             # last_hidden_state: [1, num_tokens, 384]
-            token_embeddings = outputs.last_hidden_state[0].cpu().numpy().tolist()
+            tk_embeddings = outputs.last_hidden_state[0].cpu().numpy().tolist()
+            r['tk_embedding'] = tk_embeddings
             
             # 3. Generate window-based embeddings using the custom windowing logic
             tokens = self.hf_tokenizer.encode(text, add_special_tokens=False)
@@ -124,9 +123,9 @@ class WindowEmbeddings:
                             attention_mask=attention_mask
                         )
                     
-                    token_embeddings = outputs.last_hidden_state  # (1, seq_len, hidden)
+                    window_embeddings = outputs.last_hidden_state  # (1, seq_len, hidden)
                     mask = attention_mask.unsqueeze(-1)
-                    pooled = (token_embeddings * mask).sum(dim=1) / mask.sum(dim=1)
+                    pooled = (window_embeddings * mask).sum(dim=1) / mask.sum(dim=1)
                     pooled = pooled.squeeze(0)
                     pooled_np = pooled.detach().cpu().numpy().tolist()
                     window_vectors.append(pooled_np)
@@ -136,11 +135,7 @@ class WindowEmbeddings:
             r['reason'] = text  # preserve reason to prevent breaking legacy code
             if 'label' in agent:
                 r['label'] = agent['label']
-                
-            r['st_embedding'] = st_embed
-            
-            r['tk_embedding'] = token_embeddings
-            
+                                        
             r['window_embeddings'] = window_vectors
             
             embedded_round.append(r)
