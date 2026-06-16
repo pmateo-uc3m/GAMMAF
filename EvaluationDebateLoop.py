@@ -356,7 +356,7 @@ class LiveDebateOrchestration:
         )
         
         debate_embeddings = self.text_processor.process_round(last_round_responses)
-        flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix, top_k = self.config.top_k_defense)
+        flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix)
         
         adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
         debate_trace.append({
@@ -367,15 +367,12 @@ class LiveDebateOrchestration:
             } for resp in last_round_responses],
             "flags": flags,
             "AUROC" : roc_auc_score(flags_ground_truth, anomaly_scores) if anomaly_scores is not None else 0,
-            # Will add scores in future for AUROC
         })
         
         consensus = False
         for i in range(1, self.config.max_rounds):
             if self.config.check_consensus_only_unflagged:
                 unflagged_responses = [resp for resp, flag in zip(last_round_responses, flags) if flag == 0]
-                # if i==3:  # Debug print to check number of unflagged responses at round 3
-                    # print(f"[DEBUG] Groundtruth: {question_groundtruth}, \nunflagged responses: {[resp['answer'] for resp in unflagged_responses]}, \nflags: {flags}, \nflags_ground_truth: {flags_ground_truth}")
                 if self.check_consensus(unflagged_responses):
                     consensus = True
                     break
@@ -396,7 +393,7 @@ class LiveDebateOrchestration:
             )
             
             debate_embeddings = self.text_processor.process_round(last_round_responses)
-            flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix, top_k = self.config.top_k_defense)
+            flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix)
             adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
             
             debate_trace.append({

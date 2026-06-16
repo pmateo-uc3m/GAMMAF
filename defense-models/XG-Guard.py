@@ -517,11 +517,12 @@ class Loop:
                     
         return per_graph_predictions, per_graph_labels, per_graph_accuracy, per_graph_raw_scores
     
-    def predict(self, round_data : dict, adj_matrix, top_k: int):
+    def predict(self, round_data : dict, adj_matrix):
         """Predict the top-k anomalous agent from a single round (already embedded)
-        
         round_data must have keys 'st_embedding' and 'tk_embedding'"""
         # Ensure adj_matrix is a numpy array (JSON loads it as a plain list)
+        top_k = self.config.top_k
+
         adj_matrix = np.array(adj_matrix)
 
         self.model.eval()
@@ -737,6 +738,7 @@ class Master:
             alpha: float = self.args.alpha
             lr: float = self.args.learning_rate
             weight_decay: float = self.args.weight_decay
+            top_k: int = self.args.top_k
         
         config = TrainConfig()
         loop = Loop(xg_guard_model, config)

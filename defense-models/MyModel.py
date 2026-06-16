@@ -373,6 +373,7 @@ class KMeansCluster:
             min_dist=self.config.min_dist,
             random_state=self.random_state,
             metric=self.config.umap_metric,
+            n_jobs = 1
         )
         reduced_emb = reducer.fit_transform(flat_emb)
 
@@ -449,7 +450,7 @@ class WindowBreakerModel:
         
         best_loss = float('inf')
         patience = 0
-        max_patience = self.config.scheduler.get('patience', 5)
+        max_patience = self.config.scheduler.patience
         self.model.train()
         for epoch in range(self.config.epochs):
             epoch_loss = 0.0
@@ -464,24 +465,34 @@ class WindowBreakerModel:
                 self.scheduler.step(avg_loss)
             
             lr = self.optimizer.param_groups[0]['lr']
-            
-            if avg_loss < best_loss:
-                if np.isinf(best_loss):
-                    improve = 100.0
-                else:
-                    improve = (best_loss - avg_loss) / best_loss * 100.0
-                
-                if improve > 1:
-                    best_loss = avg_loss
-                    patience = 0
-                    torch.save(self.model.state_dict(), self.config.save_path)
-                else:
-                    patience += 1
+
+            if (1-avg_loss/best_loss > self.config.improve_threshold) or best_loss==float('inf'):
+                best_loss = avg_loss
+                patience = 0
+                no_improve = 0
+                torch.save(self.model.state_dict(), self.config.save_path)
+                print(
+                    f"[Epoch {epoch+1}/{self.config.epochs}] "
+                    f"loss={avg_loss:.6f} | best={best_loss:.6f} | "
+                    f"patience={patience}/{max_patience} | lr={lr:.6e} | [BEST]"
+                )
             else:
                 patience += 1
+                no_improve += 1
+                print(
+                    f"[Epoch {epoch+1}/{self.config.epochs}] "
+                    f"loss={avg_loss:.6f} | best={best_loss:.6f} | "
+                    f"patience={patience}/{max_patience} | lr={lr:.6e}"
+                )
                 
             if patience >= max_patience:
-                print(f"Early stopping at epoch {epoch+1} with best loss {best_loss:.4f}")
+                lr *= self.config.scheduler.factor
+                for gr in self.optimizer.param_groups:
+                    gr['lr'] = lr
+                patience = 0
+            
+            if no_improve >= self.config.early_stop:
+                print("[Done] Early stopping triggered")
                 break
         
         print(f"Training completed. Best loss: {best_loss:.4f}")
@@ -505,8 +516,14 @@ class WindowBreakerModel:
         4. Get clusters and label suspicious clusters
         5. Flag anomalous agents based on pressence in suspicious clusters
         """
-        embeddings = graph_data['embeddings'].to(self.device)
-        adj = adj_matrix.to(self.device)
+        # print(f"[DEBUG] Attempt to predict on graph data: {type(graph_data)},    adj matrix: {type(adj_matrix)}")
+        # print(f"[DEBUG] graph_data structure: {[type(emb) for emb in graph_data]}")
+        # print(f"[DEBUG] graph_data example: {graph_data[0].keys() if isinstance(graph_data[0], dict) else "Not a dict"}")
+        embeddings = torch.stack([
+            torch.as_tensor(node['window_embeddings'])
+            for node in graph_data
+        ]).to(self.device)
+        adj = torch.tensor(adj_matrix).to(self.device)
         classifier = KMeansCluster(self.device, self.config.kmeans_config)
         with torch.no_grad():
             node_points_cloud = self.model(embeddings, adj) # (num_nodes, M, d)
@@ -514,9 +531,9 @@ class WindowBreakerModel:
         return flags, anomaly_score
         
     def create_scheduler(self, optimizer, scheduler_config):
-        factor = scheduler_config.get('factor', 0.5)
-        patience = scheduler_config.get('patience', 5)
-        threshold = scheduler_config.get('threshold', 0.0001)
+        factor = scheduler_config.factor
+        patience = scheduler_config.patience
+        threshold = scheduler_config.threshold
         return torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', factor=factor, patience=patience, 
             threshold=threshold
@@ -535,4 +552,4 @@ class Master:
         )
         model = WindowBreakerModel(self.config)
         model._train(train_loader)
-        return model
+        return {}, model

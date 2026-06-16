@@ -1,17 +1,17 @@
 # Generation pipeline config (TrainDataGeneration.py)
 
-timeout: 300
-parallel_questions: 50 # Number of concurrent questions sent to inference API
+timeout: 50
+parallel_questions: 60 # Number of concurrent questions sent to inference API
 
 prompts: prompts/prompts_blindguard.json # Prompt template file (JSON) used by agents, see example in ./prompts
 
 dataset_tag: MMLUPRO # Dataset selection (must match a class TAG in DatasetManager.py)
-questions_random_seed: 115 # Seed for question selection
+questions_random_seed: 101 # Seed for question selection
 verbose: false
 
 # Output
 save_data_dir: data # Directory to save generated data
-file_name: train_full.pkl # Name of data file (must be .pkl)
+file_name: train-gpt-oss-300.pkl # Name of data file (must be .pkl)
 
 # Optional post-processing
 process_text: true          # Turn text output in embeddings with TextProcessingManager.RoundProcessor
@@ -23,18 +23,18 @@ text_processor_path: TextProcessingManager.py
 # Debate parameters
 # Debate parameters
 debate_config:
-  num_agents: 7
+  num_agents: 8
   num_malicious: 0
   max_rounds: 3
   consensus_threshold: 1.0
-  malicious_randomization_seed: 3
+  malicious_randomization_seed: 39
 
   # Question counts per topology
-  n_questions: 40
-  n_questions_random_topo: 60
+  n_questions: 50
+  n_questions_random_topo: 150
 
   # Random topology generation
   random_topo_seed: 20
   density: 
-    min: 0.4
-    max: 0.8
+    min: 0.55
+    max: 0.9
