@@ -7,14 +7,28 @@ import pickle
 import argparse
 import random
 import numpy as np
-import numpy as np
-from dataclasses import dataclass
+import yaml
+from types import SimpleNamespace
 from torch.utils.data import Dataset, DataLoader as TorchDataLoader
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from Utils import load_config, load_config_from_path
+def dict_to_ns(d):
+    if isinstance(d, dict):
+        return SimpleNamespace(**{k: dict_to_ns(v) for k, v in d.items()})
+    return d
+
+
+def load_config_from_path(config_path):
+    with open(config_path, 'r') as f:
+        config_dict = yaml.safe_load(f)
+    ns = dict_to_ns(config_dict)
+    # Compatibility aliases used by Loop._train
+    if not hasattr(ns, 'lr') and hasattr(ns, 'learning_rate'):
+        ns.lr = ns.learning_rate
+    if not hasattr(ns, 'epochs') and hasattr(ns, 'num_epochs'):
+        ns.epochs = ns.num_epochs
+    return ns
 
 class DataProcessor:
     def __init__(self, target_topologies=None):
@@ -366,11 +380,17 @@ class Loop:
         self._predict_lock = threading.Lock()
         
     def _train(self, train_loader, val_loader, device='cpu'):
-        
+    
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr, weight_decay=self.config.weight_decay)
         
         best_val_loss = float('inf')
         best_model_state = None
+        early_stop = self.config.early_stop
+        lr_patience_reduce = 0
+        early_stop_count = 0
+        lr_patience_max = self.config.lr_patience_max
+        lr_reduce_factor = getattr(self.config, 'lr_patience_factor', getattr(self.config, 'lr_reduce_factor', 0.5))
+        min_lr = getattr(self.config, 'min_lr', 1e-8)
         
         self.model.train()
         for epoch in range(self.config.epochs):
@@ -382,9 +402,8 @@ class Loop:
                 
                 optimizer.zero_grad()
                 
-                # Debug: print scores for first batch of each epoch
-                debug_batch = (epoch % 5 == 0)  # Print every 5 epochs
-                s_pos, s_neg = self.model(batch_s, batch_t, debug=False) # set to debug_batch for debugging
+                debug_batch = (epoch % 5 == 0)
+                s_pos, s_neg = self.model(batch_s, batch_t, debug=False)
                 eps = 1e-8
                 loss = -(torch.log(s_pos + eps) + self.config.alpha * torch.log(1 - s_neg + eps)).mean()
                 
@@ -400,13 +419,29 @@ class Loop:
                 val_msg = f"Epoch {epoch+1}/{self.config.epochs} | Train Loss: {avg_loss:.6f} | Val Loss: {val_loss:.6f}"
                 
                 if val_loss < best_val_loss:
+                    lr_patience_reduce = 0
+                    early_stop_count = 0
                     best_val_loss = val_loss
                     best_model_state = {k: v.cpu() for k, v in self.model.state_dict().items()}
                     print(f"{val_msg} [BEST]")
                 else:
+                    if early_stop <= early_stop_count:
+                        print(f"[TRIGGERED EARLY STOPPING]")
+                        break
+                    lr_patience_reduce += 1
+                    early_stop_count += 1
                     print(val_msg)
+                    if lr_patience_reduce >= lr_patience_max:
+                        for param_group in optimizer.param_groups:
+                            old_lr = param_group['lr']
+                            new_lr = max(old_lr * lr_reduce_factor, min_lr)
+                            param_group['lr'] = new_lr
+                        lr_patience_reduce = 0
+                        print(f"  -> Reducing LR: {old_lr:.6e} -> {new_lr:.6e}")
             else:
                 print(f"Epoch {epoch+1}/{self.config.epochs} | Train Loss: {avg_loss:.6f}")
+        
+        return best_model_state, best_val_loss
 
         if best_model_state is not None:
             self.model.load_state_dict({k: v.to(device) for k, v in best_model_state.items()})
@@ -730,20 +765,9 @@ class Master:
             hidden_dim=self.args.hidden_dim
         ).to(device)
         
-        @dataclass
-        class TrainConfig:
-            batch_size: int = self.args.batch_size
-            learning_rate: int = self.args.learning_rate
-            epochs: int = self.args.num_epochs
-            alpha: float = self.args.alpha
-            lr: float = self.args.learning_rate
-            weight_decay: float = self.args.weight_decay
-            top_k: int = self.args.top_k
+        loop = Loop(xg_guard_model, self.args)
         
-        config = TrainConfig()
-        loop = Loop(xg_guard_model, config)
-        
-        print(f"Training XG-Guard model with config: batch_size={config.batch_size}, lr={config.lr}, epochs={config.epochs}")
+        print(f"Training XG-Guard model with config: batch_size={self.args.batch_size}, lr={self.args.learning_rate}, epochs={self.args.num_epochs}")
         best_val_loss = loop._train(train_loader, val_loader, device=device)
         print('Model trained.')
 
@@ -754,7 +778,7 @@ if __name__ == "__main__":
     arguments = argparse.ArgumentParser(description="XG-Guard Anomaly Detection with Graph Neural Networks")
     arguments.add_argument('--config', type=str, default=None, help='Path to YAML config file with all parameters')    
     parsed_config = arguments.parse_args()
-    args = load_config(parsed_config)
+    args = load_config_from_path(parsed_config.config)
     
     # Set random seeds for reproducibility
     random.seed(args.seed)
@@ -808,19 +832,9 @@ if __name__ == "__main__":
         hidden_dim=args.hidden_dim
     ).to(device)
     
-    @dataclass
-    class TrainConfig:
-        batch_size: int = args.batch_size
-        learning_rate: int = args.learning_rate
-        epochs: int = args.num_epochs
-        alpha: float = args.alpha
-        lr: float = args.learning_rate
-        weight_decay: float = args.weight_decay
+    loop = Loop(xg_guard_model, args)
     
-    config = TrainConfig()
-    loop = Loop(xg_guard_model, config)
-    
-    print(f"Training XG-Guard model with config: batch_size={config.batch_size}, lr={config.lr}, epochs={config.epochs}")
+    print(f"Training XG-Guard model with config: batch_size={args.batch_size}, lr={args.learning_rate}, epochs={args.num_epochs}")
     best_val_loss = loop._train(train_loader, val_loader, device=device)
 
     print('Model trained.')

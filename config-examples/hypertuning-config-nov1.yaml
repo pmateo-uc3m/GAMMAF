@@ -1,0 +1,86 @@
+models_directory: defense-models
+output_file: results/experiment-run-10models.json
+defense_model_train_configs:
+  XG-Guard-yaml:
+    pkl_train: data/train-gpt-oss-300.pkl
+    seed: 43523
+    device: cuda
+    feat_dim_s: 384
+    feat_dim_t: 384
+    hidden_dim: 384
+    batch_size: 32
+    val_split: 0.2
+    num_epochs: 100
+    learning_rate: 0.001
+    weight_decay: 0.0002
+    alpha: 0.01
+    top_k: 2
+    topologies: null
+    run_name: XG
+    model_name: XG
+    lr_patience_max: 5
+    lr_patience_factor: 0.5
+    early_stop: 10
+  MyModel-v0:
+    data:
+      target_topologies: null
+      train_pkl_path: data/train-gpt-oss-300.pkl
+    validation_split: 0.2
+    validation_seed: 109230
+    kmeans_config:
+      random_state: 12
+      threshold: 0.8
+      max_k: 5
+      n_components: 2
+      n_neighbors: 15
+      min_dist: 0.1
+      umap_metric: cosine
+    d_model: 384
+    intraNode_layers: 3
+    intraNode_heads: 4
+    interNode_layers: 3
+    interNode_heads: 4
+    device: cuda
+    learning_rate: 0.0001
+    weight_decay: 0.0001
+    scheduler:
+      factor: 0.5
+      patience: 5
+      threshold: 1.0e-05
+    batch_size: 16
+    temperature: 0.15
+    node_weight: 0.2
+    graph_weight: 1
+    global_weight: 0.2
+    epochs: 100
+    early_stop: 10
+    improve_threshold: 0.001
+    run_name: v0
+    model_name: v0
+    save_path: best_model.pt
+live_evaluation_config:
+  timeout: 60
+  prompts_file: prompts/prompts_blindguard.json
+  questions_path: DatasetManager.py
+  questions_dataset_tag: MMLUPRO
+  questions_random_seed: 1657107707
+  num_agents: 8
+  num_malicious_agents: 2
+  malicious_seed: 678672811
+  max_rounds: 3
+  consensus_threshold: 1.0
+  no_consensus_check: false
+  check_consensus_only_unflagged: true
+  no_defense_baseline: false
+  max_concurrent_inference: 100
+  num_questions: 0
+  new_random_each_question: true
+  n_questions_on_random_topo: 150
+  topologies_seed: 1944174744
+  density_range_for_random_topo:
+  - 0.6
+  - 0.9
+  text_processor_path: TextProcessingManager.py
+  text_processor_class_name: WindowEmbeddings
+  save_traces: false
+  clean_debates_with_empty_responses: true

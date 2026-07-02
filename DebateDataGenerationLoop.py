@@ -68,10 +68,6 @@ def extract_number(response_str):
 def parse_model_output(message: AIMessage) -> ResponseFormat:
     text = message.content
     if not text:
-         # Log this case?
-        #  print(f"\n[DEBUG] Received empty content from model. Full message: {message}")
-         # Return empty ResponseFormat or raise to retry. 
-         # Raising matches existing behavior of erroring out but now with clear message.
          raise ValueError("Empty response from model")
          
     # Regex for XML-like format requested in prompts

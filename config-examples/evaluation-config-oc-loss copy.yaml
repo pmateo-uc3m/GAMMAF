@@ -1,33 +1,9 @@
 # Main evaluation config (MainEvaluation.py)
 models_directory: defense-models # Directory that contains all the defense models that are going to be benchmarked
-output_file: test-gpt-oss-big.json # json file where the evaluation results will be saved
+output_file: results/experiment-run-2.json # json file where the evaluation results will be saved
 
 # One config section per defense model file in models_directory (file stem must match)
 defense_model_train_configs:
-  BlindGuard:
-    pkl_train: data/test_data.pkl # Path to the pkl with the training data
-    seed: 42
-    device: cpu # Device for model training
-    # Data perturbation (used to simulate anomalies in training)
-    anomaly_rate: 0.2
-    anomaly_scale: 0.5
-    anomalize_data: true
-    no_balance: false # Set to true to disable class balancing before training
-
-    # Training hyperparameters (required)
-    input_dim: 1152
-    hidden_dim: 256
-    emb_dim: 128
-    batch_size: 256
-    val_split: 0.2
-    num_epochs: 20
-    temperature: 0.07
-    learning_rate: 0.001
-    weight_decay: 0.0001
-    scheduler_t_max: 20
-
-    topologies: null
-
   XG-Guard:
     pkl_train: data/train-gpt-oss-300.pkl
     seed: 42
@@ -47,10 +23,14 @@ defense_model_train_configs:
 
     topologies: null
 
-  MyModel:
+  MyModel-v0:
     data:
       target_topologies: null
       train_pkl_path: data/train-gpt-oss-300.pkl
+
+    validation_split: 0.2
+    validation_seed: 109230
+
     kmeans_config:
       random_state: 12
       threshold: 0.8
@@ -58,18 +38,18 @@ defense_model_train_configs:
       
       # Following parameters correspond to the uMAP reduction
       n_components: 2
-      n_neighbors: 20
+      n_neighbors: 15
       min_dist: 0.1
       umap_metric: cosine
 
     # Model parameters
     d_model: 384
     intraNode_layers: 3
-    intraNode_heads: 8
+    intraNode_heads: 4
     interNode_layers: 3
     interNode_heads: 4
 
-    device: cpu
+    device: cuda
 
     # Training parameters
     learning_rate: 0.0001
@@ -77,28 +57,77 @@ defense_model_train_configs:
     scheduler:
       factor: 0.5
       patience: 5
-      threshold: 0.0001
+      threshold: 0.00001
     batch_size: 16
     temperature: 0.15
-    node_weight: 1
-    graph_weight: 0.5
+    node_weight: 0.2
+    graph_weight: 1
     global_weight: 0.2
 
-    epochs: 50
-    early_stop: 10
+    epochs: 100
+    early_stop: 15 # epochs without imprevement for early stop
     improve_threshold: 0.001
     save_path: best_model.pt
+
+  MyModel-v1:
+    data:
+      target_topologies: null
+      train_pkl_path: data/train-gpt-oss-300.pkl
+
+    validation_split: 0.2
+    validation_seed: 109230
+
+    kmeans_config:
+      random_state: 12
+      threshold: 0.8
+      max_k: 7
+      
+      # Following parameters correspond to the uMAP reduction
+      n_components: 2
+      n_neighbors: 15
+      min_dist: 0.1
+      umap_metric: cosine
+
+    # Model parameters
+    d_model: 384
+    intraNode_layers: 3
+    intraNode_heads: 4
+    interNode_layers: 3
+    interNode_heads: 4
+
+    device: cuda
+
+    # Training parameters
+    learning_rate: 0.0001
+    weight_decay: 0.0001
+    scheduler:
+      factor: 0.5
+      patience: 5
+      threshold: 0.00001
+    batch_size: 16
+    temperature: 0.15
+    cohesion_weight: 1.0
+    neighbor_weight: 0.5
+    graph_separation_weight: 0.1
+    loss_temperature: 0.5
+    huber_delta: 1.0
+
+    epochs: 100
+    early_stop: 15 # epochs without imprevement for early stop
+    improve_threshold: 0.001
+    save_path: best_model_tarc.pt
+    model_name: my-model-v1
 
   
 
 live_evaluation_config:
-  timeout: 40 # Added a default value
+  timeout: 60 # Added a default value
   prompts_file: prompts/prompts_blindguard.json # Added a path
 
   # Question loader
   questions_path: DatasetManager.py
   questions_dataset_tag: MMLUPRO
-  questions_random_seed: 28
+  questions_random_seed: 28324234
 
   # Debate + attacker settings
   num_agents: 8
@@ -118,9 +147,9 @@ live_evaluation_config:
   # Questions
   num_questions: 0 
   new_random_each_question: true 
-  n_questions_on_random_topo: 150
+  n_questions_on_random_topo: 35
   topologies_seed: 21
-  density_range_for_random_topo: [0.5, 0.9]
+  density_range_for_random_topo: [0.6, 0.9]
 
   # Text processor
   text_processor_path: TextProcessingManager.py 
