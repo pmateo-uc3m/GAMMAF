@@ -288,6 +288,8 @@ if __name__ == "__main__":
                 baseline_traces = liveEvaluator.run_debate_no_defense(questions, topologies)
                 baseline_stats = liveEvaluator.parse_stats_single_model(baseline_traces)
                 _append_model_result(output_path, "no_defense_baseline", baseline_stats)
+                print(f"  stats.........:")
+                print(json.dumps(baseline_stats, indent=4))
                 elapsed = time() - t0
                 timing["no_defense_baseline"] = elapsed
                 print(f"  elapsed.......: {_fmt_seconds(elapsed)}")
@@ -331,6 +333,8 @@ if __name__ == "__main__":
                 print(f"  evaluation....: {_fmt_seconds(time() - eval_t0)}")
 
                 _append_model_result(output_path, model_name, stats)
+                print(f"  stats.........:")
+                print(json.dumps(stats, indent=4))
                 print(f"  results saved to {output_path}")
                 del traces, stats
 
