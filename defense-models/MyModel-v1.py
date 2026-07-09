@@ -408,7 +408,7 @@ class KMeansCluster:
         is_suspicious_emb = is_suspicious_emb.reshape(n_agents, n_windows)
 
         suspicious_ratio = is_suspicious_emb.mean(axis=1) 
-        return (suspicious_ratio >= self.threshold).astype(int), suspicious_ratio, reduced_emb
+        return (suspicious_ratio >= self.threshold).astype(int), suspicious_ratio, reduced_emb, clusters
 
 class WindowBreakerModel:
     def __init__(self, config):
@@ -604,13 +604,19 @@ class WindowBreakerModel:
             [torch.as_tensor(v) for v in node['window_embeddings']]
             for node in graph_data
         ]
+        raw_text = [
+            node.get("raw_windows", None) for node in graph_data
+        ]
         embeddings = _pad_agent_windows(per_agent, device=self.device)
         adj = torch.tensor(adj_matrix).to(self.device)
         classifier = KMeansCluster(self.device, self.config.kmeans_config)
         with torch.no_grad():
             node_points_cloud = self.model(embeddings, adj)
-            flags, anomaly_score, embeddings = classifier.classify_embeddings(node_points_cloud.cpu())
-        return flags, anomaly_score, embeddings
+            flags, anomaly_score, embeddings, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
+        if raw_text[0] == None:
+            return flags, anomaly_score, embeddings, clusters
+        else:  # There is raw_text prsent in embeddings
+            return flags, anomaly_score, embeddings, clusters, raw_text
         
     def create_scheduler(self, optimizer, scheduler_config):
         factor = scheduler_config.factor

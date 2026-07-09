@@ -1,5 +1,5 @@
 models_directory: defense-models
-output_file: results/experiment-run-10models.json
+output_file: results/xgguard-finetune.json
 defense_model_train_configs:
   XG-Guard-yaml:
     pkl_train: data/train-gpt-oss-300.pkl
@@ -8,7 +8,7 @@ defense_model_train_configs:
     feat_dim_s: 384
     feat_dim_t: 384
     hidden_dim: 384
-    batch_size: 32
+    batch_size: 128
     val_split: 0.2
     num_epochs: 100
     learning_rate: 0.001
@@ -72,7 +72,7 @@ live_evaluation_config:
   no_consensus_check: false
   check_consensus_only_unflagged: true
   no_defense_baseline: false
-  max_concurrent_inference: 100
+  max_concurrent_inference: 150
   num_questions: 0
   new_random_each_question: true
   n_questions_on_random_topo: 150

@@ -25,7 +25,9 @@ from langchain_core.runnables import RunnableLambda
 
 load_dotenv()  # Load environment variables from .env file
 
-def post_results(url, flags_gt, flags, scores, embeddings, adjacency_matrix, answers, question_gt, model_id):
+LOG_RAW_TEXT = False # Set to false if dont want to send raw text to the API
+
+def post_results(url, flags_gt, flags, scores, embeddings, adjacency_matrix, answers, question_gt, clusters, model_id, raw_text=None):
     def to_serializable(x):
         if isinstance(x, np.ndarray):
             return x.tolist()
@@ -62,9 +64,14 @@ def post_results(url, flags_gt, flags, scores, embeddings, adjacency_matrix, ans
         "flags_ground_truth": flags_gt,
         "flags": flags,
         "adjacency_matrix": adjacency_matrix,
-        "answers" : answers,
-        "question_gt" : question_gt,
+        "answers": answers,
+        "question_gt": question_gt,
+        "clusters": clusters
     }
+
+    # Only include raw_text if the caller actually provided it
+    if raw_text is not None and LOG_RAW_TEXT:
+        data["raw_text"] = raw_text
 
     data = to_serializable(data)
 
@@ -418,7 +425,10 @@ class LiveDebateOrchestration:
         
         debate_embeddings = self.text_processor.process_round(last_round_responses)
         if log_embeddings:
-            flags, anomaly_scores, embeddings = defense_model.predict(debate_embeddings, adjacency_matrix)
+            if LOG_RAW_TEXT:
+                flags, anomaly_scores, embeddings, clusters, raw_text = defense_model.predict(debate_embeddings, adjacency_matrix)
+            else:
+                flags, anomaly_scores, embeddings, clusters = defense_model.predict(debate_embeddings, adjacency_matrix)
         else:
             flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix)
 
@@ -429,17 +439,33 @@ class LiveDebateOrchestration:
             answers = []
             for agent in last_round_responses:
                 answers.append(agent.get("answer"))
-            post_results(
-                "http://localhost:8001/upload",
-                flags_ground_truth,
-                flags,
-                anomaly_scores,
-                embeddings,
-                adjacency_matrix,
-                answers,
-                question_groundtruth,
-                model_id= model_name,
-            )
+            if LOG_RAW_TEXT:
+                post_results(
+                    "http://localhost:8001/upload",
+                    flags_ground_truth,
+                    flags,
+                    anomaly_scores,
+                    embeddings,
+                    adjacency_matrix,
+                    answers,
+                    question_groundtruth,
+                    clusters,
+                    model_id= model_name,
+                    raw_text= raw_text,
+                )
+            else:
+                post_results(
+                    "http://localhost:8001/upload",
+                    flags_ground_truth,
+                    flags,
+                    anomaly_scores,
+                    embeddings,
+                    adjacency_matrix,
+                    answers,
+                    question_groundtruth,
+                    clusters,
+                    model_id= model_name,
+                )
         
         adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
 
@@ -478,7 +504,10 @@ class LiveDebateOrchestration:
             
             debate_embeddings = self.text_processor.process_round(last_round_responses)
             if log_embeddings:
-                flags, anomaly_scores, embeddings = defense_model.predict(debate_embeddings, adjacency_matrix)
+                if LOG_RAW_TEXT:
+                    flags, anomaly_scores, embeddings, clusters, raw_text = defense_model.predict(debate_embeddings, adjacency_matrix)
+                else:
+                    flags, anomaly_scores, embeddings, clusters = defense_model.predict(debate_embeddings, adjacency_matrix)
             else:
                 flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix)
 
@@ -488,17 +517,33 @@ class LiveDebateOrchestration:
                 answers = []
                 for agent in last_round_responses:
                     answers.append(agent.get("answer"))
-                post_results(
-                    "http://localhost:8001/upload",
-                    flags_ground_truth,
-                    flags,
-                    anomaly_scores,
-                    embeddings,
-                    adjacency_matrix,
-                    answers,
-                    question_groundtruth,
-                    model_id=model_name
-                )
+                if LOG_RAW_TEXT:
+                    post_results(
+                        "http://localhost:8001/upload",
+                        flags_ground_truth,
+                        flags,
+                        anomaly_scores,
+                        embeddings,
+                        adjacency_matrix,
+                        answers,
+                        question_groundtruth,
+                        clusters,
+                        model_id= model_name,
+                        raw_text= raw_text,
+                    )
+                else:
+                    post_results(
+                        "http://localhost:8001/upload",
+                        flags_ground_truth,
+                        flags,
+                        anomaly_scores,
+                        embeddings,
+                        adjacency_matrix,
+                        answers,
+                        question_groundtruth,
+                        clusters,
+                        model_id= model_name,
+                    )
 
             adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
             
