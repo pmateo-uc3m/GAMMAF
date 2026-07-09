@@ -432,15 +432,19 @@ class WindowBreakerModel:
                     graph_id = sample.get('graph_id', batch_idx)
 
                     node_points_cloud = self.model(node_emb, adj)
-                    _, anomaly_scores, _, _ = classifier.classify_embeddings(
+                    _, anomaly_scores, _, clusters = classifier.classify_embeddings(
                         node_points_cloud.cpu()
                     )
 
                     graph_threshold = float(anomaly_scores.max())
                     per_graph_thresholds.append(graph_threshold)
 
+                    cluster_counts = np.bincount(clusters)
+                    num_clusters = len(cluster_counts)
+
                     print(f"  [Graph {graph_id}] candidate threshold = {graph_threshold:.6f}")
                     print(f"    agent anomaly scores: {np.array2string(anomaly_scores, precision=6, suppress_small=True)}")
+                    print(f"    clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
                     print()
 
         return per_graph_thresholds
