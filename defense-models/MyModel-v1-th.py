@@ -345,6 +345,12 @@ class KMeansCluster:
         n_agents, n_windows, dim_emb = embeddings.shape
         flat_emb = embeddings.cpu().numpy().reshape(-1, dim_emb)
 
+        emb_min = flat_emb.min(axis=0, keepdims=True)
+        emb_max = flat_emb.max(axis=0, keepdims=True)
+        denom = emb_max - emb_min
+        denom[denom < 1e-10] = 1.0
+        normalized = (flat_emb - emb_min) / denom
+
         reducer = umap.UMAP(
             n_components=self.config.n_components,
             n_neighbors=self.config.n_neighbors,
@@ -353,7 +359,7 @@ class KMeansCluster:
             metric=self.config.umap_metric,
             n_jobs=1
         )
-        reduced_emb = reducer.fit_transform(flat_emb)
+        reduced_emb = reducer.fit_transform(normalized)
 
         clusters = self.get_classes(reduced_emb)
         if clusters is None:
@@ -368,11 +374,27 @@ class KMeansCluster:
         )
         suspicious_clusters = set(range(len(cluster_counts))) - benign_clusters
 
-        is_suspicious_emb = np.isin(clusters, list(suspicious_clusters))
-        is_suspicious_emb = is_suspicious_emb.reshape(n_agents, n_windows)
+        benign_mask = np.isin(clusters, list(benign_clusters))
+        if benign_mask.sum() > 0:
+            benign_centroid = normalized[benign_mask].mean(axis=0)
+        else:
+            benign_centroid = np.zeros(dim_emb)
 
-        suspicious_ratio = is_suspicious_emb.mean(axis=1)
-        return (suspicious_ratio >= self.threshold).astype(int), suspicious_ratio, reduced_emb, clusters
+        is_suspicious = np.isin(clusters, list(suspicious_clusters))
+        distances = np.zeros(len(clusters))
+        if is_suspicious.any():
+            suspicious_points = normalized[is_suspicious]
+            raw_distances = np.linalg.norm(suspicious_points - benign_centroid, axis=1)
+            d_min = raw_distances.min()
+            d_max = raw_distances.max()
+            if d_max > d_min:
+                distances[is_suspicious] = (raw_distances - d_min) / (d_max - d_min)
+            else:
+                distances[is_suspicious] = 0.0
+
+        agent_scores = distances.reshape(n_agents, n_windows).mean(axis=1)
+
+        return (agent_scores >= self.threshold).astype(int), agent_scores, reduced_emb, clusters
 
 
 class WindowBreakerModel:
