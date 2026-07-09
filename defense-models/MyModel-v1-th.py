@@ -138,11 +138,13 @@ class TrainDataLoader:
         for graph in batch:
             embeddings = graph['embeddings']
             adj = graph['adjacency_matrix']
+            window_counts = [len(agent) for agent in embeddings]
             node_tensor = _pad_agent_windows(embeddings)
             r.append({
                 "embeddings": node_tensor,
                 "adjacency_matrix": adj,
-                "graph_id": graph['graph_id']
+                "graph_id": graph['graph_id'],
+                "window_counts": window_counts
             })
         return r
 
@@ -444,6 +446,7 @@ class WindowBreakerModel:
 
                     print(f"  [Graph {graph_id}] candidate threshold = {graph_threshold:.6f}")
                     print(f"    agent anomaly scores: {np.array2string(anomaly_scores, precision=6, suppress_small=True)}")
+                    print(f"    windows per agent: {sample.get('window_counts', 'N/A')}")
                     print(f"    clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
                     print()
 
