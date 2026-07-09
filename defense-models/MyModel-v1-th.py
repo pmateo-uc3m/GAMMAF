@@ -503,20 +503,24 @@ class WindowBreakerModel:
             if per_graph_thresholds:
                 from scipy.stats import t as t_dist
 
-            thresh_arr = np.array(per_graph_thresholds)
-            n = len(thresh_arr)
-            mean_thresh = thresh_arr.mean()
-            if n > 1:
-                se = thresh_arr.std(ddof=1) / np.sqrt(n)
-                t_crit = t_dist.ppf(0.975, df=n - 1)
-                ci = t_crit * se
+                thresh_arr = np.array(per_graph_thresholds)
+                n = len(thresh_arr)
+                mean_thresh = thresh_arr.mean()
+                if n > 1:
+                    se = thresh_arr.std(ddof=1) / np.sqrt(n)
+                    t_crit = t_dist.ppf(0.975, df=n - 1)
+                    ci = t_crit * se
+                else:
+                    ci = 0.0
+
+                optimal_threshold = mean_thresh + ci
+                print(f"  Summary: mean = {mean_thresh:.6f}, CI95 = [{mean_thresh - ci:.6f}, {mean_thresh + ci:.6f}]")
+                print(f"  Using threshold = mean + CI95 = {optimal_threshold:.6f} for live evaluation")
+                print()
             else:
-                ci = 0.0
+                optimal_threshold = None
 
-            print(f"  Summary: mean = {mean_thresh:.6f}, CI95 = [{mean_thresh - ci:.6f}, {mean_thresh + ci:.6f}]")
-            print()
-
-        return per_graph_thresholds
+        return per_graph_thresholds, optimal_threshold
 
     def _train(self, train_data_loader):
 
@@ -681,9 +685,13 @@ class WindowBreakerModel:
 
         if has_thresh_val:
             thresh_classifier = KMeansCluster(self.device, self.config.kmeans_config)
-            per_graph_thresholds = self._run_threshold_validation(train_data_loader, thresh_val_indices, thresh_classifier)
+            per_graph_thresholds, optimal_threshold = self._run_threshold_validation(
+                train_data_loader, thresh_val_indices, thresh_classifier
+            )
+            self.computed_threshold = optimal_threshold
         else:
             per_graph_thresholds = []
+            self.computed_threshold = None
 
         del self.scheduler
         del self.optimizer
@@ -704,6 +712,8 @@ class WindowBreakerModel:
         embeddings = _pad_agent_windows(per_agent, device=self.device)
         adj = torch.tensor(adj_matrix).to(self.device)
         classifier = KMeansCluster(self.device, self.config.kmeans_config)
+        if getattr(self, 'computed_threshold', None) is not None:
+            classifier.threshold = self.computed_threshold
         with torch.no_grad():
             node_points_cloud = self.model(embeddings, adj)
             flags, anomaly_score, embeddings, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
