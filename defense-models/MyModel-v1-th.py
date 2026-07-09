@@ -360,7 +360,12 @@ class KMeansCluster:
             return np.zeros(n_agents, dtype=bool)
 
         cluster_counts = np.bincount(clusters)
-        benign_clusters = set(np.argsort(cluster_counts)[-self.n_benign_clusters:])
+        largest_size = cluster_counts.max()
+
+        benign_clusters = set(
+            i for i, count in enumerate(cluster_counts)
+            if count == largest_size
+        )
         suspicious_clusters = set(range(len(cluster_counts))) - benign_clusters
 
         is_suspicious_emb = np.isin(clusters, list(suspicious_clusters))
@@ -472,6 +477,22 @@ class WindowBreakerModel:
                     print(f"      clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
 
                 print()
+
+            if per_graph_thresholds:
+                from scipy.stats import t as t_dist
+
+            thresh_arr = np.array(per_graph_thresholds)
+            n = len(thresh_arr)
+            mean_thresh = thresh_arr.mean()
+            if n > 1:
+                se = thresh_arr.std(ddof=1) / np.sqrt(n)
+                t_crit = t_dist.ppf(0.975, df=n - 1)
+                ci = t_crit * se
+            else:
+                ci = 0.0
+
+            print(f"  Summary: mean = {mean_thresh:.6f}, CI95 = [{mean_thresh - ci:.6f}, {mean_thresh + ci:.6f}]")
+            print()
 
         return per_graph_thresholds
 
