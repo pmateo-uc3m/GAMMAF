@@ -233,6 +233,23 @@ def _append_model_result(output_path: Path, model_name: str, stats) -> None:
         json.dump(results, f, indent=4)
 
 
+def _update_name_with_threshold(name: str, new_threshold: float) -> str:
+    parts = name.split("_")
+    updated = []
+    for p in parts:
+        if p.startswith("threshold") and not p == "threshold":
+            val_str = p[len("threshold"):].replace("-", ".")
+            try:
+                float(val_str)
+                formatted = f"threshold{str(new_threshold).replace('.', '-')}"
+                updated.append(formatted)
+                continue
+            except ValueError:
+                pass
+        updated.append(p)
+    return "_".join(updated)
+
+
 def _cleanup_model(model_instance) -> None:
     del model_instance
     gc.collect()
@@ -322,17 +339,24 @@ if __name__ == "__main__":
 
                 train_t0 = time()
                 metrics, model_instance = model_info["master"]._run()
+                effective_name = model_name
+                computed_threshold = metrics.get("computed_threshold") if isinstance(metrics, dict) else None
+                if computed_threshold is not None:
+                    effective_name = _update_name_with_threshold(model_name, computed_threshold)
+                    print(f"  threshold.....: computed = {computed_threshold:.6f} (config default overridden)")
+                    if effective_name != model_name:
+                        print(f"  run name......: {effective_name}")
                 print(f"  training......: {_fmt_seconds(time() - train_t0)}")
 
                 eval_t0 = time()
-                _print_section(f"Evaluating Model {idx}/{total_models}: {model_name}")
+                _print_section(f"Evaluating Model {idx}/{total_models}: {effective_name}")
                 traces = liveEvaluator.run_evaluation_single_defense_model_all_topos(
                     model_instance, topologies
                 )
                 stats = liveEvaluator.parse_stats_single_model(traces)
                 print(f"  evaluation....: {_fmt_seconds(time() - eval_t0)}")
 
-                _append_model_result(output_path, model_name, stats)
+                _append_model_result(output_path, effective_name, stats)
                 print(f"  stats.........:")
                 print(json.dumps(stats, indent=4))
                 print(f"  results saved to {output_path}")
@@ -343,7 +367,7 @@ if __name__ == "__main__":
                 print(f"  resources cleaned up")
 
                 total_elapsed = time() - model_t0
-                timing[model_name] = total_elapsed
+                timing[effective_name] = total_elapsed
                 print(f"  total elapsed.: {_fmt_seconds(total_elapsed)}")
 
             except KeyboardInterrupt:

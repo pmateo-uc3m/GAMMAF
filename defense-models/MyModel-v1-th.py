@@ -737,4 +737,8 @@ class Master:
         )
         model = WindowBreakerModel(self.config)
         model._train(train_loader)
-        return {}, model
+        result_meta = {}
+        if model.computed_threshold is not None:
+            model.config.kmeans_config.threshold = model.computed_threshold
+            result_meta["computed_threshold"] = model.computed_threshold
+        return result_meta, model
