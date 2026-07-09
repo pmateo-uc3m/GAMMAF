@@ -415,7 +415,7 @@ class WindowBreakerModel:
         loss = loss_fn(embeddings, graph_ids, adj_matrices)
         return loss.item()
 
-    def _run_threshold_validation(self, thresh_val_loader, classifier):
+    def _run_threshold_validation(self, train_data_loader, thresh_val_indices, classifier):
         print()
         print("=" * 72)
         print("[Threshold Validation] Running post-training threshold analysis")
@@ -427,13 +427,35 @@ class WindowBreakerModel:
         per_graph_thresholds = []
 
         with torch.no_grad():
-            for batch_idx, batch in enumerate(thresh_val_loader):
-                for sample in batch:
-                    node_emb = sample['embeddings'].to(self.device)
-                    adj = sample['adjacency_matrix'].to(self.device)
-                    graph_id = sample.get('graph_id', batch_idx)
+            for idx in thresh_val_indices:
+                graph_data = train_data_loader.data[idx]
+                topology = graph_data['topology']
+                embeddings = graph_data['embeddings']
+                agent_ids = graph_data['agent_ids']
+                round_ids = graph_data['round_ids']
 
-                    node_points_cloud = self.model(node_emb, adj)
+                num_agents = len(topology)
+                unique_rounds = sorted(set(round_ids))
+
+                print(f"  [Graph {idx}] {len(unique_rounds)} round(s)")
+
+                for round_id in unique_rounds:
+                    round_mask = [i for i, r in enumerate(round_ids) if r == round_id]
+                    round_embeddings_list = [embeddings[i] for i in round_mask]
+                    round_agent_ids_list = [agent_ids[i] for i in round_mask]
+
+                    agent_embeddings = [[] for _ in range(num_agents)]
+                    for emb, aid in zip(round_embeddings_list, round_agent_ids_list):
+                        if not isinstance(emb, torch.Tensor):
+                            emb = torch.tensor(emb, dtype=torch.float32)
+                        agent_embeddings[aid].append(emb)
+
+                    window_counts = [len(a) for a in agent_embeddings]
+
+                    padded = _pad_agent_windows(agent_embeddings, device=self.device)
+                    adj = torch.tensor(topology, dtype=torch.float32).to(self.device)
+
+                    node_points_cloud = self.model(padded, adj)
                     _, anomaly_scores, _, clusters = classifier.classify_embeddings(
                         node_points_cloud.cpu()
                     )
@@ -444,11 +466,12 @@ class WindowBreakerModel:
                     cluster_counts = np.bincount(clusters)
                     num_clusters = len(cluster_counts)
 
-                    print(f"  [Graph {graph_id}] candidate threshold = {graph_threshold:.6f}")
-                    print(f"    agent anomaly scores: {np.array2string(anomaly_scores, precision=6, suppress_small=True)}")
-                    print(f"    windows per agent: {sample.get('window_counts', 'N/A')}")
-                    print(f"    clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
-                    print()
+                    print(f"    [Round {round_id}] candidate threshold = {graph_threshold:.6f}")
+                    print(f"      windows per agent: {window_counts}")
+                    print(f"      agent anomaly scores: {np.array2string(anomaly_scores, precision=6, suppress_small=True)}")
+                    print(f"      clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
+
+                print()
 
         return per_graph_thresholds
 
@@ -615,7 +638,7 @@ class WindowBreakerModel:
 
         if has_thresh_val:
             thresh_classifier = KMeansCluster(self.device, self.config.kmeans_config)
-            per_graph_thresholds = self._run_threshold_validation(thresh_val_loader, thresh_classifier)
+            per_graph_thresholds = self._run_threshold_validation(train_data_loader, thresh_val_indices, thresh_classifier)
         else:
             per_graph_thresholds = []
 
