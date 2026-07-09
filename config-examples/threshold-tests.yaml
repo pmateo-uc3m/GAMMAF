@@ -1,0 +1,69 @@
+models_directory: defense-models
+output_file: results/threshold-tests.json
+defense_model_train_configs:
+  MyModel-v1-th:
+    data:
+      target_topologies: null
+      train_pkl_path: data/train-gpt-oss-300.pkl
+    validation_split: 0.2
+    threshold_validation_split: 0.1
+    validation_seed: 1398306794
+    kmeans_config:
+      random_state: 46057570
+      threshold: 0.8
+      max_k: 5
+      n_components: 30
+      n_neighbors: 25
+      min_dist: 0.25
+      umap_metric: cosine
+    d_model: 384
+    intraNode_layers: 6
+    intraNode_heads: 8
+    interNode_layers: 3
+    interNode_heads: 8
+    device: cuda
+    learning_rate: 0.0001
+    weight_decay: 0.0001
+    scheduler:
+      factor: 0.5
+      patience: 5
+      threshold: 1.0e-05
+    batch_size: 16
+    temperature: 0.15
+    cohesion_weight: 0.5
+    neighbor_weight: 0.5
+    graph_separation_weight: 0.05
+    loss_temperature: 0.3
+    huber_delta: 1.0
+    epochs: 100
+    early_stop: 15
+    improve_threshold: 0.001
+    run_name: n_components30_n_neighbors25_min_dist0-25_cohesion_weight0-5_neighbor_weight0-5_graph_separation_weight0-05_loss_temperature0-3_huber_delta1-0_threshold0-8_intraNode_layers6_intraNode_heads8_interNode_layers3_interNode_heads8
+    model_name: n_components30_n_neighbors25_min_dist0-25_cohesion_weight0-5_neighbor_weight0-5_graph_separation_weight0-05_loss_temperature0-3_huber_delta1-0_threshold0-8_intraNode_layers6_intraNode_heads8_interNode_layers3_interNode_heads8
+    save_path: checkpoints/mymodel_v1_n_components30_n_neighbors25_min_dist0-25_cohesion_weight0-5_neighbor_weight0-5_graph_separation_weight0-05_loss_temperature0-3_huber_delta1-0_threshold0-8_intraNode_layers6_intraNode_heads8_interNode_layers3_interNode_heads8.pt
+live_evaluation_config:
+  timeout: 60
+  prompts_file: prompts/prompts_blindguard.json
+  questions_path: DatasetManager.py
+  questions_dataset_tag: MMLUPRO
+  questions_random_seed: 220905344
+  num_agents: 8
+  num_malicious_agents: 2
+  malicious_seed: 256096181
+  max_rounds: 3
+  consensus_threshold: 1.0
+  no_consensus_check: false
+  check_consensus_only_unflagged: true
+  no_defense_baseline: false
+  max_concurrent_inference: 150
+  num_questions: 0
+  new_random_each_question: true
+  n_questions_on_random_topo: 150
+  topologies_seed: 201174712
+  density_range_for_random_topo:
+  - 0.6
+  - 0.9
+  text_processor_path: TextProcessingManager.py
+  text_processor_class_name: WindowEmbeddings
+  save_traces: false
+  clean_debates_with_empty_responses: true
