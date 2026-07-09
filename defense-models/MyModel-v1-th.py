@@ -505,7 +505,7 @@ class WindowBreakerModel:
                 n = len(arr)
                 median = np.median(arr)
                 mad = np.median(np.abs(arr - median))
-                k = 3.0
+                k = 1.5
                 optimal_threshold = median + k * mad
                 print(f"  Summary over {n} graph-round max scores:")
                 print(f"    median = {median:.6f}, MAD = {mad:.6f}")
