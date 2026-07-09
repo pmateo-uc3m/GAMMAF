@@ -487,14 +487,13 @@ class WindowBreakerModel:
                         node_points_cloud.cpu()
                     )
 
-                    non_zero = anomaly_scores[anomaly_scores > 0]
-                    for val in non_zero:
-                        per_graph_thresholds.append(float(val))
+                    graph_max = float(anomaly_scores.max())
+                    per_graph_thresholds.append(graph_max)
 
                     cluster_counts = np.bincount(clusters)
                     num_clusters = len(cluster_counts)
 
-                    print(f"    [Round {round_id}] non-zero anomaly scores: {non_zero.tolist()}")
+                    print(f"    [Round {round_id}] max anomaly score = {graph_max:.6f}")
                     print(f"      windows per agent: {window_counts}")
                     print(f"      agent anomaly scores: {np.array2string(anomaly_scores, precision=6, suppress_small=True)}")
                     print(f"      clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
@@ -502,22 +501,15 @@ class WindowBreakerModel:
                 print()
 
             if per_graph_thresholds:
-                from scipy.stats import t as t_dist
-
-                thresh_arr = np.array(per_graph_thresholds)
-                n = len(thresh_arr)
-                mean_thresh = thresh_arr.mean()
-                if n > 1:
-                    se = thresh_arr.std(ddof=1) / np.sqrt(n)
-                    t_crit = t_dist.ppf(0.975, df=n - 1)
-                    ci = t_crit * se
-                else:
-                    ci = 0.0
-
-                optimal_threshold = mean_thresh + ci
-                print(f"  Summary over {n} non-zero anomaly scores:")
-                print(f"    mean = {mean_thresh:.6f}, CI95 = [{mean_thresh - ci:.6f}, {mean_thresh + ci:.6f}]")
-                print(f"    using threshold = mean + CI95 = {optimal_threshold:.6f} for live evaluation")
+                arr = np.array(per_graph_thresholds)
+                n = len(arr)
+                median = np.median(arr)
+                mad = np.median(np.abs(arr - median))
+                k = 3.0
+                optimal_threshold = median + k * mad
+                print(f"  Summary over {n} graph-round max scores:")
+                print(f"    median = {median:.6f}, MAD = {mad:.6f}")
+                print(f"    using threshold = median + {k}*MAD = {optimal_threshold:.6f} for live evaluation")
                 print()
             else:
                 optimal_threshold = None
