@@ -487,13 +487,14 @@ class WindowBreakerModel:
                         node_points_cloud.cpu()
                     )
 
-                    graph_threshold = float(anomaly_scores.max())
-                    per_graph_thresholds.append(graph_threshold)
+                    non_zero = anomaly_scores[anomaly_scores > 0]
+                    for val in non_zero:
+                        per_graph_thresholds.append(float(val))
 
                     cluster_counts = np.bincount(clusters)
                     num_clusters = len(cluster_counts)
 
-                    print(f"    [Round {round_id}] candidate threshold = {graph_threshold:.6f}")
+                    print(f"    [Round {round_id}] non-zero anomaly scores: {non_zero.tolist()}")
                     print(f"      windows per agent: {window_counts}")
                     print(f"      agent anomaly scores: {np.array2string(anomaly_scores, precision=6, suppress_small=True)}")
                     print(f"      clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
@@ -514,8 +515,9 @@ class WindowBreakerModel:
                     ci = 0.0
 
                 optimal_threshold = mean_thresh + ci
-                print(f"  Summary: mean = {mean_thresh:.6f}, CI95 = [{mean_thresh - ci:.6f}, {mean_thresh + ci:.6f}]")
-                print(f"  Using threshold = mean + CI95 = {optimal_threshold:.6f} for live evaluation")
+                print(f"  Summary over {n} non-zero anomaly scores:")
+                print(f"    mean = {mean_thresh:.6f}, CI95 = [{mean_thresh - ci:.6f}, {mean_thresh + ci:.6f}]")
+                print(f"    using threshold = mean + CI95 = {optimal_threshold:.6f} for live evaluation")
                 print()
             else:
                 optimal_threshold = None
