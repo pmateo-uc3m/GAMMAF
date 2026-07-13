@@ -1,0 +1,6 @@
+__pycache__
+checkpoints
+data
+results
+.env
+best_model.pt
