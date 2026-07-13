@@ -479,7 +479,7 @@ class SCLTopologyLoop:
         self.model = None
         
     # Now we are going to define methods that enable later live inference on LLM debate
-    def predict(self, debate_round, adj_matrix, top_k=1):
+    def predict(self, debate_round, adj_matrix):
         """Predict anomalies for a round using aggregated graph embeddings.
     
         Args:
@@ -492,6 +492,7 @@ class SCLTopologyLoop:
             anomaly_scores: (n_agents,) array of anomaly scores
         """
         # Ensure adj_matrix is a numpy array (JSON loads it as a plain list)
+        top_k = self.config.top_k
         adj_matrix = np.array(adj_matrix)
         
         self.model.eval()

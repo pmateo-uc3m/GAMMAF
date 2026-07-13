@@ -10,6 +10,7 @@ import json
 import pickle
 from time import time
 import yaml
+import gc
 
 
 def _print_section(title: str, width: int = 72):
@@ -153,15 +154,22 @@ def load_embedded_model_configs(config_file_path: str):
         if section is None:
             continue
         if not isinstance(section, dict):
-            raise ValueError(
-                f"'{section_name}' must be a mapping of model_name -> config dict."
-            )
-        return section
+            raise ValueError(f"'{section_name}' must be a mapping of model_name -> config dict.")
 
-    raise ValueError(
-        "Missing embedded defense train config section in main config. "
-        "Add 'defense_model_train_configs' with one child section per defense model file name."
-    )
+        normalized = {}
+        for model_name, cfg in section.items():
+            if isinstance(cfg, dict):
+                cfg.setdefault("run_name", model_name)
+                normalized[model_name] = [cfg]
+            elif isinstance(cfg, list):
+                for i, c in enumerate(cfg):
+                    c.setdefault("run_name", f"{model_name}_{i}")
+                normalized[model_name] = cfg
+            else:
+                raise ValueError(f"Config for '{model_name}' must be a dict or list of dicts.")
+        return normalized
+
+    raise ValueError("Missing embedded defense train config section in main config.")
 
 
 def _write_temp_model_config(model_name: str, model_config: dict):
@@ -183,90 +191,215 @@ def get_models_from_path(path, embedded_model_configs):
         spec = importlib.util.spec_from_file_location(module_name, file)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        
-        if hasattr(module, "Master"):
-            cls = getattr(module, "Master")
-            if inspect.isclass(cls):
-                if module_name not in embedded_model_configs:
-                    raise ValueError(
-                        f"Missing embedded training config for defense model '{module_name}'. "
-                        "Add a matching section under 'defense_model_train_configs' in main config."
-                    )
-                model_cfg = embedded_model_configs[module_name]
-                if not isinstance(model_cfg, dict):
-                    raise ValueError(
-                        f"Embedded config for model '{module_name}' must be a mapping/dict."
-                    )
 
-                temp_config_path = _write_temp_model_config(module_name, model_cfg)
-                models[module_name] = {
-                    "master": cls(temp_config_path),
-                    "config_path": f"embedded:defense_model_train_configs.{module_name}",
-                    "temp_config_path": temp_config_path,
-                }
-                print(
-                    f"[INFO] Loaded model {module_name} with embedded configuration "
-                    f"from defense_model_train_configs.{module_name}."
-                )
+        if not (hasattr(module, "Master") and inspect.isclass(getattr(module, "Master"))):
+            continue
+
+        cls = getattr(module, "Master")
+
+        if module_name not in embedded_model_configs:
+            print(f"[INFO] No embedded config found for '{module_name}'. Skipping — model will not be evaluated or trained.")
+            continue
+        else:
+            configs = embedded_model_configs[module_name]
+
+        for model_cfg in configs:
+            run_name = model_cfg.get("run_name", module_name)
+            if not isinstance(model_cfg, dict):
+                raise ValueError(f"Embedded config for model '{module_name}' must be a dict.")
+
+            temp_config_path = _write_temp_model_config(run_name, model_cfg)
+            models[run_name] = {
+                "master": cls(temp_config_path),
+                "config_path": f"embedded:defense_model_train_configs.{module_name}[{run_name}]",
+                "temp_config_path": temp_config_path,
+            }
+            print(f"[INFO] Loaded run '{run_name}' from model '{module_name}'.")
+
     return models
 
-if __name__=="__main__":
+
+def _append_model_result(output_path: Path, model_name: str, stats) -> None:
+    results = {}
+    if output_path.exists():
+        try:
+            with open(output_path, "r", encoding="utf-8") as f:
+                results = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            print(f"  [WARN] Could not read existing results file. Starting fresh.")
+            results = {}
+    results[model_name] = stats
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=4)
+
+
+def _update_name_with_threshold(name: str, new_threshold: float) -> str:
+    parts = name.split("_")
+    updated = []
+    for p in parts:
+        if p.startswith("threshold") and not p == "threshold":
+            val_str = p[len("threshold"):].replace("-", ".")
+            try:
+                float(val_str)
+                formatted = f"threshold{str(new_threshold).replace('.', '-')}"
+                updated.append(formatted)
+                continue
+            except ValueError:
+                pass
+        updated.append(p)
+    return "_".join(updated)
+
+
+def _cleanup_model(model_instance) -> None:
+    del model_instance
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
+def _get_completed_run_names(output_path: Path) -> set:
+    if not output_path.exists():
+        return set()
+    try:
+        with open(output_path, "r", encoding="utf-8") as f:
+            results = json.load(f)
+        if isinstance(results, dict):
+            return set(results.keys())
+        return set()
+    except (json.JSONDecodeError, OSError):
+        print(f"  [WARN] Could not read existing results file. Starting fresh.")
+        return set()
+
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("config_file", type=str, help="Path to the configuration file.")
     parsed_args = parser.parse_args()
     config = load_config_from_path(parsed_args.config_file)
     embedded_model_configs = load_embedded_model_configs(parsed_args.config_file)
     models = get_models_from_path(config.models_directory, embedded_model_configs)
+
     overall_t0 = time()
-    training_t0 = overall_t0
+    output_path = Path(config.output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    timing = {}
+
+    completed_run_names = _get_completed_run_names(output_path)
+
     try:
-        total_models = len(models)
-        for idx, (model_name, model_info) in enumerate(models.items(), start=1):
-            _print_section(f"Training Model {idx}/{total_models}: {model_name}")
-            print(f"  config........: {model_info['config_path']}")
-            model_t0 = time()
-            models[model_name]['evaluation metrics'], models[model_name]['model'] = model_info["master"]._run()
-            print(f"  elapsed.......: {_fmt_seconds(time() - model_t0)}")
-
-        training_elapsed = time() - training_t0
-        print(f"[INFO] All models trained in {_fmt_seconds(training_elapsed)}")
-
-        live_t0 = time()
-
-        _print_section("Starting Live Defense Benchmarking")
-        liveEvaluator = LiveDebateOrchestration(config.live_evaluation_config)
-        models_list = [(model_name, model_info['model']) for model_name, model_info in models.items()]
         topologies = resolve_topologies(config, parsed_args.config_file)
-        print(f"  models........: {len(models_list)}")
-        print(f"  topologies....: {len(topologies)}")
-        live_results = liveEvaluator._run(models_list, topologies)
-        output_path = Path(config.output_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config.output_file, 'w') as f:
-            json.dump(live_results, f, indent=4)
-        print(f"[INFO] Live evaluation completed. Results saved to {config.output_file}")
-        live_elapsed = time() - live_t0
-        print(f"[INFO] Live evaluation elapsed: {_fmt_seconds(live_elapsed)}")
+        liveEvaluator = LiveDebateOrchestration(config.live_evaluation_config)
 
-        total_elapsed = time() - overall_t0
-        timing_report = {
-            "training_seconds": training_elapsed,
-            "live_evaluation_seconds": live_elapsed,
-            "total_seconds": total_elapsed,
-        }
-        report_filename = f"report-{output_path.name}"
-        if not report_filename.lower().endswith(".json"):
-            report_filename += ".json"
-        report_path = output_path.with_name(report_filename)
-        with open(report_path, "w", encoding="utf-8") as report_file:
-            json.dump(timing_report, report_file, indent=2)
-        print(f"[INFO] Timing report saved to {report_path}")
+        live_cfg = config.live_evaluation_config
+        if getattr(live_cfg, "no_defense_baseline", False):
+            if "no_defense_baseline" in completed_run_names:
+                print(f"[INFO] Skipping no_defense_baseline — already present in {output_path.name}.")
+            else:
+                _print_section("No-Defense Baseline")
+                t0 = time()
+                questions = liveEvaluator.dataloader.get_formatted_questions()
+                baseline_traces = liveEvaluator.run_debate_no_defense(questions, topologies)
+                baseline_stats = liveEvaluator.parse_stats_single_model(baseline_traces)
+                _append_model_result(output_path, "no_defense_baseline", baseline_stats)
+                print(f"  stats.........:")
+                print(json.dumps(baseline_stats, indent=4))
+                elapsed = time() - t0
+                timing["no_defense_baseline"] = elapsed
+                print(f"  elapsed.......: {_fmt_seconds(elapsed)}")
+                print(f"  results saved to {output_path}")
+                del baseline_traces, baseline_stats
+                gc.collect()
+
+        if completed_run_names:
+            total_planned = len(models)
+            completed_models = [name for name in models if name in completed_run_names]
+            for name in completed_models:
+                print(f"[INFO] Skipping '{name}' — already present in {output_path.name}.")
+                del models[name]
+            remaining = len(models)
+            if remaining < total_planned:
+                _print_section(f"Resuming: skipped {total_planned - remaining}/{total_planned} completed runs, {remaining} remaining")
+
+        total_models = len(models)
+        if total_models == 0:
+            print("[INFO] All planned models are already completed. Nothing to do.")
+        else:
+            print(f"[INFO] Processing {total_models} model(s).")
+
+        for idx, (model_name, model_info) in enumerate(models.items(), start=1):
+            model_t0 = time()
+            model_instance = None
+            try:
+                _print_section(f"Processing Model {idx}/{total_models}: {model_name}")
+                print(f"  config........: {model_info['config_path']}")
+
+                train_t0 = time()
+                metrics, model_instance = model_info["master"]._run()
+                effective_name = model_name
+                computed_threshold = metrics.get("computed_threshold") if isinstance(metrics, dict) else None
+                if computed_threshold is not None:
+                    effective_name = _update_name_with_threshold(model_name, computed_threshold)
+                    print(f"  threshold.....: computed = {computed_threshold:.6f} (config default overridden)")
+                    if effective_name != model_name:
+                        print(f"  run name......: {effective_name}")
+                print(f"  training......: {_fmt_seconds(time() - train_t0)}")
+
+                eval_t0 = time()
+                _print_section(f"Evaluating Model {idx}/{total_models}: {effective_name}")
+                traces = liveEvaluator.run_evaluation_single_defense_model_all_topos(
+                    model_instance, topologies
+                )
+                stats = liveEvaluator.parse_stats_single_model(traces)
+                print(f"  evaluation....: {_fmt_seconds(time() - eval_t0)}")
+
+                _append_model_result(output_path, effective_name, stats)
+                print(f"  stats.........:")
+                print(json.dumps(stats, indent=4))
+                print(f"  results saved to {output_path}")
+                del traces, stats
+
+                _cleanup_model(model_instance)
+                model_instance = None
+                print(f"  resources cleaned up")
+
+                total_elapsed = time() - model_t0
+                timing[effective_name] = total_elapsed
+                print(f"  total elapsed.: {_fmt_seconds(total_elapsed)}")
+
+            except KeyboardInterrupt:
+                if model_instance is not None:
+                    _cleanup_model(model_instance)
+                raise
+            except Exception as e:
+                if model_instance is not None:
+                    _cleanup_model(model_instance)
+                elapsed = time() - model_t0
+                print(f"\n[ERROR] Model '{model_name}' failed after {_fmt_seconds(elapsed)}: {e}")
+                print("[WARN] Previously completed results are preserved. Moving to next model.")
+                continue
+
+    except KeyboardInterrupt:
+        print("\n[WARN] KeyboardInterrupt received. All previously completed results have been saved.")
+    except Exception as e:
+        print(f"\n[ERROR] Unhandled exception: {e}")
+        print("[WARN] Previously completed results are preserved in the output file.")
     finally:
         for model_info in models.values():
             temp_cfg = model_info.get("temp_config_path")
             if temp_cfg:
                 Path(temp_cfg).unlink(missing_ok=True)
 
-    
-    
-    
+        total_elapsed = time() - overall_t0
+        timing["total_seconds"] = total_elapsed
+        report_filename = f"report-{output_path.name}"
+        if not report_filename.lower().endswith(".json"):
+            report_filename += ".json"
+        if timing:
+            report_path = output_path.with_name(report_filename)
+            with open(report_path, "w", encoding="utf-8") as report_file:
+                json.dump(timing, report_file, indent=2)
+            print(f"[INFO] Timing report saved to {report_path}")
