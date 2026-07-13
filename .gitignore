@@ -4,3 +4,4 @@ data
 results
 .env
 best_model.pt
+my-configs
