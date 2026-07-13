@@ -21,6 +21,7 @@ from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage
 import DatasetManager
 import inspect
+from LoggingUtils import log_info, log_warn, log_error
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -252,7 +253,7 @@ class DebateOrchestration:
 
             response = agent.debate_round_generate(format_data=format_data)
             if not isinstance(response.answer, str):
-                print(f"[DEBUG] Agent {agent.agent_id} Round {round} - Response is not a string: type={type(response.answer)}, value={response.answer}")
+                log_warn(f"Agent {agent.agent_id} Round {round} - Response is not a string: type={type(response.answer)}, value={response.answer}")
                 response.answer = str(response.answer)
                 
             if self.dataset_name == "GSM8K":
@@ -318,7 +319,7 @@ class DebateOrchestration:
         try:
             return self.dataloader.validate_answer(final_answer, correct_answer)
         except Exception as e:
-            print(f"Error comparing answers: final_answer={final_answer}, correct_answer={correct_answer}, error={e}")
+            log_error(f"Answer comparison failed: final_answer={final_answer}, correct_answer={correct_answer}, error={e}")
             return False
     
     def debate_question(
@@ -453,23 +454,21 @@ class DebateOrchestration:
                     failure_counts[msg] += 1
                     if len(failure_examples) < 8:
                         failure_examples.append((idx, msg))
-                    tqdm.write(f"[WARN] Q{idx+1} failed: {msg}")
+                    log_warn(f"Q{idx+1} failed: {msg}")
         except KeyboardInterrupt:
-            print("\nCancelling all pending tasks immediately...")
-            # Cancel all pending futures
-            for future in future_to_index.keys():
+            log_warn("Cancelling all pending tasks...")
+            for future in future_to_key.keys():
                 future.cancel()
-            # Force shutdown without waiting
             executor._shutdown = True
             executor.shutdown(wait=False)
 
         if failure_counts:
-            tqdm.write("\n[INFO] Question failure summary:")
+            log_info("Question failure summary:")
             for reason, count in failure_counts.most_common():
-                tqdm.write(f"  - {count}x {reason}")
-            tqdm.write("[INFO] Example failed questions:")
+                print(f"    - {count}x {reason}")
+            log_info("Example failed questions:")
             for idx, msg in failure_examples:
-                tqdm.write(f"  - Q{idx+1}: {msg}")
+                print(f"    - Q{idx+1}: {msg}")
         
         return results
     
@@ -526,7 +525,7 @@ class DebateOrchestration:
         try:
             results = self.run_debate(questions, progress_bars, master_pbar=master_pbar, malicious_consensus=True)
         except KeyboardInterrupt:
-            print("\n\nInterrupted by user (Ctrl+C). Saving partial results...")
+            log_warn("KeyboardInterrupt received. Saving partial results...")
             interrupted = True
             results = None
         finally:

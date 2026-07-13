@@ -11,19 +11,7 @@ import pickle
 from time import time
 import yaml
 import gc
-
-
-def _print_section(title: str, width: int = 72):
-    print()
-    print("=" * width)
-    print(f"[INFO] {title}")
-    print("=" * width)
-
-
-def _fmt_seconds(seconds: float) -> str:
-    minutes = int(seconds // 60)
-    rem_seconds = seconds % 60
-    return f"{minutes}m {rem_seconds:.2f}s"
+from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, fmt_seconds, print_stats_table, print_timing_report
 
 
 def adjacency_matrix_symmetric(n, topology):
@@ -110,9 +98,9 @@ def resolve_topologies(config, config_file_path):
         topologies_path = Path(topologies_file)
         if topologies_path.exists():
             with open(topologies_path, "r", encoding="utf-8") as f:
-                print(f"[INFO] Loading topologies from file: {topologies_path}")
+                log_info(f"Loading topologies from file: {topologies_path}")
                 return json.load(f)
-        print(f"[WARNING] topologies_file not found: {topologies_path}. Falling back to generated topologies.")
+        log_warn(f"topologies_file not found: {topologies_path}. Falling back to generated topologies.")
 
     pkl_path = getattr(live_cfg, "topologies_from_pkl", None)
     if pkl_path:
@@ -120,11 +108,11 @@ def resolve_topologies(config, config_file_path):
         if pkl_topologies_path.exists():
             topologies = load_topologies_from_pickle(pkl_topologies_path)
             if topologies:
-                print(f"[INFO] Loaded {len(topologies)} topologies from pickle: {pkl_topologies_path}")
+                log_info(f"Loaded {len(topologies)} topologies from pickle: {pkl_topologies_path}")
                 return topologies
-            print(f"[WARNING] No topologies found in pickle: {pkl_topologies_path}. Falling back to generated topologies.")
+            log_warn(f"No topologies found in pickle: {pkl_topologies_path}. Falling back to generated topologies.")
         else:
-            print(f"[WARNING] topologies_from_pkl not found: {pkl_topologies_path}. Falling back to generated topologies.")
+            log_warn(f"topologies_from_pkl not found: {pkl_topologies_path}. Falling back to generated topologies.")
 
     n_agents = getattr(live_cfg, "num_agents", None)
     if n_agents is None:
@@ -136,7 +124,7 @@ def resolve_topologies(config, config_file_path):
     generated = generate_topologies(n_agents)
     if getattr(live_cfg, "new_random_each_question", False):
         generated["random"] = None
-    print("[INFO] Using generated topologies from live_evaluation_config.num_agents")
+    log_info("Using generated topologies from live_evaluation_config.num_agents")
     return generated
 
 
@@ -198,7 +186,7 @@ def get_models_from_path(path, embedded_model_configs):
         cls = getattr(module, "Master")
 
         if module_name not in embedded_model_configs:
-            print(f"[INFO] No embedded config found for '{module_name}'. Skipping — model will not be evaluated or trained.")
+            log_info(f"No embedded config found for '{module_name}'. Skipping \u2014 model will not be evaluated or trained.")
             continue
         else:
             configs = embedded_model_configs[module_name]
@@ -214,7 +202,7 @@ def get_models_from_path(path, embedded_model_configs):
                 "config_path": f"embedded:defense_model_train_configs.{module_name}[{run_name}]",
                 "temp_config_path": temp_config_path,
             }
-            print(f"[INFO] Loaded run '{run_name}' from model '{module_name}'.")
+            log_info(f"Loaded run '{run_name}' from model '{module_name}'.")
 
     return models
 
@@ -226,7 +214,7 @@ def _append_model_result(output_path: Path, model_name: str, stats) -> None:
             with open(output_path, "r", encoding="utf-8") as f:
                 results = json.load(f)
         except (json.JSONDecodeError, OSError):
-            print(f"  [WARN] Could not read existing results file. Starting fresh.")
+            log_warn("Could not read existing results file. Starting fresh.")
             results = {}
     results[model_name] = stats
     with open(output_path, "w", encoding="utf-8") as f:
@@ -271,7 +259,7 @@ def _get_completed_run_names(output_path: Path) -> set:
             return set(results.keys())
         return set()
     except (json.JSONDecodeError, OSError):
-        print(f"  [WARN] Could not read existing results file. Starting fresh.")
+        log_warn("Could not read existing results file. Starting fresh.")
         return set()
 
 
@@ -280,6 +268,10 @@ if __name__ == "__main__":
     parser.add_argument("config_file", type=str, help="Path to the configuration file.")
     parsed_args = parser.parse_args()
     config = load_config_from_path(parsed_args.config_file)
+
+    log_section("Configuration Loading")
+    log_info(f"Config file: {parsed_args.config_file}")
+
     embedded_model_configs = load_embedded_model_configs(parsed_args.config_file)
     models = get_models_from_path(config.models_directory, embedded_model_configs)
 
@@ -291,26 +283,26 @@ if __name__ == "__main__":
     completed_run_names = _get_completed_run_names(output_path)
 
     try:
+        log_section("Topology Resolution")
         topologies = resolve_topologies(config, parsed_args.config_file)
         liveEvaluator = LiveDebateOrchestration(config.live_evaluation_config)
 
         live_cfg = config.live_evaluation_config
         if getattr(live_cfg, "no_defense_baseline", False):
             if "no_defense_baseline" in completed_run_names:
-                print(f"[INFO] Skipping no_defense_baseline — already present in {output_path.name}.")
+                log_info(f"Skipping no_defense_baseline \u2014 already present in {output_path.name}.")
             else:
-                _print_section("No-Defense Baseline")
+                log_section("No-Defense Baseline")
                 t0 = time()
                 questions = liveEvaluator.dataloader.get_formatted_questions()
                 baseline_traces = liveEvaluator.run_debate_no_defense(questions, topologies)
                 baseline_stats = liveEvaluator.parse_stats_single_model(baseline_traces)
                 _append_model_result(output_path, "no_defense_baseline", baseline_stats)
-                print(f"  stats.........:")
-                print(json.dumps(baseline_stats, indent=4))
                 elapsed = time() - t0
                 timing["no_defense_baseline"] = elapsed
-                print(f"  elapsed.......: {_fmt_seconds(elapsed)}")
-                print(f"  results saved to {output_path}")
+                print_stats_table(baseline_stats, model_name="no_defense_baseline")
+                log_info(f"Elapsed: {fmt_seconds(elapsed)}")
+                log_info(f"Results saved to {output_path}")
                 del baseline_traces, baseline_stats
                 gc.collect()
 
@@ -318,24 +310,24 @@ if __name__ == "__main__":
             total_planned = len(models)
             completed_models = [name for name in models if name in completed_run_names]
             for name in completed_models:
-                print(f"[INFO] Skipping '{name}' — already present in {output_path.name}.")
+                log_info(f"Skipping '{name}' \u2014 already present in {output_path.name}.")
                 del models[name]
             remaining = len(models)
             if remaining < total_planned:
-                _print_section(f"Resuming: skipped {total_planned - remaining}/{total_planned} completed runs, {remaining} remaining")
+                log_section(f"Resuming: skipped {total_planned - remaining}/{total_planned} completed runs, {remaining} remaining")
 
         total_models = len(models)
         if total_models == 0:
-            print("[INFO] All planned models are already completed. Nothing to do.")
+            log_info("All planned models are already completed. Nothing to do.")
         else:
-            print(f"[INFO] Processing {total_models} model(s).")
+            log_info(f"Processing {total_models} model(s).")
 
         for idx, (model_name, model_info) in enumerate(models.items(), start=1):
             model_t0 = time()
             model_instance = None
             try:
-                _print_section(f"Processing Model {idx}/{total_models}: {model_name}")
-                print(f"  config........: {model_info['config_path']}")
+                log_section(f"Model {idx}/{total_models}: {model_name}")
+                log_config(f"config", model_info["config_path"])
 
                 train_t0 = time()
                 metrics, model_instance = model_info["master"]._run()
@@ -343,32 +335,31 @@ if __name__ == "__main__":
                 computed_threshold = metrics.get("computed_threshold") if isinstance(metrics, dict) else None
                 if computed_threshold is not None:
                     effective_name = _update_name_with_threshold(model_name, computed_threshold)
-                    print(f"  threshold.....: computed = {computed_threshold:.6f} (config default overridden)")
+                    log_info(f"Threshold computed: {computed_threshold:.6f} (config default overridden)")
                     if effective_name != model_name:
-                        print(f"  run name......: {effective_name}")
-                print(f"  training......: {_fmt_seconds(time() - train_t0)}")
+                        log_info(f"Effective run name: {effective_name}")
+                log_info(f"Training completed in {fmt_seconds(time() - train_t0)}")
 
                 eval_t0 = time()
-                _print_section(f"Evaluating Model {idx}/{total_models}: {effective_name}")
+                log_section(f"Evaluating Model {idx}/{total_models}: {effective_name}")
                 traces = liveEvaluator.run_evaluation_single_defense_model_all_topos(
                     model_instance, topologies
                 )
                 stats = liveEvaluator.parse_stats_single_model(traces)
-                print(f"  evaluation....: {_fmt_seconds(time() - eval_t0)}")
+                log_info(f"Evaluation completed in {fmt_seconds(time() - eval_t0)}")
 
                 _append_model_result(output_path, effective_name, stats)
-                print(f"  stats.........:")
-                print(json.dumps(stats, indent=4))
-                print(f"  results saved to {output_path}")
+                print_stats_table(stats, model_name=effective_name)
+                log_info(f"Results saved to {output_path}")
                 del traces, stats
 
                 _cleanup_model(model_instance)
                 model_instance = None
-                print(f"  resources cleaned up")
+                log_done("Resources cleaned up")
 
                 total_elapsed = time() - model_t0
                 timing[effective_name] = total_elapsed
-                print(f"  total elapsed.: {_fmt_seconds(total_elapsed)}")
+                log_info(f"Total elapsed: {fmt_seconds(total_elapsed)}")
 
             except KeyboardInterrupt:
                 if model_instance is not None:
@@ -378,15 +369,15 @@ if __name__ == "__main__":
                 if model_instance is not None:
                     _cleanup_model(model_instance)
                 elapsed = time() - model_t0
-                print(f"\n[ERROR] Model '{model_name}' failed after {_fmt_seconds(elapsed)}: {e}")
-                print("[WARN] Previously completed results are preserved. Moving to next model.")
+                log_error(f"Model '{model_name}' failed after {fmt_seconds(elapsed)}: {e}")
+                log_warn("Previously completed results are preserved. Moving to next model.")
                 continue
 
     except KeyboardInterrupt:
-        print("\n[WARN] KeyboardInterrupt received. All previously completed results have been saved.")
+        log_warn("KeyboardInterrupt received. All previously completed results have been saved.")
     except Exception as e:
-        print(f"\n[ERROR] Unhandled exception: {e}")
-        print("[WARN] Previously completed results are preserved in the output file.")
+        log_error(f"Unhandled exception: {e}")
+        log_warn("Previously completed results are preserved in the output file.")
     finally:
         for model_info in models.values():
             temp_cfg = model_info.get("temp_config_path")
@@ -402,4 +393,6 @@ if __name__ == "__main__":
             report_path = output_path.with_name(report_filename)
             with open(report_path, "w", encoding="utf-8") as report_file:
                 json.dump(timing, report_file, indent=2)
-            print(f"[INFO] Timing report saved to {report_path}")
+            print()
+            print_timing_report(timing, total_elapsed)
+            log_info(f"Timing report saved to {report_path}")

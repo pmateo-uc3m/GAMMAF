@@ -10,6 +10,7 @@ import json
 from typing import Any, cast
 from Utils import load_config
 from tqdm import tqdm
+from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, fmt_seconds, print_timing_report
 
 from TextProcessingManager import RoundProcessor
 
@@ -203,10 +204,7 @@ def load_text_processor(args, config_path: str | None = None):
         return processor_cls(**processor_kwargs)
     except TypeError:
         if processor_kwargs:
-            print(
-                "[WARNING] text_processor_kwargs/text_processor_device not supported by processor class; "
-                "falling back to default constructor."
-            )
+            log_warn("text_processor_kwargs/text_processor_device not supported by processor class; falling back to default constructor.")
         return processor_cls()
 
 
@@ -239,6 +237,7 @@ def main():
     arguments.add_argument('config', type=str, default=None, help='Path to YAML config file with all parameters')    
     parsed_config = arguments.parse_args()
     args = load_config(parsed_config)
+    log_section("Training Data Generation")
 
     # Support both nested schema (debate_config.*) and legacy flat keys.
     debate_cfg = getattr(args, "debate_config", args)
@@ -307,13 +306,10 @@ def main():
         topology_seed = base_question_seed + (i - 1)
         questions_for_topology = n_questions_random_topo if topo_name == "random" else n_questions_fixed
 
-        print()
-        print("=" * 72)
-        print(f"[TOPOLOGY {i}/{total_topologies}] {topo_name.upper()}")
-        print(f"  seed..............: {topology_seed}")
-        print(f"  planned_questions.: {questions_for_topology}")
-        print("=" * 72)
-        
+        log_section(f"Topology {i}/{total_topologies}: {topo_name.upper()}")
+        log_info(f"Seed: {topology_seed}")
+        log_info(f"Planned questions: {questions_for_topology}")
+
         config = DebateConfig(
             timeout=args.timeout,
             is_random_topology = True if topo_name=="random" else False,
@@ -334,14 +330,14 @@ def main():
             save_logs_dir=f"debate_logs_{topo_name}",
             verbose=args.verbose,
             num_questions=questions_for_topology,
-            questions_random_seed=args.questions_random_seed + (i - 1), # Could remove +(i-1) to repeat questions across topologies
-            dataset_tag=args.dataset_tag, # TAG defined for the dataset class at dataset_loader
+            questions_random_seed=args.questions_random_seed + (i - 1),
+            dataset_tag=args.dataset_tag,
         )
 
         debate_orchestration = DebateOrchestration(config)
         results, _ = debate_orchestration.run_evaluation()
         if results is None:
-            print(f"[WARNING] No results returned for topology {topo_name}; skipping.")
+            log_warn(f"No results returned for topology {topo_name}; skipping.")
             all_results.append(
                 {
                     "topology_name": topo_name,
@@ -356,7 +352,7 @@ def main():
         # Aqui deberia eliminar las rondas en las rondas (o debate entero?) en los que haya None por timeout
         
         if clean_data:
-            print('[INFO] Cleaning data: Removing debates with invalid/empty responses...')
+            log_info("Cleaning data: removing debates with invalid/empty responses...")
             cleaned_results = []
             invalid_reason_counts = {}
             invalid_examples = []
@@ -380,39 +376,34 @@ def main():
 
             results = cleaned_results
             removed_count = initial_count - len(results)
-            print(f"[INFO] Cleaned data: Removed {removed_count} invalid/empty debates from topology {topo_name}")
+            log_info(f"Cleaned data: removed {removed_count} invalid/empty debates from topology {topo_name}")
 
             if removed_count > 0:
-                print(f"[INFO] Clean report for topology {topo_name}:")
-                print(f"  - Total debates: {initial_count}")
-                print(f"  - Kept debates: {len(results)}")
-                print(f"  - Removed debates: {removed_count}")
-                print("  - Reason counts:")
+                log_info(f"Clean report for topology {topo_name}:")
+                print(f"    Total debates      : {initial_count}")
+                print(f"    Kept debates       : {len(results)}")
+                print(f"    Removed debates    : {removed_count}")
+                log_info("Reason counts:")
                 for reason, count in sorted(invalid_reason_counts.items(), key=lambda x: (-x[1], x[0])):
-                    print(f"      * {reason}: {count}")
+                    print(f"      - {reason}: {count}")
 
                 if invalid_examples:
-                    print("  - Example removed debates (first up to 5):")
+                    log_info("Example removed debates (first up to 5):")
                     for ex in invalid_examples:
                         reasons_str = ", ".join(ex["reasons"])
-                        print(f"      * debate_index={ex['debate_index']}: {reasons_str}")
+                        print(f"      - debate_index={ex['debate_index']}: {reasons_str}")
 
         if process_text:
-            print("[INFO] Starting text processing on cleaned debates...")
+            log_info("Starting text processing on cleaned debates...")
             assert processor is not None
             total_to_process = len(results)
 
-            # Auto workers: CPU count when unset; cap to avoid over-subscription.
             workers = text_process_workers if text_process_workers > 0 else min(8, os.cpu_count() or 1)
             processor_device = getattr(processor, "device", "cpu")
 
-            # Keep GPU path sequential by default to avoid concurrent CUDA/model contention.
             if processor_device != "cpu":
                 if workers > 1:
-                    print(
-                        f"[INFO] text_process_workers={workers} requested, but processor device is '{processor_device}'. "
-                        "Falling back to sequential text processing for safety."
-                    )
+                    log_info(f"text_process_workers={workers} requested, but processor device is '{processor_device}'. Falling back to sequential processing.")
                 workers = 1
 
             if workers <= 1:
@@ -424,7 +415,7 @@ def main():
                 ):
                     process_single_debate(debate, processor)
             else:
-                print(f"[INFO] Processing debate text in parallel with {workers} workers...")
+                log_info(f"Processing debate text in parallel with {workers} workers...")
                 with ThreadPoolExecutor(max_workers=workers) as executor:
                     results = list(
                         tqdm(
@@ -448,16 +439,13 @@ def main():
     
     # En este momento tengo los datos de rondas con el processing (embeddings)
     
-    # Guardar los datos en pickle
     os.makedirs(save_data_dir, exist_ok=True)
     output_filepath = os.path.join(save_data_dir, file_name)
     with open(output_filepath, 'wb') as f:
         pickle.dump(all_results, f)
-    print(f"[INFO] Processed text data saved to {output_filepath}")
+    log_info(f"Processed text data saved to {output_filepath}")
     elapsed_seconds = time() - t0
-    elapsed_minutes = int(elapsed_seconds // 60)
-    remaining_seconds = elapsed_seconds % 60
-    print(f"[INFO] Total execution time: {elapsed_minutes} min {remaining_seconds:.2f} sec")
+    log_info(f"Total execution time: {fmt_seconds(elapsed_seconds)}")
 
     avg_seconds_per_initial = (
         elapsed_seconds / total_initial_debates if total_initial_debates > 0 else 0.0
@@ -466,16 +454,17 @@ def main():
         elapsed_seconds / total_valid_debates if total_valid_debates > 0 else 0.0
     )
 
-    print("[INFO] Timing report:")
-    print(f"  - Initial debates/questions generated: {total_initial_debates}")
-    print(f"  - Final valid debates kept: {total_valid_debates}")
-    print(f"  - Average time per initial debate/question: {avg_seconds_per_initial:.4f} sec")
-    print(f"  - Average time per final valid debate: {avg_seconds_per_valid:.4f} sec")
+    print()
+    log_info("Timing report:")
+    print(f"    Initial debates/questions generated : {total_initial_debates}")
+    print(f"    Final valid debates kept            : {total_valid_debates}")
+    print(f"    Avg time per initial debate/question: {avg_seconds_per_initial:.4f} sec")
+    print(f"    Avg time per final valid debate     : {avg_seconds_per_valid:.4f} sec")
 
     timing_report = {
         "total_seconds": elapsed_seconds,
-        "total_minutes": elapsed_minutes,
-        "remaining_seconds": remaining_seconds,
+        "total_minutes": int(elapsed_seconds // 60),
+        "remaining_seconds": elapsed_seconds % 60,
         "initial_debates": total_initial_debates,
         "valid_debates": total_valid_debates,
         "avg_seconds_per_initial": avg_seconds_per_initial,
@@ -487,7 +476,7 @@ def main():
     report_filepath = os.path.join(save_data_dir, report_filename)
     with open(report_filepath, "w", encoding="utf-8") as report_file:
         json.dump(timing_report, report_file, indent=2)
-    print(f"[INFO] Timing report saved to {report_filepath}")
+    log_info(f"Timing report saved to {report_filepath}")
     
     
     

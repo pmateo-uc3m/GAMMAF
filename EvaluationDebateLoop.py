@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import json
 from langchain_core.runnables import RunnableLambda
+from LoggingUtils import log_section, log_info, log_warn, log_error, log_done
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -108,9 +109,7 @@ class LiveDebateOrchestration:
                 config.questions_path,
                 dataset_tag,
             )
-            print(
-                f"[INFO] Selected questions loader by dataset tag '{dataset_tag}': {questions_loader.__name__}"
-            )
+            log_info(f"Selected questions loader by dataset tag '{dataset_tag}': {questions_loader.__name__}")
         else:
             questions_loader = load_class_from_path(
                 config.questions_path,
@@ -514,9 +513,7 @@ class LiveDebateOrchestration:
         failure_counts = Counter()
         failure_examples = []
 
-        tqdm.write(
-            f"[INFO] Starting defense run: topologies={len(topologies_dict)}, total_tasks={total_tasks}"
-        )
+        log_info(f"Starting defense run: topologies={len(topologies_dict)}, total_tasks={total_tasks}")
         def process_single_question(index, question_data, topo_name):
             question = question_data['question']
             choices = question_data['choices']
@@ -566,20 +563,21 @@ class LiveDebateOrchestration:
                     failure_counts[msg] += 1
                     if len(failure_examples) < 10:
                         failure_examples.append((task_key, msg))
-                    tqdm.write(f"[WARN] Task {task_key} failed: {msg}")
+                    log_warn(f"Task {task_key} failed: {msg}")
         except KeyboardInterrupt:
+            log_warn("Cancelling all pending tasks...")
             for future in future_to_key.keys():
                 future.cancel()
             executor._shutdown = True
             executor.shutdown(wait=False)
 
         if failure_counts:
-            tqdm.write("[INFO] Defense run failure summary:")
+            log_info("Defense run failure summary:")
             for reason, count in failure_counts.most_common():
-                tqdm.write(f"  - {count}x {reason}")
-            tqdm.write("[INFO] Example failed tasks:")
+                print(f"    - {count}x {reason}")
+            log_info("Example failed tasks:")
             for task_key, msg in failure_examples:
-                tqdm.write(f"  - {task_key}: {msg}")
+                print(f"    - {task_key}: {msg}")
         
         return traces
     
@@ -596,9 +594,7 @@ class LiveDebateOrchestration:
         failure_counts = Counter()
         failure_examples = []
 
-        tqdm.write(
-            f"[INFO] Starting no-defense run: topologies={len(topologies_dict)}, total_tasks={total_tasks}"
-        )
+        log_info(f"Starting no-defense run: topologies={len(topologies_dict)}, total_tasks={total_tasks}")
         def process_single_question(index, question_data, topo_name):
             question = question_data['question']
             choices = question_data['choices']
@@ -650,23 +646,21 @@ class LiveDebateOrchestration:
                     failure_counts[msg] += 1
                     if len(failure_examples) < 10:
                         failure_examples.append(((idx, topo_name), msg))
-                    tqdm.write(f"[WARN] Question {idx} on topology '{topo_name}' failed: {msg}")
+                    log_warn(f"Question {idx} on topology '{topo_name}' failed: {msg}")
         except KeyboardInterrupt:
-            print("\nCancelling all pending tasks immediately...")
-            # Cancel all pending futures
+            log_warn("Cancelling all pending tasks...")
             for future in future_to_key.keys():
                 future.cancel()
-            # Force shutdown without waiting
             executor._shutdown = True
             executor.shutdown(wait=False)
 
         if failure_counts:
-            tqdm.write("[INFO] No-defense run failure summary:")
+            log_info("No-defense run failure summary:")
             for reason, count in failure_counts.most_common():
-                tqdm.write(f"  - {count}x {reason}")
-            tqdm.write("[INFO] Example failed tasks:")
+                print(f"    - {count}x {reason}")
+            log_info("Example failed tasks:")
             for task_key, msg in failure_examples:
-                tqdm.write(f"  - {task_key}: {msg}")
+                print(f"    - {task_key}: {msg}")
         
         return traces
     
@@ -679,16 +673,10 @@ class LiveDebateOrchestration:
         questions = self.dataloader.get_formatted_questions()
         all_traces = {}
         if self.config.no_defense_baseline:
-            print()
-            print("=" * 72)
-            print("[INFO] Evaluating no-defense baseline")
-            print("=" * 72)
+            log_section("No-Defense Baseline Evaluation")
             all_traces["no_defense_baseline"] = self.run_debate_no_defense(questions, topologies_dict)
         for model_name, defense_model in defense_models_list:
-            print()
-            print("=" * 72)
-            print(f"[INFO] Evaluating defense model: {model_name}")
-            print("=" * 72)
+            log_section(f"Defense Model Evaluation: {model_name}")
             all_traces[model_name] = self.run_debate_with_defense(questions, defense_model, topologies_dict)
         return all_traces
     

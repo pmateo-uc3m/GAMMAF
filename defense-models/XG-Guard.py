@@ -11,6 +11,7 @@ import yaml
 from types import SimpleNamespace
 from torch.utils.data import Dataset, DataLoader as TorchDataLoader
 from pathlib import Path
+from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds
 
 
 def dict_to_ns(d):
@@ -402,7 +403,6 @@ class Loop:
                 
                 optimizer.zero_grad()
                 
-                debug_batch = (epoch % 5 == 0)
                 s_pos, s_neg = self.model(batch_s, batch_t, debug=False)
                 eps = 1e-8
                 loss = -(torch.log(s_pos + eps) + self.config.alpha * torch.log(1 - s_neg + eps)).mean()
@@ -416,37 +416,38 @@ class Loop:
             
             if val_loader is not None:
                 val_loss, val_metrics = self.validate_model(val_loader, self.config.alpha, device)
-                val_msg = f"Epoch {epoch+1}/{self.config.epochs} | Train Loss: {avg_loss:.6f} | Val Loss: {val_loss:.6f}"
+                current_lr = optimizer.param_groups[0]['lr']
                 
-                if val_loss < best_val_loss:
+                is_best = val_loss < best_val_loss
+                if is_best:
                     lr_patience_reduce = 0
                     early_stop_count = 0
                     best_val_loss = val_loss
                     best_model_state = {k: v.cpu() for k, v in self.model.state_dict().items()}
-                    print(f"{val_msg} [BEST]")
                 else:
                     if early_stop <= early_stop_count:
-                        print(f"[TRIGGERED EARLY STOPPING]")
+                        log_warn(f"Early stopping triggered at epoch {epoch + 1} (no improvement for {early_stop} epochs)")
                         break
                     lr_patience_reduce += 1
                     early_stop_count += 1
-                    print(val_msg)
                     if lr_patience_reduce >= lr_patience_max:
                         for param_group in optimizer.param_groups:
                             old_lr = param_group['lr']
                             new_lr = max(old_lr * lr_reduce_factor, min_lr)
                             param_group['lr'] = new_lr
                         lr_patience_reduce = 0
-                        print(f"  -> Reducing LR: {old_lr:.6e} -> {new_lr:.6e}")
+                        log_info(f"Reducing learning rate: {old_lr:.6e} -> {new_lr:.6e}")
+                
+                print_epoch_log(epoch + 1, self.config.epochs, avg_loss, val_loss, current_lr, is_best)
             else:
-                print(f"Epoch {epoch+1}/{self.config.epochs} | Train Loss: {avg_loss:.6f}")
+                print_epoch_log(epoch + 1, self.config.epochs, avg_loss, 0.0, optimizer.param_groups[0]['lr'], False)
         
         return best_model_state, best_val_loss
 
         if best_model_state is not None:
             self.model.load_state_dict({k: v.to(device) for k, v in best_model_state.items()})
-            print(f"\nTraining complete. Best model restored with validation loss: {best_val_loss:.6f}")
-    
+            log_done(f"Training complete. Best model restored with validation loss: {best_val_loss:.6f}")
+
         return best_val_loss
     
     def validate_model(self, dataloader, alpha, device='cpu'):
@@ -621,9 +622,9 @@ class Loop:
                 'hidden_dim': self.config.hidden_dim if hasattr(self.config, 'hidden_dim') else None,
             }
             torch.save(checkpoint, path)
-            print(f"Model saved to {path}")
+            log_done(f"Model saved to {path}")
         else:
-            print("No model to save.")
+            log_warn("No model to save.")
 
     def load_model(self, path, device='cpu'):
         """Load a trained model from disk."""
@@ -637,7 +638,7 @@ class Loop:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.to(device)
         self.model.eval()
-        print(f"Model loaded from {path}")
+        log_info(f"Model loaded from {path}")
 
     @classmethod
     def from_pretrained(cls, model_path, device='cpu'):
@@ -726,22 +727,20 @@ class Master:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         else:
             device = self.args.device
-        print(f"Using device: {device}")
+        log_info(f"Using device: {device}")
         
-        print("Loading and processing training data...")
+        log_info("Loading and processing training data...")
         train_processor = DataProcessor(target_topologies=self.args.topologies)
         train_data = train_processor.load_pkl(self.args.pkl_train)
         
-        # Flatten train data into list of (graph_s, graph_t) pairs
         train_pairs = []
         for topology_data in train_data:
             for debate_rounds in topology_data['results']:
                 for graph_s, graph_t in debate_rounds:
                     train_pairs.append((graph_s, graph_t))
         
-        print(f"Total training samples: {len(train_pairs)}")
+        log_info(f"Total training samples: {len(train_pairs)}")
         
-        # Split into train and validation with deterministic shuffling.
         split_seed = getattr(self.args, 'split_seed', self.args.seed)
         split_rng = np.random.default_rng(split_seed)
         indices = split_rng.permutation(len(train_pairs))
@@ -749,16 +748,13 @@ class Master:
         train_set = [train_pairs[i] for i in indices[:split_idx]]
         val_set = [train_pairs[i] for i in indices[split_idx:]]
         
-        # Create DataLoaders
         dataloader_seed = getattr(self.args, 'dataloader_seed', self.args.seed)
         train_loader = create_geometric_dataloader(train_set, self.args.batch_size, shuffle=True, seed=dataloader_seed)
         val_loader = create_geometric_dataloader(val_set, self.args.batch_size, shuffle=False) if len(val_set) > 0 else None
         
-        print(f"Train samples: {len(train_set)}, Validation samples: {len(val_set)}")
+        log_info(f"Train samples: {len(train_set)}, Validation samples: {len(val_set)}")
+        log_info("Training data processed. Starting training...")
         
-        print("Training data processed. Starting training...")
-        
-        # Create model and training loop
         xg_guard_model = XGGuard(
             feat_dim_s=self.args.feat_dim_s,
             feat_dim_t=self.args.feat_dim_t,
@@ -767,9 +763,9 @@ class Master:
         
         loop = Loop(xg_guard_model, self.args)
         
-        print(f"Training XG-Guard model with config: batch_size={self.args.batch_size}, lr={self.args.learning_rate}, epochs={self.args.num_epochs}")
+        log_info(f"Training XG-Guard: batch_size={self.args.batch_size}, lr={self.args.learning_rate}, epochs={self.args.num_epochs}")
         best_val_loss = loop._train(train_loader, val_loader, device=device)
-        print('Model trained.')
+        log_done("Model trained.")
 
         # Keep the same return shape expected by MainEvaluation.
         return {}, loop
@@ -793,22 +789,20 @@ if __name__ == "__main__":
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     else:
         device = args.device
-    print(f"Using device: {device}")
+    log_info(f"Using device: {device}")
     
-    print("Loading and processing training data...")
+    log_info("Loading and processing training data...")
     train_processor = DataProcessor(target_topologies=args.topologies)
     train_data = train_processor.load_pkl(args.pkl_train)
     
-    # Flatten train data into list of (graph_s, graph_t) pairs
     train_pairs = []
     for topology_data in train_data:
         for debate_rounds in topology_data['results']:
             for graph_s, graph_t in debate_rounds:
                 train_pairs.append((graph_s, graph_t))
     
-    print(f"Total training samples: {len(train_pairs)}")
+    log_info(f"Total training samples: {len(train_pairs)}")
     
-    # Split into train and validation with deterministic shuffling.
     split_seed = getattr(args, 'split_seed', args.seed)
     split_rng = np.random.default_rng(split_seed)
     indices = split_rng.permutation(len(train_pairs))
@@ -816,16 +810,13 @@ if __name__ == "__main__":
     train_set = [train_pairs[i] for i in indices[:split_idx]]
     val_set = [train_pairs[i] for i in indices[split_idx:]]
     
-    # Create DataLoaders
     dataloader_seed = getattr(args, 'dataloader_seed', args.seed)
     train_loader = create_geometric_dataloader(train_set, args.batch_size, shuffle=True, seed=dataloader_seed)
     val_loader = create_geometric_dataloader(val_set, args.batch_size, shuffle=False) if len(val_set) > 0 else None
     
-    print(f"Train samples: {len(train_set)}, Validation samples: {len(val_set)}")
+    log_info(f"Train samples: {len(train_set)}, Validation samples: {len(val_set)}")
+    log_info("Training data processed. Starting training...")
     
-    print("Training data processed. Starting training...")
-    
-    # Create model and training loop
     xg_guard_model = XGGuard(
         feat_dim_s=args.feat_dim_s,
         feat_dim_t=args.feat_dim_t,
@@ -834,7 +825,6 @@ if __name__ == "__main__":
     
     loop = Loop(xg_guard_model, args)
     
-    print(f"Training XG-Guard model with config: batch_size={args.batch_size}, lr={args.learning_rate}, epochs={args.num_epochs}")
+    log_info(f"Training XG-Guard: batch_size={args.batch_size}, lr={args.learning_rate}, epochs={args.num_epochs}")
     best_val_loss = loop._train(train_loader, val_loader, device=device)
-
-    print('Model trained.')
+    log_done("Model trained.")

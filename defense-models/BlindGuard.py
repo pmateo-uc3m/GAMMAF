@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from Utils import load_config, load_config_from_path
+from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds
 
 @dataclass
 class DataGenerationParams:
@@ -389,9 +390,7 @@ class SCLTopologyLoop:
                           with keys: 'topology_name', 'embeddings', 'labels'
         """
         
-        print("="*60)
-        print(f"TRAINING PHASE - Topology: {topology_data['topology_name']}")
-        print("="*60)
+        log_section(f"Training Phase - Topology: {topology_data['topology_name']}")
         
         X_full = topology_data['embeddings']
         y_full = topology_data['labels']
@@ -460,20 +459,18 @@ class SCLTopologyLoop:
             avg_loss = total_loss / len(dataloader_train)
             avg_val_loss = total_val_loss / len(dataloader_val) if len(dataloader_val) > 0 else 0.0
             
-            # Save best model
-            if avg_val_loss < best_val_loss:
+            is_best = avg_val_loss < best_val_loss
+            if is_best:
                 best_val_loss = avg_val_loss
                 best_model_state = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
-                print(f"Epoch {epoch+1}/{num_epochs} | Train Loss: {avg_loss:.6f} | Val Loss: {avg_val_loss:.6f} [BEST]")
-            else:
-                print(f"Epoch {epoch+1}/{num_epochs} | Train Loss: {avg_loss:.6f} | Val Loss: {avg_val_loss:.6f}")
+            current_lr = optimizer.param_groups[0]['lr']
+            print_epoch_log(epoch + 1, num_epochs, avg_loss, avg_val_loss, current_lr, is_best)
         
-        # Load best model (kept in memory, no temporary file written).
         if best_model_state is not None:
             self.model.load_state_dict({k: v.to(self.device) for k, v in best_model_state.items()})
-            print(f"\nTraining complete. Best model restored with validation loss: {best_val_loss:.6f}")
+            log_done(f"Training complete. Best model restored with validation loss: {best_val_loss:.6f}")
         else:
-            print("\nTraining complete. No validation improvement snapshot was captured.")
+            log_warn("Training complete. No validation improvement snapshot was captured.")
                         
     def _reset_model(self):
         self.model = None
@@ -554,9 +551,9 @@ class SCLTopologyLoop:
                 'emb_dim': self.args.emb_dim,
             }
             torch.save(checkpoint, path)
-            print(f"Model saved to {path}")
+            log_done(f"Model saved to {path}")
         else:
-            print("No model to save.")
+            log_warn("No model to save.")
 
     def load_model(self, path):
         """Load a trained model from disk."""
@@ -570,7 +567,7 @@ class SCLTopologyLoop:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.to(self.device)
         self.model.eval()
-        print(f"Model loaded from {path}")
+        log_info(f"Model loaded from {path}")
         
     @classmethod
     def from_pretrained(cls, model_path, device='cuda'):
@@ -607,7 +604,7 @@ class Master:
         data_params['anomaly_scale'] = self.args.anomaly_scale
         data_seed = getattr(self.args, 'data_seed', self.args.seed)
 
-        print("Loading and processing training data...")
+        log_info("Loading and processing training data...")
         train_data = TrainDataProcessor(data_params, target_topologies=self.args.topologies, rng_seed=data_seed)
         train_data.load_pkl(self.args.pkl_train)
         
@@ -617,17 +614,17 @@ class Master:
         train_data.generate_aggregated_embeddings()
         train_data = train_data._get_flattened_data(balance=not self.args.no_balance)
         
-        print("Train data processed. Starting training...")
+        log_info("Train data processed. Starting training...")
         scl_loop = SCLTopologyLoop(self.args)
-        print("Training combined model across all topologies...")
+        log_info("Training combined model across all topologies...")
         combined_topology = {
             'topology_name': 'combined',
             'embeddings': np.concatenate(tuple(t['embeddings'] for t in train_data), axis=0),
             'labels': np.concatenate(tuple(t['labels'] for t in train_data), axis=0)
         }
-        print("Class distribution on combined training data:", np.bincount(combined_topology['labels']))
+        log_info(f"Class distribution on combined training data: {np.bincount(combined_topology['labels'])}")
         scl_loop.train(combined_topology)
-        print('Combined model trained.')
+        log_done("Combined model trained.")
         # if self.args.save_model:
         #     scl_loop.save_model(self.args.save_path)
             
@@ -657,7 +654,7 @@ if __name__ == "__main__":
     data_params['anomaly_scale'] = args.anomaly_scale
     data_seed = getattr(args, 'data_seed', args.seed)
 
-    print("Loading and processing training data...")
+    log_info("Loading and processing training data...")
     train_data = TrainDataProcessor(data_params, target_topologies=args.topologies, rng_seed=data_seed)
     train_data.load_pkl(args.pkl_train)
     
@@ -667,19 +664,18 @@ if __name__ == "__main__":
     train_data.generate_aggregated_embeddings()
     train_data = train_data._get_flattened_data(balance=not args.no_balance)
     
-    print("Train data processed. Starting training...")
+    log_info("Train data processed. Starting training...")
     scl_loop = SCLTopologyLoop(args)
     
-    # So far only save combined model, since the other makes less sense (has bad performance)
-    print("Training combined model across all topologies...")
+    log_info("Training combined model across all topologies...")
     combined_topology = {
         'topology_name': 'combined',
         'embeddings': np.concatenate(tuple(t['embeddings'] for t in train_data), axis=0),
         'labels': np.concatenate(tuple(t['labels'] for t in train_data), axis=0)
     }
-    print("Class distribution on combined training data:", np.bincount(combined_topology['labels']))
+    log_info(f"Class distribution on combined training data: {np.bincount(combined_topology['labels'])}")
     scl_loop.train(combined_topology)
-    print('Combined model trained.')
+    log_done("Combined model trained.")
     # if args.save_model:
     #     scl_loop.save_model(args.save_path)
 
