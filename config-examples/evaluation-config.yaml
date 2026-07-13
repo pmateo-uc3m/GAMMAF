@@ -1,11 +1,11 @@
 # Main evaluation config (MainEvaluation.py)
 models_directory: defense-models # Directory that contains all the defense models that are going to be benchmarked
-output_file: test.json # json file where the evaluation results will be saved
+output_file: results/test.json # json file where the evaluation results will be saved
 
 # One config section per defense model file in models_directory (file stem must match)
 defense_model_train_configs:
   BlindGuard:
-    pkl_train: data/test_data.pkl # Path to the pkl with the training data
+    pkl_train: data/train-gpt-oss-300.pkl # Path to the pkl with the training data
     seed: 42
     device: cpu # Device for model training
     # Data perturbation (used to simulate anomalies in training)
@@ -25,11 +25,12 @@ defense_model_train_configs:
     learning_rate: 0.001
     weight_decay: 0.0001
     scheduler_t_max: 20
+    top_k: 2
 
     topologies: null
 
   XG-Guard:
-    pkl_train: data/test_data.pkl
+    pkl_train: data/train-gpt-oss-300.pkl
     seed: 42
     device: cpu
 
@@ -43,6 +44,7 @@ defense_model_train_configs:
     learning_rate: 0.001
     weight_decay: 0.0001
     alpha: 0.5
+    top_k: 2
 
     topologies: null
 
@@ -66,10 +68,10 @@ live_evaluation_config:
 
   # Defense settings
   top_k_defense: 2 
-  no_defense_baseline: false
+  no_defense_baseline: true
 
   # Concurrency
-  max_concurrent_inference: 10 # Added a default value
+  max_concurrent_inference: 150 # Added a default value
 
   # Questions
   num_questions: 20 
