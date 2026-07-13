@@ -7,29 +7,10 @@ import pickle
 import argparse
 import random
 import numpy as np
-import yaml
-from types import SimpleNamespace
 from torch.utils.data import Dataset, DataLoader as TorchDataLoader
 from pathlib import Path
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds
-
-
-def dict_to_ns(d):
-    if isinstance(d, dict):
-        return SimpleNamespace(**{k: dict_to_ns(v) for k, v in d.items()})
-    return d
-
-
-def load_config_from_path(config_path):
-    with open(config_path, 'r') as f:
-        config_dict = yaml.safe_load(f)
-    ns = dict_to_ns(config_dict)
-    # Compatibility aliases used by Loop._train
-    if not hasattr(ns, 'lr') and hasattr(ns, 'learning_rate'):
-        ns.lr = ns.learning_rate
-    if not hasattr(ns, 'epochs') and hasattr(ns, 'num_epochs'):
-        ns.epochs = ns.num_epochs
-    return ns
+from Utils import load_config_from_path
 
 class DataProcessor:
     def __init__(self, target_topologies=None):

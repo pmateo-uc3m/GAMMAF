@@ -19,6 +19,7 @@ from scipy.stats import t as t_dist
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import json
+from types import SimpleNamespace
 from langchain_core.runnables import RunnableLambda
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done
 
@@ -337,6 +338,10 @@ class LiveDebateOrchestration:
         question_index = None,
         question_format_data: dict | None = None,
     ):
+        if not hasattr(defense_model, 'config'):
+            defense_model.config = SimpleNamespace()
+        if not hasattr(defense_model.config, 'top_k'):
+            defense_model.config.top_k = getattr(self.config, 'top_k_defense', 2)
         agents = self.generate_agents(question_index=question_index)
         debate_trace = []
         flags = [0] * len(agents)
@@ -813,17 +818,12 @@ class LiveDebateOrchestration:
                 per_round_average_rates.append(averaged)
 
             acc = correct_answers / total_questions if total_questions > 0 else 0
-            acc_ci = 0.0
-            if total_questions > 1 and 0 < acc < 1:
-                se = np.sqrt(acc * (1 - acc) / total_questions)
-                acc_ci = self._t_critical(total_questions) * se
 
             result.append({
                 'topology': topology_name,
                 'total_questions': total_questions,
                 'correct_answers': correct_answers,
                 'overall_accuracy': acc,
-                'overall_accuracy_ci95': acc_ci,
                 'rounds_rates': per_round_average_rates,
                 'round_counts': round_counts,
             })

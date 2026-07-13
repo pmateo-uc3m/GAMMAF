@@ -59,12 +59,11 @@ def print_stats_table(stats: List[Dict], model_name: str = ""):
         total_q = topo_result.get("total_questions", 0)
         correct = topo_result.get("correct_answers", 0)
         acc = topo_result.get("overall_accuracy", 0)
-        acc_ci = topo_result.get("overall_accuracy_ci95", 0)
 
         print(f"    Topology   : {topo}")
         print(f"    Questions  : {total_q}")
         print(f"    Correct    : {correct}")
-        print(f"    Accuracy   : {acc * 100:.2f}%  \u00b1 {acc_ci * 100:.2f}%")
+        print(f"    Accuracy   : {acc * 100:.2f}%")
 
         rounds_rates = topo_result.get("rounds_rates", [])
         if rounds_rates:
