@@ -266,6 +266,7 @@ def _get_completed_run_names(output_path: Path) -> set:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("config_file", type=str, help="Path to the configuration file.")
+    parser.add_argument("--clean", action="store_true", help="Delete existing results and start fresh.")
     parsed_args = parser.parse_args()
     config = load_config_from_path(parsed_args.config_file)
 
@@ -280,7 +281,17 @@ if __name__ == "__main__":
     output_path.parent.mkdir(parents=True, exist_ok=True)
     timing = {}
 
-    completed_run_names = _get_completed_run_names(output_path)
+    if parsed_args.clean:
+        if output_path.exists():
+            output_path.unlink()
+            log_info(f"Deleted existing results: {output_path.name}")
+        report_path = output_path.with_name(f"report-{output_path.name}")
+        if report_path.exists():
+            report_path.unlink()
+            log_info(f"Deleted existing report: {report_path.name}")
+        completed_run_names = set()
+    else:
+        completed_run_names = _get_completed_run_names(output_path)
 
     try:
         log_section("Topology Resolution")

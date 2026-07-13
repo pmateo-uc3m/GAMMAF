@@ -461,6 +461,7 @@ class DebateOrchestration:
                 future.cancel()
             executor._shutdown = True
             executor.shutdown(wait=False)
+            raise
 
         if failure_counts:
             log_info("Question failure summary:")
@@ -469,9 +470,9 @@ class DebateOrchestration:
             log_info("Example failed questions:")
             for idx, msg in failure_examples:
                 print(f"    - Q{idx+1}: {msg}")
-        
+
         return results
-    
+
     def run_evaluation(self):
         
         dataset_classes = {

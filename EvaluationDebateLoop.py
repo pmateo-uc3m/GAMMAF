@@ -575,6 +575,7 @@ class LiveDebateOrchestration:
                 future.cancel()
             executor._shutdown = True
             executor.shutdown(wait=False)
+            raise
 
         if failure_counts:
             log_info("Defense run failure summary:")
@@ -583,9 +584,9 @@ class LiveDebateOrchestration:
             log_info("Example failed tasks:")
             for task_key, msg in failure_examples:
                 print(f"    - {task_key}: {msg}")
-        
+
         return traces
-    
+
     def run_debate_no_defense(self, questions: List[dict], topologies_dict, malicious_consensus = True):
         if self.config.new_random_each_question:
             topologies_dict = {topo_name: topo for topo_name, topo in topologies_dict.items() if "random" not in topo_name}
@@ -658,6 +659,7 @@ class LiveDebateOrchestration:
                 future.cancel()
             executor._shutdown = True
             executor.shutdown(wait=False)
+            raise
 
         if failure_counts:
             log_info("No-defense run failure summary:")
@@ -666,9 +668,9 @@ class LiveDebateOrchestration:
             log_info("Example failed tasks:")
             for task_key, msg in failure_examples:
                 print(f"    - {task_key}: {msg}")
-        
+
         return traces
-    
+
     def run_evaluation_single_defense_model_all_topos(self, defense_model, topologies_dict):
         questions = self.dataloader.get_formatted_questions() # I am now runnign same questions for all topos (maybe allow different option)
         traces = self.run_debate_with_defense(questions, defense_model, topologies_dict)
