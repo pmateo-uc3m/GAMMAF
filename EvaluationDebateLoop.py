@@ -521,6 +521,7 @@ class LiveDebateOrchestration:
                 adjacency_matrix = generate_random_topologies(self.config.num_agents, density, task_rng)
             else:
                 adjacency_matrix = topologies_dict[topo_name]
+            mal_answer = ""
             if choices is not None:
                 wrong_answer_idx = int(answer_rng.choice([i for i in range(0,4) if i!=ground_truth]))
                 mal_answer = chr(wrong_answer_idx + 65)
@@ -604,6 +605,7 @@ class LiveDebateOrchestration:
             else:
                 adjacency_matrix = topologies_dict[topo_name]
             ground_truth = question_data.get('answer', question_data.get('correct_answer', ''))
+            mal_answer = ""
             if choices is not None:
                 wrong_answer_idx = int(answer_rng.choice([i for i in range(0,4) if i!=ground_truth]))
                 mal_answer = chr(wrong_answer_idx + 65)
