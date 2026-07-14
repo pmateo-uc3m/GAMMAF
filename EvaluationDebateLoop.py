@@ -128,11 +128,13 @@ class LiveDebateOrchestration:
         base_url = _require_env("BASE_URL")
         api_key = SecretStr(_require_env("API_KEY"))
 
+        self.llm_max_retries = getattr(config, "llm_max_retries", 3)
         self.llm = ChatOpenAI(
             model = model_name,
             api_key = api_key,
             base_url = base_url,
             timeout = config.timeout,
+            max_retries = self.llm_max_retries,
         ) | RunnableLambda(self.dataloader.parse_model_output)
 
     def _merge_prompt_format_data(self, format_data: dict, question_format_data: dict | None) -> dict:
@@ -163,6 +165,7 @@ class LiveDebateOrchestration:
                     system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"] if is_malicious else self.prompts["SYSTEM_PROMPT"],
                     first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"] if is_malicious else self.prompts["FIRST_ROUND_PROMPT"],
                     debate_prompt = self.prompts["DEBATE_PROMPT_MALICIOUS"] if is_malicious else self.prompts["DEBATE_PROMPT"],
+                    max_retries=self.llm_max_retries,
                 )
             )
         return agents

@@ -58,6 +58,7 @@ live_evaluation_config:
   questions_random_seed: 28
 
   # Debate + attacker settings
+  llm_max_retries: 3
   num_agents: 5
   num_malicious_agents: 2
   malicious_seed: 123

@@ -2,6 +2,7 @@
 
 timeout: 20
 parallel_questions: 30 # Number of concurrent questions sent to inference API
+llm_max_retries: 3
 
 prompts: prompts/prompts_blindguard.json # Prompt template file (JSON) used by agents, see example in ./prompts
 

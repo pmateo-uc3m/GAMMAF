@@ -1,6 +1,8 @@
+import time
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from LoggingUtils import log_warn, log_error
 
 class ResponseFormat(BaseModel):
     reason: str = Field(description="The logical argument or premise")
@@ -36,15 +38,15 @@ class DebateAgent:
         for i in range(self.max_retries):
             try:
                 self.current_response = self.model.invoke(self.messages)
-                # print("[DEBUG] Response from agent:\n\n", self.current_response)
                 formatted_response = f"<answer>: {self.current_response.answer} \n<reason>: {self.current_response.reason}"
                 self.messages.append(AIMessage(content=formatted_response))
                 return self.current_response
             except Exception as e:
                 last_exception = e
-                is_timeout = "timeout" in str(e).lower() or "timed out" in str(e).lower()
-                if not is_timeout:
-                    raise e  # For non-timeout errors, we want to raise immediately instead of retrying
+                log_warn(f"Agent {self.agent_id} first_round attempt {i + 1}/{self.max_retries} failed: {e}")
+                if i < self.max_retries - 1:
+                    time.sleep(1)
+        log_error(f"Agent {self.agent_id} all {self.max_retries} first_round attempts failed.")
         raise last_exception
     
     def debate_round_generate(self, format_data: dict):
@@ -54,15 +56,15 @@ class DebateAgent:
         for i in range(self.max_retries):
             try:
                 self.current_response = self.model.invoke(self.messages)
-                # print("[DEBUG] Response from agent:\n\n", self.current_response)
                 formatted_response = f"<answer>: {self.current_response.answer} \n<reason>: {self.current_response.reason}"
                 self.messages.append(AIMessage(content=formatted_response))
                 return self.current_response
             except Exception as e:
                 last_exception = e
-                is_timeout = "timeout" in str(e).lower() or "timed out" in str(e).lower()
-                if not is_timeout:
-                    raise e
+                log_warn(f"Agent {self.agent_id} debate_round attempt {i + 1}/{self.max_retries} failed: {e}")
+                if i < self.max_retries - 1:
+                    time.sleep(1)
+        log_error(f"Agent {self.agent_id} all {self.max_retries} debate_round attempts failed.")
         raise last_exception
     
     def get_current_response(self) -> Optional[ResponseFormat]:

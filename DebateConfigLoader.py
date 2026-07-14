@@ -35,6 +35,7 @@ class DebateConfig:
         [1,1,1,1,0]
     ])
     prompts_file: str = "prompts1.json"
+    llm_max_retries: int = 3
     malicious_randomization_seed: int = 42  # Seed for per-question malicious agent randomization
     
     # Execution configuration

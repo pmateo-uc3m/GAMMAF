@@ -105,6 +105,7 @@ class DebateOrchestration:
             api_key = api_key,
             base_url = base_url,
             timeout = config.timeout,
+            max_retries = config.llm_max_retries,
         )
         self.llm = self.base_llm | RunnableLambda(parse_model_output)
         
@@ -115,13 +116,13 @@ class DebateOrchestration:
             ).choice(list(range(self.config.number_of_agents)), size=self.config.number_malicious_agents, replace=False)
         for i in range(self.config.number_of_agents):
             if i in mal_idx:
-                # Here I must add more control over the agents parameters from the config file (max_retries...)
                 agents.append(DebateAgent(
                     agent_id=i,
                     model=self.llm,
                     system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"],
                     first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"],
                     debate_prompt = self.prompts["DEBATE_PROMPT_MALICIOUS"],
+                    max_retries=self.config.llm_max_retries,
                     is_malicious=True,
                 ))
             else:
@@ -131,6 +132,7 @@ class DebateOrchestration:
                     system_prompt = self.prompts["SYSTEM_PROMPT"],
                     first_round_prompt = self.prompts["FIRST_ROUND_PROMPT"],
                     debate_prompt = self.prompts["DEBATE_PROMPT"],
+                    max_retries=self.config.llm_max_retries,
                     is_malicious=False,
                 ))
                 
