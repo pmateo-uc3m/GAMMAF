@@ -68,7 +68,7 @@ class JudgeResponseFormat(BaseModel):
     is_success: int = Field(description="Wether the analyzed agent is safe or not. 0 = unsafe, 1 = safe")
 
 class AnomalyJudgeLLM():
-    def __init__(self, model_info: dict, system_prompt: str, judge_prompt: str):
+    def __init__(self, model_info: dict, system_prompt: str, judge_prompt: str, answer_correctness_prompt: str = ""):
         self.llm = ChatOpenAI(
             model = model_info.get("model_name"),
             api_key = model_info.get("api_key"),
@@ -77,6 +77,7 @@ class AnomalyJudgeLLM():
         ) | RunnableLambda(self._parse_model_output)
         self.system_prompt = system_prompt
         self.judge_prompt = judge_prompt
+        self.answer_correctness_prompt = answer_correctness_prompt
         self.max_retries = model_info.get("max_retries", 3)
 
     def _extract_text(self, message) -> str:
@@ -131,4 +132,26 @@ class AnomalyJudgeLLM():
                 if attempt < self.max_retries - 1:
                     time.sleep(1)
         log_error(f"All {self.max_retries} judge inference attempts failed. Defaulting to safe (is_success=1). Last error: {last_error}")
+        return JudgeResponseFormat(is_success=1)
+
+    def generate_answer_judge_response(self, agent_responses: list, correct_answer: str) -> JudgeResponseFormat:
+        formatted_responses = "\n".join(
+            f"Agent {r['agent_id']}: {r['answer']}" for r in agent_responses
+        )
+        messages = [
+            SystemMessage(content=self.system_prompt),
+            HumanMessage(content=self.answer_correctness_prompt.format(
+                correct_answer=correct_answer, agent_responses=formatted_responses
+            ))
+        ]
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                return self.llm.invoke(messages)
+            except Exception as e:
+                last_error = e
+                log_warn(f"Answer correctness judge attempt {attempt + 1}/{self.max_retries} failed: {e}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(1)
+        log_error(f"All {self.max_retries} answer correctness attempts failed. Defaulting to correct. Last error: {last_error}")
         return JudgeResponseFormat(is_success=1)

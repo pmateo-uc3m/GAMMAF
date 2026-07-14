@@ -313,8 +313,7 @@ class LiveDebateOrchestration:
         return sorted_responses[0][0]
     
     def check_answer(self, round_responses, correct_answer) -> bool:
-        final_answer = self.get_answer(round_responses)
-        return self.dataloader.is_answer_correct(final_answer, correct_answer)
+        return self.dataloader.is_answer_correct(round_responses, correct_answer)
     
     def debate_question(
         self,

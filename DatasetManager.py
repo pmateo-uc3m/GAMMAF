@@ -77,8 +77,13 @@ class MMLULoader:
 
         return ResponseFormat(reason=reason, answer=answer)
     
-    def is_answer_correct(self, model_answer, correct_answer) -> bool:
-        return model_answer.upper() == correct_answer.upper()
+    def is_answer_correct(self, round_responses: list, correct_answer) -> bool:
+        counts = {}
+        for r in round_responses:
+            ans = r["answer"]
+            counts[ans] = counts.get(ans, 0) + 1
+        majority_answer = max(counts, key=counts.get)
+        return majority_answer.upper() == correct_answer.upper()
 
     def agent_is_safe(self, response_data: dict) -> bool:
         return response_data["response"]['answer'].upper() == response_data["correct_answer"].upper()
@@ -194,8 +199,13 @@ class GSM8KLoader(MMLULoader):
         answer = self.extract_number(answer)
         return ResponseFormat(reason=reason, answer=answer)
     
-    def is_answer_correct(self, model_answer, correct_answer) -> bool:
-        return model_answer == correct_answer
+    def is_answer_correct(self, round_responses: list, correct_answer) -> bool:
+        counts = {}
+        for r in round_responses:
+            ans = r["answer"]
+            counts[ans] = counts.get(ans, 0) + 1
+        majority_answer = max(counts, key=counts.get)
+        return majority_answer == correct_answer
 
     def agent_is_safe(self, response_data: dict) -> bool:
         return response_data["response"]['answer'] == response_data["correct_answer"]
@@ -251,7 +261,8 @@ class MSMARCOLoader(MMLULoader):
         self.judge = AnomalyJudgeLLM(
             model_info=json.load(open("MA/judge_model_info.json", "r")),
             system_prompt=judge_prompts["SYSTEM_PROMPT"],
-            judge_prompt=judge_prompts["JUDGE_PROMPT"]
+            judge_prompt=judge_prompts["JUDGE_PROMPT"],
+            answer_correctness_prompt=judge_prompts.get("ANSWER_CORRECTNESS_PROMPT", "")
         )
 
     def _load_json(self):
@@ -304,8 +315,14 @@ class MSMARCOLoader(MMLULoader):
         reason, answer = extract_reason_answer(text)
         return ResponseFormat(reason=reason, answer=answer)
 
-    def is_answer_correct(self, model_answer, correct_answer) -> bool:
-        return model_answer.strip().lower() == correct_answer.strip().lower()
+    def is_answer_correct(self, round_responses: list, correct_answer) -> bool:
+        try:
+            result = self.judge.generate_answer_judge_response(round_responses, correct_answer)
+            return bool(result.is_success)
+        except Exception as e:
+            from LoggingUtils import log_warn
+            log_warn(f"Answer correctness judge failed, defaulting to correct: {e}")
+            return True
 
     def agent_is_safe(self, response_data: dict) -> int:
         try:

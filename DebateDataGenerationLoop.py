@@ -304,11 +304,10 @@ class DebateOrchestration:
         return sorted_responses[0][0]
     
     def check_answer(self, round_responses, correct_answer) -> bool:
-        final_answer = self.get_answer(round_responses)
         try:
-            return self.dataloader.is_answer_correct(final_answer, correct_answer)
+            return self.dataloader.is_answer_correct(round_responses, correct_answer)
         except Exception as e:
-            log_error(f"Answer comparison failed: final_answer={final_answer}, correct_answer={correct_answer}, error={e}")
+            log_error(f"Answer comparison failed: correct_answer={correct_answer}, error={e}")
             return False
     
     def debate_question(
