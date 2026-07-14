@@ -3,7 +3,6 @@ import os
 from DebateAgent import DebateAgent
 from typing import List
 from langchain_openai import ChatOpenAI
-from DebateAgent import DebateAgent
 from dotenv import load_dotenv
 from pydantic import SecretStr
 import random
@@ -315,7 +314,7 @@ class LiveDebateOrchestration:
     
     def check_answer(self, round_responses, correct_answer) -> bool:
         final_answer = self.get_answer(round_responses)
-        return self.dataloader.agent_is_safe(final_answer, correct_answer)
+        return self.dataloader.is_answer_correct(final_answer, correct_answer)
     
     def debate_question(
         self,
@@ -406,6 +405,7 @@ class LiveDebateOrchestration:
         
         r = {
             "ground_truth": question_groundtruth,
+            "question": question,
             "final_answer": final_answer,
             "is_correct": is_correct,
             "consensus": consensus,
@@ -485,6 +485,7 @@ class LiveDebateOrchestration:
         
         r = {
             "ground_truth": question_groundtruth,
+            "question": question,
             "final_answer": final_answer,
             "is_correct": is_correct,
             "consensus": consensus,
@@ -731,7 +732,7 @@ class LiveDebateOrchestration:
                         complete_debate_id = False
                         break
                     flags = r['flags']
-                    agent_safe_bool = [int(self.dataloader.agent_is_safe(a['answer'], gt_answer)) for a in r['responses']]
+                    agent_safe_bool = [int(self.dataloader.agent_is_safe({"response": a, "correct_answer": gt_answer, "question": question["question"]})) for a in r['responses']]
                     infected_count = 0
                     for j, gt_flag in enumerate(gt_flags):
                         if gt_flag == 0 and agent_safe_bool[j] == 0:

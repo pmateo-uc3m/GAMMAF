@@ -1,7 +1,6 @@
 from datasets import load_dataset
 from typing import List
 import numpy as np
-
 from langchain_core.messages import AIMessage
 import re
 
@@ -78,9 +77,12 @@ class MMLULoader:
 
         return ResponseFormat(reason=reason, answer=answer)
     
-    def agent_is_safe(self, model_answer, correct_answer) -> bool:
-        return chr(correct_answer + 65) == model_answer.upper()
-    
+    def is_answer_correct(self, model_answer, correct_answer) -> bool:
+        return model_answer.upper() == correct_answer.upper()
+
+    def agent_is_safe(self, response_data: dict) -> bool:
+        return response_data["response"]['answer'].upper() == response_data["correct_answer"].upper()
+
 class CSQALoader(MMLULoader):
     TAG = "CSQA"
     def __init__(self, num_questions: int = 25, random_seed: int = 23):
@@ -132,9 +134,6 @@ class CSQALoader(MMLULoader):
             reason = "No reasoning provided."
 
         return ResponseFormat(reason=reason, answer=answer)
-    
-    def agent_is_safe(self, model_answer, correct_answer) -> bool:
-        return model_answer.upper() == correct_answer.upper()
     
 class GSM8KLoader(MMLULoader):
     TAG = "GSM8K"
@@ -195,8 +194,11 @@ class GSM8KLoader(MMLULoader):
         answer = self.extract_number(answer)
         return ResponseFormat(reason=reason, answer=answer)
     
-    def agent_is_safe(self, model_answer, correct_answer) -> bool:
+    def is_answer_correct(self, model_answer, correct_answer) -> bool:
         return model_answer == correct_answer
+
+    def agent_is_safe(self, response_data: dict) -> bool:
+        return response_data["response"]['answer'] == response_data["correct_answer"]
     
 class MMLUProLoader(MMLULoader):
     TAG = "MMLUPro"
@@ -231,21 +233,26 @@ class MMLUProLoader(MMLULoader):
                 'answer': q['answer']
             })
         return formatted_questions
-    
-    def agent_is_safe(self, model_answer, correct_answer) -> bool:
-        return model_answer.upper() == correct_answer.upper()
 
 
 class MSMARCOLoader(MMLULoader):
-    TAG = "MSMARCO"
+    TAG = "MA"
     PROMPTS_FILE = "prompts/prompts_msmarco.json"
 
     def __init__(self, num_questions: int = 25, random_seed: int = 23):
+        from Utils import AnomalyJudgeLLM
+        import json
         self.num_questions = num_questions
         self.random_seed = random_seed
         self.dataset = self._load_json()
         self.questions = self.load_questions()
         self.formatted_questions = self.format_questions()
+        judge_prompts = json.load(open("MA/judge_prompts.json", "r"))
+        self.judge = AnomalyJudgeLLM(
+            model_info=json.load(open("MA/judge_model_info.json", "r")),
+            system_prompt=judge_prompts["SYSTEM_PROMPT"],
+            judge_prompt=judge_prompts["JUDGE_PROMPT"]
+        )
 
     def _load_json(self):
         import json
@@ -297,5 +304,14 @@ class MSMARCOLoader(MMLULoader):
         reason, answer = extract_reason_answer(text)
         return ResponseFormat(reason=reason, answer=answer)
 
-    def agent_is_safe(self, model_answer, correct_answer) -> bool:
+    def is_answer_correct(self, model_answer, correct_answer) -> bool:
         return model_answer.strip().lower() == correct_answer.strip().lower()
+
+    def agent_is_safe(self, response_data: dict) -> int:
+        agent_response = {
+            "question": response_data.get("question", ""),
+            "correct_answer": response_data.get("correct_answer", ""),
+            "answer": response_data["response"]["answer"],
+        }
+        agent_evaluation = self.judge.generate_judge_response(agent_response)
+        return int(agent_evaluation.is_success)

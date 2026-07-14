@@ -305,10 +305,8 @@ class DebateOrchestration:
     
     def check_answer(self, round_responses, correct_answer) -> bool:
         final_answer = self.get_answer(round_responses)
-        
-        # We manage the case of each dataset separately so as to not have conflicts with the answer format
         try:
-            return self.dataloader.agent_is_safe(final_answer, correct_answer)
+            return self.dataloader.is_answer_correct(final_answer, correct_answer)
         except Exception as e:
             log_error(f"Answer comparison failed: final_answer={final_answer}, correct_answer={correct_answer}, error={e}")
             return False
