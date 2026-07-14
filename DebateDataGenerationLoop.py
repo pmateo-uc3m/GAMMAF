@@ -94,8 +94,7 @@ class DebateOrchestration:
         self.config = config
         self.topology = config.topology
         self.random_flag = config.is_random_topology
-        with open(config.prompts_file, "r", encoding="utf-8") as f:
-            self.prompts = json.load(f)
+        self.prompts = None
         
         model_name = _require_env("MODEL_NAME")
         base_url = _require_env("BASE_URL")
@@ -138,21 +137,13 @@ class DebateOrchestration:
         return agents
 
     def _merge_prompt_format_data(self, format_data: dict, question_format_data: dict | None) -> dict:
-        """Merge per-question fields into the prompt formatting dict.
-
-        - Does not overwrite reserved keys already present in format_data.
-        - Excludes ground-truth fields like 'answer' to avoid leaking labels into prompts.
-        """
         if not question_format_data:
             return format_data
 
         if not isinstance(question_format_data, dict):
             return format_data
 
-        excluded_keys = {"answer"}
         for k, v in question_format_data.items():
-            if k in excluded_keys:
-                continue
             if k in format_data:
                 continue
             format_data[k] = v
@@ -317,7 +308,7 @@ class DebateOrchestration:
         
         # We manage the case of each dataset separately so as to not have conflicts with the answer format
         try:
-            return self.dataloader.validate_answer(final_answer, correct_answer)
+            return self.dataloader.agent_is_safe(final_answer, correct_answer)
         except Exception as e:
             log_error(f"Answer comparison failed: final_answer={final_answer}, correct_answer={correct_answer}, error={e}")
             return False
@@ -397,10 +388,11 @@ class DebateOrchestration:
         
         def process_single_question(index: int, question_data: dict):
             question_text = question_data['question']
-            choices_text = question_data['choices']
+            choices_text = question_data.get('choices')
+            ground_truth = question_data.get('answer', question_data.get('correct_answer', ''))
             mal_answer = ""
             if malicious_consensus:
-                wrong_answer_idx = np.random.default_rng(self.config.questions_random_seed).choice([i for i in range(0,4) if i!=question_data['answer']])
+                wrong_answer_idx = np.random.default_rng(self.config.questions_random_seed).choice([i for i in range(0,4) if i!=ground_truth])
                 mal_answer = chr(wrong_answer_idx + 65)
             
             pbar = progress_bars.get(index) if progress_bars else None
@@ -421,8 +413,8 @@ class DebateOrchestration:
                 "topology": topology,
                 "consensus_reached": self.check_consensus(debate_result[-1]),
                 "final_answer": self.get_answer(debate_result[-1]),
-                "correct_answer": question_data['answer'],
-                "is_correct": self.check_answer(debate_result[-1], question_data['answer']),
+                "correct_answer": ground_truth,
+                "is_correct": self.check_answer(debate_result[-1], ground_truth),
             }
             
             num_rounds = len(debate_result)
@@ -495,6 +487,7 @@ class DebateOrchestration:
         }
             
         self.dataloader = loader_cls(**loader_kwargs)
+        self.prompts = self.dataloader.get_prompts()
 
         # Use parser from the selected dataloader.
         self.llm = self.base_llm | RunnableLambda(self.dataloader.parse_model_output)
