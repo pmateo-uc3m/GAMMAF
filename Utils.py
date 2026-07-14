@@ -106,15 +106,11 @@ class AnomalyJudgeLLM():
 
     def _parse_model_output(self, message) -> JudgeResponseFormat:
         text = self._extract_text(message)
-        log_info(f"[Judge Debug] Raw model response: {text!r}")
         if not text or not text.strip():
-            log_error("[Judge Debug] Empty response from Judge Model.")
             raise ValueError("There was no response from the Judge Model.")
         is_success = self._parse_is_success(text)
         if is_success is None:
-            log_error(f"[Judge Debug] Failed to parse is_success from: {text!r}")
             raise ValueError("Could not parse is_success from Judge Model response.")
-        log_info(f"[Judge Debug] Parsed is_success={is_success}")
         return JudgeResponseFormat(is_success=is_success)
 
     def generate_judge_response(self, agent_response: dict) -> JudgeResponseFormat:
