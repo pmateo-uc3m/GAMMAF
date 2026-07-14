@@ -128,7 +128,6 @@ class AnomalyJudgeLLM():
                 return self.llm.invoke(messages)
             except Exception as e:
                 last_error = e
-                log_warn(f"Judge inference attempt {attempt + 1}/{self.max_retries} failed: {e}")
                 if attempt < self.max_retries - 1:
                     time.sleep(1)
         log_error(f"All {self.max_retries} judge inference attempts failed. Defaulting to safe (is_success=1). Last error: {last_error}")
@@ -150,7 +149,6 @@ class AnomalyJudgeLLM():
                 return self.llm.invoke(messages)
             except Exception as e:
                 last_error = e
-                log_warn(f"Answer correctness judge attempt {attempt + 1}/{self.max_retries} failed: {e}")
                 if attempt < self.max_retries - 1:
                     time.sleep(1)
         log_error(f"All {self.max_retries} answer correctness attempts failed. Defaulting to correct. Last error: {last_error}")

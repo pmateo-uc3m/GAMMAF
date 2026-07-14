@@ -43,10 +43,10 @@ class DebateAgent:
                 return self.current_response
             except Exception as e:
                 last_exception = e
-                log_warn(f"Agent {self.agent_id} first_round attempt {i + 1}/{self.max_retries} failed: {e}")
-                if i < self.max_retries - 1:
+                if i == self.max_retries - 1:
+                    log_error(f"Agent {self.agent_id} first_round all {self.max_retries} attempts failed: {e}")
+                else:
                     time.sleep(1)
-        log_error(f"Agent {self.agent_id} all {self.max_retries} first_round attempts failed.")
         raise last_exception
     
     def debate_round_generate(self, format_data: dict):
@@ -61,10 +61,10 @@ class DebateAgent:
                 return self.current_response
             except Exception as e:
                 last_exception = e
-                log_warn(f"Agent {self.agent_id} debate_round attempt {i + 1}/{self.max_retries} failed: {e}")
-                if i < self.max_retries - 1:
+                if i == self.max_retries - 1:
+                    log_error(f"Agent {self.agent_id} debate_round all {self.max_retries} attempts failed: {e}")
+                else:
                     time.sleep(1)
-        log_error(f"Agent {self.agent_id} all {self.max_retries} debate_round attempts failed.")
         raise last_exception
     
     def get_current_response(self) -> Optional[ResponseFormat]:
