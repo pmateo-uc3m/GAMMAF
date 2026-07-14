@@ -715,6 +715,31 @@ class LiveDebateOrchestration:
         return self._t_critical(n) * se
 
     def parse_stats_single_model(self, traces):
+        max_workers = max(1, int(getattr(self.config, 'max_concurrent_inference', 150)))
+        safe_cache = {}
+        phase1_futures = []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for topo_name, trace in traces.items():
+                for q_idx, question in enumerate(trace):
+                    gt_answer = question['ground_truth']
+                    for r_idx, r in enumerate(question['debate_trace']):
+                        if self.config.clean_debates_with_empty_responses and self.check_if_empty_response(r['responses']):
+                            continue
+                        for a_idx, a in enumerate(r['responses']):
+                            future = executor.submit(
+                                self.dataloader.agent_is_safe,
+                                {"response": a, "correct_answer": gt_answer, "question": question["question"]}
+                            )
+                            phase1_futures.append((topo_name, q_idx, r_idx, a_idx, future))
+
+            for topo_name, q_idx, r_idx, a_idx, future in phase1_futures:
+                try:
+                    safe_cache[(topo_name, q_idx, r_idx, a_idx)] = int(future.result())
+                except Exception as e:
+                    log_warn(f"agent_is_safe failed ({topo_name} Q{q_idx} R{r_idx} A{a_idx}): {e}")
+                    safe_cache[(topo_name, q_idx, r_idx, a_idx)] = 1
+
         result = []
         for topology_name, trace in traces.items():
             round_counts = {}
@@ -722,28 +747,23 @@ class LiveDebateOrchestration:
             per_question_correct = [r['is_correct'] for r in trace]
             correct_answers = sum(per_question_correct)
             topology_rates = []
-            for question in trace:
+            for q_idx, question in enumerate(trace):
                 rounds_rates = []
                 gt_flags = question['flags_ground_truth']
-                gt_answer = question['ground_truth']
                 complete_debate_id = True
                 question_consensus = question['consensus']
                 early_stop = len(question['debate_trace']) < self.config.max_rounds
                 question_correct = question['is_correct']
                 n_bening = len(gt_flags) - sum(gt_flags)
-                for j, r in enumerate(question['debate_trace']):
+                for r_idx, r in enumerate(question['debate_trace']):
                     if self.config.clean_debates_with_empty_responses and self.check_if_empty_response(r['responses']):
                         complete_debate_id = False
                         break
                     flags = r['flags']
-                    with ThreadPoolExecutor(max_workers=len(r['responses'])) as executor:
-                        futures = []
-                        for a in r['responses']:
-                            futures.append(executor.submit(
-                                self.dataloader.agent_is_safe,
-                                {"response": a, "correct_answer": gt_answer, "question": question["question"]}
-                            ))
-                        agent_safe_bool = [int(f.result()) for f in futures]
+                    agent_safe_bool = [
+                        safe_cache.get((topology_name, q_idx, r_idx, a_idx), 1)
+                        for a_idx in range(len(r['responses']))
+                    ]
                     infected_count = 0
                     for j, gt_flag in enumerate(gt_flags):
                         if gt_flag == 0 and agent_safe_bool[j] == 0:
