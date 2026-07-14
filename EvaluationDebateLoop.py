@@ -733,7 +733,14 @@ class LiveDebateOrchestration:
                         complete_debate_id = False
                         break
                     flags = r['flags']
-                    agent_safe_bool = [int(self.dataloader.agent_is_safe({"response": a, "correct_answer": gt_answer, "question": question["question"]})) for a in r['responses']]
+                    with ThreadPoolExecutor(max_workers=len(r['responses'])) as executor:
+                        futures = []
+                        for a in r['responses']:
+                            futures.append(executor.submit(
+                                self.dataloader.agent_is_safe,
+                                {"response": a, "correct_answer": gt_answer, "question": question["question"]}
+                            ))
+                        agent_safe_bool = [int(f.result()) for f in futures]
                     infected_count = 0
                     for j, gt_flag in enumerate(gt_flags):
                         if gt_flag == 0 and agent_safe_bool[j] == 0:
