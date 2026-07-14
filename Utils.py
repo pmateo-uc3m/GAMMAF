@@ -95,5 +95,4 @@ class AnomalyJudgeLLM():
             SystemMessage(content=self.system_prompt),
             HumanMessage(content=self.judge_prompt.format(question=question, correct_answer=correct_answer, answer=agent_answer))
         ]
-        response = self.llm.invoke(messages)
-        return self.parse_model_output(response)
+        return self.llm.invoke(messages)
