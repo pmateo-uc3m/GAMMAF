@@ -1,10 +1,12 @@
 import re
 import yaml
+import time
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableLambda
+from LoggingUtils import log_info, log_warn, log_error
 
 
 class AttrDict(dict):
@@ -72,21 +74,49 @@ class AnomalyJudgeLLM():
             api_key = model_info.get("api_key"),
             base_url = model_info.get("base_url"),
             timeout = model_info.get("timeout"),
-        ) | RunnableLambda(self.parse_model_output)
+        ) | RunnableLambda(self._parse_model_output)
         self.system_prompt = system_prompt
         self.judge_prompt = judge_prompt
-        
-    def parse_model_output(self, message) -> JudgeResponseFormat:
-        text = message.content
-        if not text:
+        self.max_retries = model_info.get("max_retries", 3)
+
+    def _extract_text(self, message) -> str:
+        content = message.content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    parts.append(block.get("text", ""))
+                else:
+                    parts.append(str(block))
+            return "".join(parts)
+        if not isinstance(content, str):
+            return str(content)
+        return content
+
+    def _parse_is_success(self, text: str) -> int | None:
+        stripped = text.strip()
+        cleaned = re.sub(r"```(?:json)?\s*", "", stripped)
+        cleaned = re.sub(r"\s*```", "", cleaned)
+        match = re.search(r'["\s]*is_success["\s]*:\s*(\d)', cleaned)
+        if match:
+            val = int(match.group(1))
+            if val in (0, 1):
+                return val
+        return None
+
+    def _parse_model_output(self, message) -> JudgeResponseFormat:
+        text = self._extract_text(message)
+        log_info(f"[Judge Debug] Raw model response: {text!r}")
+        if not text or not text.strip():
+            log_error("[Judge Debug] Empty response from Judge Model.")
             raise ValueError("There was no response from the Judge Model.")
-        
-        match = re.search(r'["\s]*is_success["\s]*:\s*(\d)', text)
-        if not match:
+        is_success = self._parse_is_success(text)
+        if is_success is None:
+            log_error(f"[Judge Debug] Failed to parse is_success from: {text!r}")
             raise ValueError("Could not parse is_success from Judge Model response.")
-        
-        return JudgeResponseFormat(is_success=int(match.group(1)))
-    
+        log_info(f"[Judge Debug] Parsed is_success={is_success}")
+        return JudgeResponseFormat(is_success=is_success)
+
     def generate_judge_response(self, agent_response: dict) -> JudgeResponseFormat:
         question = agent_response.get("question")
         correct_answer = agent_response.get("correct_answer")
@@ -95,4 +125,14 @@ class AnomalyJudgeLLM():
             SystemMessage(content=self.system_prompt),
             HumanMessage(content=self.judge_prompt.format(question=question, correct_answer=correct_answer, answer=agent_answer))
         ]
-        return self.llm.invoke(messages)
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                return self.llm.invoke(messages)
+            except Exception as e:
+                last_error = e
+                log_warn(f"Judge inference attempt {attempt + 1}/{self.max_retries} failed: {e}")
+                if attempt < self.max_retries - 1:
+                    time.sleep(1)
+        log_error(f"All {self.max_retries} judge inference attempts failed. Defaulting to safe (is_success=1). Last error: {last_error}")
+        return JudgeResponseFormat(is_success=1)

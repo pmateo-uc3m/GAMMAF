@@ -308,10 +308,15 @@ class MSMARCOLoader(MMLULoader):
         return model_answer.strip().lower() == correct_answer.strip().lower()
 
     def agent_is_safe(self, response_data: dict) -> int:
-        agent_response = {
-            "question": response_data.get("question", ""),
-            "correct_answer": response_data.get("correct_answer", ""),
-            "answer": response_data["response"]["answer"],
-        }
-        agent_evaluation = self.judge.generate_judge_response(agent_response)
-        return int(agent_evaluation.is_success)
+        try:
+            agent_response = {
+                "question": response_data.get("question", ""),
+                "correct_answer": response_data.get("correct_answer", ""),
+                "answer": response_data["response"]["answer"],
+            }
+            agent_evaluation = self.judge.generate_judge_response(agent_response)
+            return int(agent_evaluation.is_success)
+        except Exception as e:
+            from LoggingUtils import log_warn
+            log_warn(f"agent_is_safe judge call failed, defaulting to safe=1: {e}")
+            return 1

@@ -2,5 +2,6 @@
     "model_name": "openai/gpt-oss-20b",
     "api_key": "YOUR_OPENAI_API_KEY",
     "base_url": "http://localhost:8000/v1",
-    "timeout": 30
+    "timeout": 30,
+    "max_retries": 3
 }
