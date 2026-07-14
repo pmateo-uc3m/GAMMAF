@@ -19,6 +19,7 @@ def extract_reason_answer(text: str):
 
 class MMLULoader:
     TAG = "MMLU"
+    PROMPTS_FILE = "prompts/prompts_blindguard.json"
     def __init__(self, num_questions: int = 25, random_seed: int = 23):
 
         self.num_questions = num_questions
@@ -26,6 +27,11 @@ class MMLULoader:
         self.dataset = load_dataset("cais/mmlu", "all", split="all")
         self.questions = self.load_questions()
         self.formatted_questions = self.format_questions()
+
+    def get_prompts(self):
+        import json
+        with open(self.PROMPTS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
         
     def load_questions(self):
         questions = []
@@ -72,7 +78,7 @@ class MMLULoader:
 
         return ResponseFormat(reason=reason, answer=answer)
     
-    def validate_answer(self, model_answer, correct_answer) -> bool:
+    def agent_is_safe(self, model_answer, correct_answer) -> bool:
         return chr(correct_answer + 65) == model_answer.upper()
     
 class CSQALoader(MMLULoader):
@@ -127,11 +133,12 @@ class CSQALoader(MMLULoader):
 
         return ResponseFormat(reason=reason, answer=answer)
     
-    def validate_answer(self, model_answer, correct_answer) -> bool:
+    def agent_is_safe(self, model_answer, correct_answer) -> bool:
         return model_answer.upper() == correct_answer.upper()
     
 class GSM8KLoader(MMLULoader):
     TAG = "GSM8K"
+    PROMPTS_FILE = "prompts/prompts_gsm8k.json"
     def __init__(self, num_questions: int = 25, random_seed: int = 23):
         self.num_questions = num_questions
         self.random_seed = random_seed
@@ -188,7 +195,7 @@ class GSM8KLoader(MMLULoader):
         answer = self.extract_number(answer)
         return ResponseFormat(reason=reason, answer=answer)
     
-    def validate_answer(self, model_answer, correct_answer) -> bool:
+    def agent_is_safe(self, model_answer, correct_answer) -> bool:
         return model_answer == correct_answer
     
 class MMLUProLoader(MMLULoader):
@@ -225,5 +232,70 @@ class MMLUProLoader(MMLULoader):
             })
         return formatted_questions
     
-    def validate_answer(self, model_answer, correct_answer) -> bool:
+    def agent_is_safe(self, model_answer, correct_answer) -> bool:
         return model_answer.upper() == correct_answer.upper()
+
+
+class MSMARCOLoader(MMLULoader):
+    TAG = "MSMARCO"
+    PROMPTS_FILE = "prompts/prompts_msmarco.json"
+
+    def __init__(self, num_questions: int = 25, random_seed: int = 23):
+        self.num_questions = num_questions
+        self.random_seed = random_seed
+        self.dataset = self._load_json()
+        self.questions = self.load_questions()
+        self.formatted_questions = self.format_questions()
+
+    def _load_json(self):
+        import json
+        with open("MA/msmarco.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("Expected MSMARCO dataset to be a JSON object")
+        return data
+
+    def load_questions(self):
+        questions = []
+        for key, item in self.dataset.items():
+            if not isinstance(item, dict):
+                continue
+            question_text = item.get("question")
+            correct_answer = item.get("correct answer")
+            incorrect_answer = item.get("incorrect answer")
+            adv_texts = item.get("adv_texts")
+            if question_text is None or correct_answer is None:
+                continue
+            questions.append({
+                "question": question_text,
+                "correct_answer": correct_answer,
+                "incorrect_answer": incorrect_answer,
+                "adv_texts": adv_texts if isinstance(adv_texts, list) else [],
+            })
+        if not questions:
+            raise ValueError("No valid questions found in MSMARCO dataset")
+        rng = np.random.default_rng(self.random_seed)
+        n = min(self.num_questions, len(questions))
+        return list(rng.choice(questions, size=n, replace=False))
+
+    def format_questions(self) -> List[dict]:
+        formatted = []
+        for i, q in enumerate(self.questions):
+            formatted.append({
+                "question_index": i,
+                "question": q["question"],
+                "adv_texts": q["adv_texts"],
+                "correct_answer": q["correct_answer"],
+                "incorrect_answer": q["incorrect_answer"],
+            })
+        return formatted
+
+    def parse_model_output(self, message: AIMessage) -> ResponseFormat:
+        text = message.content
+        if not text:
+            raise ValueError("Empty response from model")
+        reason, answer = extract_reason_answer(text)
+        return ResponseFormat(reason=reason, answer=answer)
+
+    def agent_is_safe(self, model_answer, correct_answer) -> bool:
+        return model_answer.strip().lower() == correct_answer.strip().lower()

@@ -296,7 +296,7 @@ To add a dataset for the generation pipeline, add a new class with:
 - `TAG = "MYDATASET"`
 - `get_formatted_questions()` returning a list of dicts with (at minimum): `question`, `choices`, `answer`
 - `parse_model_output(message)` returning `ResponseFormat(reason=..., answer=...)`
-- `validate_answer(model_answer, correct_answer)`
+- `agent_is_safe(model_answer, correct_answer)`
 
 Then set in your generation YAML:
 
