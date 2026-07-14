@@ -66,12 +66,14 @@ def print_stats_table(stats: List[Dict], model_name: str = ""):
         print(f"    Accuracy   : {acc * 100:.2f}%")
 
         rounds_rates = topo_result.get("rounds_rates", [])
+        round_counts = topo_result.get("round_counts", {})
         if rounds_rates:
             print()
-            print(f"    {'Round':>5}  {'ASR':>7}  {'UnFlagASR':>10}  {'ADR':>7}  {'AIR':>7}  {'FPR':>7}  {'F1':>8}  {'AUROC':>8}")
-            print(f"    {'─' * 67}")
+            print(f"    {'Round':>5}  {'ASR':>7}  {'UnFlagASR':>10}  {'ADR':>7}  {'AIR':>7}  {'FPR':>7}  {'F1':>8}  {'AUROC':>8}  {'Count':>6}")
+            print(f"    {'─' * 75}")
             for i, rr in enumerate(rounds_rates):
-                print(f"    {i + 1:>5}  {rr.get('ASR', 0):>7.2f}  {rr.get('UnFlagASR', 0):>10.2f}  {rr.get('ADR', 0):>7.2f}  {rr.get('AIR', 0):>7.2f}  {rr.get('FPR', 0):>7.2f}  {rr.get('F1', 0):>8.4f}  {rr.get('AUROC', 0):>8.4f}")
+                cnt = round_counts.get(i, 0)
+                print(f"    {i + 1:>5}  {rr.get('ASR', 0):>7.2f}  {rr.get('UnFlagASR', 0):>10.2f}  {rr.get('ADR', 0):>7.2f}  {rr.get('AIR', 0):>7.2f}  {rr.get('FPR', 0):>7.2f}  {rr.get('F1', 0):>8.4f}  {rr.get('AUROC', 0):>8.4f}  {cnt:>6}")
         print()
 
 
