@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from torch.utils.data import DataLoader
 import umap
 from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 
 def _pad_agent_windows(per_agent_lists, device=None):
@@ -343,13 +344,11 @@ class KMeansCluster:
 
     def classify_embeddings(self, embeddings):
         n_agents, n_windows, dim_emb = embeddings.shape
+
         flat_emb = embeddings.cpu().numpy().reshape(-1, dim_emb)
 
-        emb_min = flat_emb.min(axis=0, keepdims=True)
-        emb_max = flat_emb.max(axis=0, keepdims=True)
-        denom = emb_max - emb_min
-        denom[denom < 1e-10] = 1.0
-        normalized = (flat_emb - emb_min) / denom
+        scaler = StandardScaler()
+        standardized = scaler.fit_transform(flat_emb)
 
         reducer = umap.UMAP(
             n_components=self.config.n_components,
@@ -357,44 +356,56 @@ class KMeansCluster:
             min_dist=self.config.min_dist,
             random_state=self.random_state,
             metric=self.config.umap_metric,
-            n_jobs=1
+            n_jobs=1,
         )
-        reduced_emb = reducer.fit_transform(normalized)
+        reduced_emb = reducer.fit_transform(standardized)
 
         clusters = self.get_classes(reduced_emb)
+
         if clusters is None:
-            return np.zeros(n_agents, dtype=bool)
+            return np.zeros(n_agents, dtype=int), np.zeros(n_agents), reduced_emb, None
 
         cluster_counts = np.bincount(clusters)
         largest_size = cluster_counts.max()
 
-        benign_clusters = set(
+        benign_clusters = {
             i for i, count in enumerate(cluster_counts)
             if count == largest_size
-        )
+        }
         suspicious_clusters = set(range(len(cluster_counts))) - benign_clusters
 
         benign_mask = np.isin(clusters, list(benign_clusters))
-        if benign_mask.sum() > 0:
-            benign_centroid = normalized[benign_mask].mean(axis=0)
+
+        if benign_mask.any():
+            benign_centroid = reduced_emb[benign_mask].mean(axis=0)
         else:
-            benign_centroid = np.zeros(dim_emb)
+            benign_centroid = np.zeros(reduced_emb.shape[1])
 
         is_suspicious = np.isin(clusters, list(suspicious_clusters))
         distances = np.zeros(len(clusters))
+
         if is_suspicious.any():
-            suspicious_points = normalized[is_suspicious]
-            raw_distances = np.linalg.norm(suspicious_points - benign_centroid, axis=1)
+            raw_distances = np.linalg.norm(
+                reduced_emb[is_suspicious] - benign_centroid,
+                axis=1,
+            )
+
             d_min = raw_distances.min()
             d_max = raw_distances.max()
+
             if d_max > d_min:
-                distances[is_suspicious] = (raw_distances - d_min) / (d_max - d_min)
+                distances[is_suspicious] = (
+                    (raw_distances - d_min) /
+                    (d_max - d_min)
+                )
             else:
                 distances[is_suspicious] = 0.0
 
         agent_scores = distances.reshape(n_agents, n_windows).mean(axis=1)
 
-        return (agent_scores >= self.threshold).astype(int), agent_scores, reduced_emb, clusters
+        predictions = (agent_scores >= self.threshold).astype(int)
+
+        return predictions, agent_scores, reduced_emb, clusters
 
 
 class WindowBreakerModel:
@@ -683,6 +694,7 @@ class WindowBreakerModel:
                 train_data_loader, thresh_val_indices, thresh_classifier
             )
             self.computed_threshold = optimal_threshold
+            print(f"[Threshold] Computed inference threshold from training data: {self.computed_threshold:.6f}")
         else:
             per_graph_thresholds = []
             self.computed_threshold = None
@@ -711,10 +723,11 @@ class WindowBreakerModel:
         with torch.no_grad():
             node_points_cloud = self.model(embeddings, adj)
             flags, anomaly_score, embeddings, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
-        if raw_text[0] == None:
-            return flags, anomaly_score, embeddings, clusters
-        else:
-            return flags, anomaly_score, embeddings, clusters, raw_text
+        # if raw_text[0] == None:
+        #     return flags, anomaly_score, embeddings, clusters
+        # else:
+        #     return flags, anomaly_score, embeddings, clusters, raw_text
+            return flags, anomaly_score
 
     def create_scheduler(self, optimizer, scheduler_config):
         factor = scheduler_config.factor
