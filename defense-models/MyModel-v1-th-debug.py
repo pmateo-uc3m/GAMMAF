@@ -514,13 +514,9 @@ class WindowBreakerModel:
             if per_graph_thresholds:
                 arr = np.array(per_graph_thresholds)
                 n = len(arr)
-                median = np.median(arr)
-                mad = np.median(np.abs(arr - median))
-                k = 1.5
-                optimal_threshold = median + k * mad
+                optimal_threshold = float(arr.mean())
                 print(f"  Summary over {n} graph-round max scores:")
-                print(f"    median = {median:.6f}, MAD = {mad:.6f}")
-                print(f"    using threshold = median + {k}*MAD = {optimal_threshold:.6f} for live evaluation")
+                print(f"    using threshold = mean = {optimal_threshold:.6f} for live evaluation")
                 print()
             else:
                 optimal_threshold = None
@@ -725,15 +721,19 @@ class WindowBreakerModel:
             flags, anomaly_score, embeddings, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
 
         n_agents = len(flags)
+        if flags_ground_truth is None:
+            flags_ground_truth = [node.get("is_malicious", -1) for node in graph_data]
+        run_name = getattr(self.config, 'run_name', getattr(self.config, 'model_name', 'unknown'))
         import os
         log_path = os.path.join(os.path.dirname(__file__), "MyModel-v1-th-debug-output.txt")
         with open(log_path, "a") as f:
             f.write("\n")
             f.write("=" * 72 + "\n")
-            f.write("[Inference Debug] Per-node anomaly scores, ground truth, and flags\n")
-            f.write("=" * 72 + "\n")
+            f.write(f"[Inference Debug] Model: {run_name}\n")
+            f.write("-" * 72 + "\n")
             for i in range(n_agents):
-                gt_str = f"ground_truth={int(flags_ground_truth[i])}" if flags_ground_truth is not None else "ground_truth=N/A"
+                gt = int(flags_ground_truth[i]) if flags_ground_truth[i] != -1 else -1
+                gt_str = f"ground_truth={gt}" if gt != -1 else "ground_truth=N/A"
                 f.write(f"  Agent {i}: score={anomaly_score[i]:.6f}  {gt_str}  flagged={int(flags[i])}\n")
             f.write(f"  Threshold used: {classifier.threshold:.6f}\n")
             f.write("=" * 72 + "\n")

@@ -514,13 +514,9 @@ class WindowBreakerModel:
             if per_graph_thresholds:
                 arr = np.array(per_graph_thresholds)
                 n = len(arr)
-                median = np.median(arr)
-                mad = np.median(np.abs(arr - median))
-                k = 1.5
-                optimal_threshold = median + k * mad
+                optimal_threshold = float(arr.mean())
                 print(f"  Summary over {n} graph-round max scores:")
-                print(f"    median = {median:.6f}, MAD = {mad:.6f}")
-                print(f"    using threshold = median + {k}*MAD = {optimal_threshold:.6f} for live evaluation")
+                print(f"    using threshold = mean = {optimal_threshold:.6f} for live evaluation")
                 print()
             else:
                 optimal_threshold = None
