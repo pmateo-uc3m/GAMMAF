@@ -5,3 +5,5 @@ results
 .env
 best_model.pt
 my-configs
+my-models
+.ipynb_checkpoints
