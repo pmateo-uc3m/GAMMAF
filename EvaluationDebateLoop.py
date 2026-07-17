@@ -786,11 +786,11 @@ class LiveDebateOrchestration:
                     raw_scores = r.get("anomaly_scores")
                     if raw_scores is not None and len(raw_scores) > 0:
                         a = np.asarray(raw_scores, dtype=float)
-                        std = a.std()
-                        z_scores = (a - a.mean()) / std if std > 0 else np.zeros_like(a)
+                        lo, hi = a.min(), a.max()
+                        normed = (a - lo) / (hi - lo) if hi > lo else np.zeros_like(a)
                     else:
-                        z_scores = np.zeros(len(gt_flags))
-                    anomaly_scores_dict.setdefault(r_idx, []).extend(z_scores.tolist())
+                        normed = np.zeros(len(gt_flags))
+                    anomaly_scores_dict.setdefault(r_idx, []).extend(normed.tolist())
                     groundtruth_labels_dict.setdefault(r_idx, []).extend(gt_flags)
 
                     rounds_rates.append({
