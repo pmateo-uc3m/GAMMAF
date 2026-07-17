@@ -783,8 +783,14 @@ class LiveDebateOrchestration:
                     f1 = self._compute_f1(flags, gt_flags)
 
                     # For the pooled AUROC computation:
-                    z_scores = (lambda s: (s - s.mean()) / s.std())(np.array(r.get("anomaly_scores")))
-                    anomaly_scores_dict.setdefault(r_idx, []).extend(z_scores)
+                    raw_scores = r.get("anomaly_scores")
+                    if raw_scores is not None and len(raw_scores) > 0:
+                        a = np.asarray(raw_scores, dtype=float)
+                        std = a.std()
+                        z_scores = (a - a.mean()) / std if std > 0 else np.zeros_like(a)
+                    else:
+                        z_scores = np.zeros(len(gt_flags))
+                    anomaly_scores_dict.setdefault(r_idx, []).extend(z_scores.tolist())
                     groundtruth_labels_dict.setdefault(r_idx, []).extend(gt_flags)
 
                     rounds_rates.append({
@@ -808,7 +814,7 @@ class LiveDebateOrchestration:
                                 'FPR': 0.0,
                                 'F1': 1.0,
                             })
-                            anomaly_scores_dict.setdefault(i, []).extend(['MAX' if flag==1 else 'MIN' for flag in gt_flags])
+                            anomaly_scores_dict.setdefault(i, []).extend([1.0 if flag==1 else 0.0 for flag in gt_flags])
                             groundtruth_labels_dict.setdefault(i, []).extend(gt_flags)
                     else:
                         for i in range(len(rounds_rates), self.config.max_rounds):
@@ -823,7 +829,7 @@ class LiveDebateOrchestration:
                             })
 
                             # May need to remove this so the computation is more fair
-                            anomaly_scores_dict.setdefault(i, []).extend(['MAX' if flag==0 else 'MIN' for flag in gt_flags])
+                            anomaly_scores_dict.setdefault(i, []).extend([1.0 if flag==0 else 0.0 for flag in gt_flags])
                             groundtruth_labels_dict.setdefault(i, []).extend(gt_flags)
                 if complete_debate_id:
                     topology_rates.append(rounds_rates)
