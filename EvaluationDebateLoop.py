@@ -21,6 +21,8 @@ import json
 from types import SimpleNamespace
 from langchain_core.runnables import RunnableLambda
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done
+import time
+from datetime import datetime
 
 load_dotenv()  # Load environment variables from .env file
 
@@ -95,6 +97,7 @@ class LiveDebateOrchestration:
         self.answer_seed = getattr(config, "answer_seed", self.python_seed)
         random.seed(self.python_seed)
         np.random.seed(self.numpy_seed)
+        self.timestamp = datetime.fromtimestamp(time.time()).strftime("%Y%m%d%H%M%S")
         
         dataset_tag = getattr(
             config,
@@ -802,6 +805,22 @@ class LiveDebateOrchestration:
                         'FPR': round(fpr, 2),
                         'F1': round(f1, 4),
                     })
+                    if self.config.debug_mode:
+                        log_path = os.path.join(os.path.dirname(__file__), f"debug-logs/Debug-{self.timestamp}.txt")
+                        with open(log_path, "a") as f:
+                            f.write("\n")
+                            f.write("=" * 72 + "\n")
+                            f.write(f"[Inference Debug] Graph: {q_idx}  Round: {r_idx}\n")
+                            f.write("-" * 72 + "\n")
+                            for i in range(len(gt_flags)):
+                                gt = int(gt_flags[i]) if gt_flags[i] != -1 else -1
+                                gt_str = f"ground_truth={gt}" if gt != -1 else "ground_truth=N/A"
+                                f.write(
+                                    f"Agent {i:2d} | score={raw_scores[i]:9.6f} | {gt_str:<12} | flagged={int(flags[i])} | safe={str(agent_safe_bool[i]):5}\n"
+                                )
+                            f.write(f"  Threshold used: {classifier.threshold:.6f}\n")
+                            f.write("=" * 72 + "\n")
+                            f.write("\n")
                 if early_stop and question_consensus:
                     if question_correct:
                         for i in range(len(rounds_rates), self.config.max_rounds):
