@@ -1,5 +1,5 @@
 import os
-
+import copy 
 from DebateAgent import DebateAgent
 from typing import List
 from langchain_openai import ChatOpenAI
@@ -353,9 +353,12 @@ class LiveDebateOrchestration:
             question_format_data=question_format_data,
             round_num=1,
         )
+
+        static_adjacency = copy.deepcopy(adjacency_matrix)
+        static_mode = getattr(self.config, "static_adjacency_mode", False)
         
         debate_embeddings = self.text_processor.process_round(last_round_responses)
-        flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix)
+        flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
         
         adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
         debate_trace.append({
@@ -393,7 +396,7 @@ class LiveDebateOrchestration:
             )
             
             debate_embeddings = self.text_processor.process_round(last_round_responses)
-            flags, anomaly_scores = defense_model.predict(debate_embeddings, adjacency_matrix)
+            flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
             adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
             
             debate_trace.append({
@@ -810,15 +813,14 @@ class LiveDebateOrchestration:
                         with open(log_path, "a") as f:
                             f.write("\n")
                             f.write("=" * 72 + "\n")
-                            f.write(f"[Inference Debug] Graph: {q_idx}  Round: {r_idx}\n")
+                            f.write(f"[Inference Debug] Graph: {q_idx}  Round: {r_idx}  Threshold: {getattr(classifier, "threshold", None)}\n")
                             f.write("-" * 72 + "\n")
                             for i in range(len(gt_flags)):
                                 gt = int(gt_flags[i]) if gt_flags[i] != -1 else -1
                                 gt_str = f"ground_truth={gt}" if gt != -1 else "ground_truth=N/A"
                                 f.write(
-                                    f"Agent {i:2d} | score={raw_scores[i]:9.6f} | {gt_str:<12} | flagged={int(flags[i])} | safe={str(agent_safe_bool[i]):5}\n"
+                                    f"Agent {i:2d} | score={raw_scores[i]:9.6f} | {gt_str:<12} | flagged={int(flags[i])} | safe={str(1-agent_safe_bool[i]):5}\n"
                                 )
-                            f.write(f"  Threshold used: {classifier.threshold:.6f}\n")
                             f.write("=" * 72 + "\n")
                             f.write("\n")
                 if early_stop and question_consensus:
@@ -843,7 +845,7 @@ class LiveDebateOrchestration:
                                 'ADR': 0.0,
                                 'AIR': 100.0,
                                 'AUROC': 0,
-                                'FPR': 100 - sum(gt_flags)/len(gt_flags),
+                                'FPR': (1 - sum(gt_flags)/len(gt_flags))*100,
                                 'F1': 0.0,
                             })
 
