@@ -130,18 +130,12 @@ class LiveDebateOrchestration:
         )
         self.text_processor = textProcessor(device='cpu')  # we need CPU because cant manage concurrent GPU calls
             
-        model_name = _require_env("MODEL_NAME")
-        base_url = _require_env("BASE_URL")
-        api_key = SecretStr(_require_env("API_KEY"))
+        self._model_name = _require_env("MODEL_NAME")
+        self._base_url = _require_env("BASE_URL")
+        self._api_key = SecretStr(_require_env("API_KEY"))
 
         self.llm_max_retries = getattr(config, "llm_max_retries", 3)
-        self.llm = ChatOpenAI(
-            model = model_name,
-            api_key = api_key,
-            base_url = base_url,
-            timeout = config.timeout,
-            max_retries = self.llm_max_retries,
-        ) | RunnableLambda(self.dataloader.parse_model_output)
+        self._llm_timeout = config.timeout
 
     def _merge_prompt_format_data(self, format_data: dict, question_format_data: dict | None) -> dict:
         if not question_format_data:
@@ -156,6 +150,15 @@ class LiveDebateOrchestration:
             format_data[k] = v
         return format_data
         
+    def _build_llm_chain(self):
+        return ChatOpenAI(
+            model=self._model_name,
+            api_key=self._api_key,
+            base_url=self._base_url,
+            timeout=self._llm_timeout,
+            max_retries=self.llm_max_retries,
+        ) | RunnableLambda(self.dataloader.parse_model_output)
+
     def generate_agents(self, question_index=None):
         agents = []
         effective_seed = self.config.malicious_seed + (question_index if question_index is not None else 0)
@@ -166,7 +169,7 @@ class LiveDebateOrchestration:
             agents.append(
                 DebateAgent(
                     agent_id = i,
-                    model=self.llm,
+                    model=self._build_llm_chain(),
                     is_malicious=is_malicious,
                     system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"] if is_malicious else self.prompts["SYSTEM_PROMPT"],
                     first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"] if is_malicious else self.prompts["FIRST_ROUND_PROMPT"],
