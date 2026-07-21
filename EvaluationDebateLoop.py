@@ -98,6 +98,7 @@ class LiveDebateOrchestration:
         random.seed(self.python_seed)
         np.random.seed(self.numpy_seed)
         self.timestamp = datetime.fromtimestamp(time.time()).strftime("%Y%m%d%H%M%S")
+        self._current_threshold = None
         
         dataset_tag = getattr(
             config,
@@ -336,6 +337,14 @@ class LiveDebateOrchestration:
             defense_model.config = SimpleNamespace()
         if not hasattr(defense_model.config, 'top_k'):
             defense_model.config.top_k = getattr(self.config, 'top_k_defense', 2)
+        threshold = getattr(defense_model, 'threshold', None)
+        if threshold is None:
+            threshold = getattr(defense_model, 'computed_threshold', None)
+        if threshold is None and hasattr(defense_model, 'config'):
+            threshold = getattr(defense_model.config, 'threshold', None)
+        if threshold is None and hasattr(defense_model, 'config'):
+            threshold = getattr(defense_model.config, 'top_k', None)
+        self._current_threshold = threshold
         agents = self.generate_agents(question_index=question_index)
         debate_trace = []
         flags = [0] * len(agents)
@@ -813,7 +822,7 @@ class LiveDebateOrchestration:
                         with open(log_path, "a") as f:
                             f.write("\n")
                             f.write("=" * 72 + "\n")
-                            f.write(f"[Inference Debug] Graph: {q_idx}  Round: {r_idx}  Threshold: {getattr(classifier, "threshold", None)}\n")
+                            f.write(f"[Inference Debug] Graph: {q_idx}  Round: {r_idx}  Threshold: {getattr(self, '_current_threshold', None)}\n")
                             f.write("-" * 72 + "\n")
                             for i in range(len(gt_flags)):
                                 gt = int(gt_flags[i]) if gt_flags[i] != -1 else -1
