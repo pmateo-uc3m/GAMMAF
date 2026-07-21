@@ -677,7 +677,51 @@ class WindowBreakerModel:
         else:
             self.fitted_scaler = None
 
-        self.computed_threshold = None
+        if has_thresh_val and thresh_val_indices:
+            self.model.eval()
+            all_scores = []
+            classifier = KMeansCluster(self.device, self.config.kmeans_config, scaler=getattr(self, 'fitted_scaler', None))
+            with torch.no_grad():
+                for idx in thresh_val_indices:
+                    graph_data = train_data_loader.data[idx]
+                    topology = graph_data['topology']
+                    embeddings = graph_data['embeddings']
+                    agent_ids = graph_data['agent_ids']
+                    round_ids = graph_data['round_ids']
+
+                    num_agents = len(topology)
+                    unique_rounds = sorted(set(round_ids))
+
+                    for round_id in unique_rounds:
+                        round_mask = [i for i, r in enumerate(round_ids) if r == round_id]
+                        round_embeddings_list = [embeddings[i] for i in round_mask]
+                        round_agent_ids_list = [agent_ids[i] for i in round_mask]
+
+                        agent_embeddings = [[] for _ in range(num_agents)]
+                        for emb, aid in zip(round_embeddings_list, round_agent_ids_list):
+                            if not isinstance(emb, torch.Tensor):
+                                emb = torch.tensor(emb, dtype=torch.float32)
+                            agent_embeddings[aid].append(emb)
+
+                        padded = _pad_agent_windows(agent_embeddings, device=self.device)
+                        adj = torch.tensor(topology, dtype=torch.float32).to(self.device)
+                        node_points_cloud = self.model(padded, adj)
+                        _, scores, _, _ = classifier.classify_embeddings(node_points_cloud.cpu())
+                        all_scores.extend(scores.tolist())
+
+            all_scores = np.array(all_scores)
+            median = float(np.median(all_scores))
+            abs_dev = np.abs(all_scores - median)
+            mad = float(np.median(abs_dev))
+            self.computed_threshold = median + 3.0 * mad
+            print()
+            print(f"  [Threshold Calibration] Calibrated threshold from {len(all_scores)} agent scores")
+            print(f"    median     = {median:.6f}")
+            print(f"    MAD        = {mad:.6f}")
+            print(f"    threshold  = median + 3.0 * MAD = {self.computed_threshold:.6f}")
+            print()
+        else:
+            self.computed_threshold = None
 
         del self.scheduler
         del self.optimizer
@@ -702,8 +746,11 @@ class WindowBreakerModel:
             node_points_cloud = self.model(embeddings, adj)
             _, anomaly_score, _, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
 
-        k = getattr(self.config, 'top_k_flags', 2)
-        flags = self._topk_flag(anomaly_score.numpy() if hasattr(anomaly_score, 'numpy') else anomaly_score, k)
+        if self.computed_threshold is not None:
+            flags = (np.asarray(anomaly_score) >= self.computed_threshold).astype(int)
+        else:
+            k = getattr(self.config, 'top_k_flags', 2)
+            flags = self._topk_flag(anomaly_score.numpy() if hasattr(anomaly_score, 'numpy') else anomaly_score, k)
 
         n_agents = len(flags)
         if flags_ground_truth is None:
