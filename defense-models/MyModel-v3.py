@@ -10,6 +10,19 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 
+def _compute_gini_of_diffs(sorted_values):
+    if len(sorted_values) < 3:
+        return 0.0
+    diffs = np.diff(sorted_values)
+    diffs_sorted = np.sort(diffs)
+    n_d = len(diffs_sorted)
+    if n_d < 2 or diffs_sorted.sum() == 0:
+        return 0.0
+    numerator = 2 * np.sum(np.arange(1, n_d + 1) * diffs_sorted)
+    denominator = n_d * np.sum(diffs_sorted)
+    return numerator / denominator - (n_d + 1) / n_d
+
+
 def _pad_agent_windows(per_agent_lists, device=None):
     flat_agents = []
     for agent in per_agent_lists:
@@ -467,6 +480,34 @@ class WindowBreakerModel:
         loss = loss_fn(embeddings, graph_ids, adj_matrices)
         return loss.item()
 
+    def _gini_flag(self, scores, gini_threshold):
+        n = len(scores)
+        flags = np.zeros(n, dtype=int)
+
+        if n < 3:
+            return flags
+
+        remaining = np.arange(n)
+        flagged_indices = []
+
+        while len(remaining) >= 3:
+            remaining_scores = scores[remaining]
+            sorted_idx = np.argsort(remaining_scores)
+            sorted_scores = remaining_scores[sorted_idx]
+
+            gini = _compute_gini_of_diffs(sorted_scores)
+
+            if gini <= gini_threshold:
+                break
+
+            max_local_idx = sorted_idx[-1]
+            max_global_idx = remaining[max_local_idx]
+            flagged_indices.append(max_global_idx)
+            remaining = np.delete(remaining, max_local_idx)
+
+        flags[flagged_indices] = 1
+        return flags
+
     def _fit_standard_scaler(self, train_data_loader, indices):
         self.model.eval()
         all_flat = []
@@ -506,16 +547,17 @@ class WindowBreakerModel:
         print(f"  [Scaler] Fitted StandardScaler with mean={scaler.mean_[:3]}... on {len(all_flat)} samples")
         return scaler
 
-    def _run_threshold_validation(self, train_data_loader, thresh_val_indices, classifier):
+    def _run_gini_threshold_validation(self, train_data_loader, thresh_val_indices, scaler):
         print()
         print("=" * 72)
-        print("[Threshold Validation] Running post-training threshold analysis")
+        print("[Gini Threshold Validation] Calibrating Gini-based anomaly detection threshold")
         print("=" * 72)
         print("  All graphs in this set are benign — any anomaly is a false positive.")
+        print("  Clustering is skipped; global centroid used instead.")
         print()
 
         self.model.eval()
-        all_agent_scores = []
+        per_round_gini = []
 
         with torch.no_grad():
             for idx in thresh_val_indices:
@@ -541,38 +583,82 @@ class WindowBreakerModel:
                             emb = torch.tensor(emb, dtype=torch.float32)
                         agent_embeddings[aid].append(emb)
 
-                    window_counts = [len(a) for a in agent_embeddings]
-
                     padded = _pad_agent_windows(agent_embeddings, device=self.device)
                     adj = torch.tensor(topology, dtype=torch.float32).to(self.device)
-
                     node_points_cloud = self.model(padded, adj)
-                    _, anomaly_scores, _, clusters = classifier.classify_embeddings(
-                        node_points_cloud.cpu()
+
+                    n_windows = node_points_cloud.shape[1]
+                    flat_emb = node_points_cloud.cpu().numpy().reshape(-1, node_points_cloud.shape[-1])
+
+                    if scaler is not None:
+                        standardized = scaler.transform(flat_emb)
+                    else:
+                        standardized = StandardScaler().fit_transform(flat_emb)
+
+                    reducer = umap.UMAP(
+                        n_components=self.config.kmeans_config.n_components,
+                        n_neighbors=self.config.kmeans_config.n_neighbors,
+                        min_dist=self.config.kmeans_config.min_dist,
+                        random_state=self.config.kmeans_config.random_state,
+                        metric=self.config.kmeans_config.umap_metric,
+                        n_jobs=1,
                     )
+                    reduced_emb = reducer.fit_transform(standardized)
 
-                    all_agent_scores.extend(anomaly_scores.tolist())
+                    global_centroid = reduced_emb.mean(axis=0)
 
-                    cluster_counts = np.bincount(clusters)
-                    num_clusters = len(cluster_counts)
+                    if reduced_emb.shape[0] >= 2:
+                        cov = np.cov(reduced_emb, rowvar=False)
+                        d = cov.shape[0]
+                        trace = np.trace(cov)
+                        epsilon = 0.01 * trace / d if d > 0 and trace > 0 else 1e-6
+                        cov_reg = cov + epsilon * np.eye(d)
 
-                    print(f"    [Round {round_id}] agent anomaly scores: {np.array2string(anomaly_scores, precision=6, suppress_small=True)}")
-                    print(f"      windows per agent: {window_counts}")
-                    print(f"      clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
+                        try:
+                            L = np.linalg.cholesky(cov_reg)
+                            diff = reduced_emb - global_centroid
+                            whitened = np.linalg.solve(L, diff.T)
+                            sq_mahal = np.sum(whitened ** 2, axis=0)
+                            window_dists = np.sqrt(np.maximum(sq_mahal, 0.0))
+                        except np.linalg.LinAlgError:
+                            inv_cov = np.linalg.pinv(cov_reg)
+                            diff = reduced_emb - global_centroid
+                            sq_mahal = np.sum(diff @ inv_cov * diff, axis=1)
+                            window_dists = np.sqrt(np.maximum(sq_mahal, 0.0))
+                    else:
+                        diff = reduced_emb - global_centroid
+                        window_dists = np.linalg.norm(diff, axis=1)
+
+                    agent_scores = window_dists.reshape(num_agents, n_windows).mean(axis=1)
+
+                    sorted_scores = np.sort(agent_scores)
+                    gini = _compute_gini_of_diffs(sorted_scores)
+                    per_round_gini.append(gini)
+
+                    print(f"    [Round {round_id}] agent scores: {np.array2string(agent_scores, precision=6, suppress_small=True)}")
+                    print(f"      Gini coefficient of score differences = {gini:.6f}")
 
                 print()
 
-            if all_agent_scores:
-                arr = np.array(all_agent_scores)
-                n = len(arr)
-                optimal_threshold = float(np.percentile(arr, 65))
-                print(f"  Summary over {n} agent-level scores across all threshold-validation graphs:")
-                print(f"    using threshold = 65th percentile = {optimal_threshold:.6f} for live evaluation")
-                print()
+        if per_round_gini:
+            arr = np.array(per_round_gini)
+            n = len(arr)
+            mean_gini = float(arr.mean())
+            if n >= 2:
+                std_err = float(np.std(arr, ddof=1)) / np.sqrt(n)
+                ci_95 = 1.96 * std_err
             else:
-                optimal_threshold = None
+                ci_95 = 0.0
+            gini_threshold = mean_gini + ci_95
+            print(f"  Summary over {n} rounds:")
+            print(f"    mean Gini = {mean_gini:.6f}")
+            print(f"    95% CI = ±{ci_95:.6f}")
+            print(f"    threshold T = mean + 95% CI = {gini_threshold:.6f}")
+            print()
+        else:
+            gini_threshold = None
 
-        return all_agent_scores, optimal_threshold
+        return gini_threshold
 
     def _train(self, train_data_loader):
 
@@ -749,13 +835,14 @@ class WindowBreakerModel:
             self.fitted_scaler = None
 
         if has_thresh_val:
-            thresh_classifier = KMeansCluster(self.device, self.config.kmeans_config, scaler=self.fitted_scaler)
-            all_agent_scores, optimal_threshold = self._run_threshold_validation(
-                train_data_loader, thresh_val_indices, thresh_classifier
+            gini_threshold = self._run_gini_threshold_validation(
+                train_data_loader, thresh_val_indices, self.fitted_scaler
             )
-            self.computed_threshold = optimal_threshold
-            print(f"[Threshold] Computed inference threshold from training data: {self.computed_threshold:.6f}")
+            self.computed_gini_threshold = gini_threshold
+            self.computed_threshold = gini_threshold
+            print(f"[Gini Threshold] Computed Gini anomaly detection threshold T = {self.computed_gini_threshold:.6f}")
         else:
+            self.computed_gini_threshold = None
             self.computed_threshold = None
 
         del self.scheduler
@@ -777,11 +864,15 @@ class WindowBreakerModel:
         embeddings = _pad_agent_windows(per_agent, device=self.device)
         adj = torch.tensor(adj_matrix).to(self.device)
         classifier = KMeansCluster(self.device, self.config.kmeans_config, scaler=getattr(self, 'fitted_scaler', None))
-        if getattr(self, 'computed_threshold', None) is not None:
-            classifier.threshold = self.computed_threshold
         with torch.no_grad():
             node_points_cloud = self.model(embeddings, adj)
-            flags, anomaly_score, embeddings, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
+            _, anomaly_score, _, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
+
+        gini_t = getattr(self, 'computed_gini_threshold', None)
+        if gini_t is not None:
+            flags = self._gini_flag(anomaly_score.numpy() if hasattr(anomaly_score, 'numpy') else anomaly_score, gini_t)
+        else:
+            flags = np.zeros(len(anomaly_score), dtype=int)
 
         n_agents = len(flags)
         if flags_ground_truth is None:
@@ -798,7 +889,7 @@ class WindowBreakerModel:
         #         gt = int(flags_ground_truth[i]) if flags_ground_truth[i] != -1 else -1
         #         gt_str = f"ground_truth={gt}" if gt != -1 else "ground_truth=N/A"
         #         f.write(f"  Agent {i}: score={anomaly_score[i]:.6f}  {gt_str}  flagged={int(flags[i])}\n")
-        #     f.write(f"  Threshold used: {classifier.threshold:.6f}\n")
+        #     f.write(f"  Gini threshold T used: {gini_t:.6f}\n" if gini_t is not None else f"  Gini threshold T: N/A\n")
         #     f.write("=" * 72 + "\n")
         #     f.write("\n")
 

@@ -389,29 +389,8 @@ class KMeansCluster:
         distances = np.zeros(len(clusters))
 
         if is_suspicious.any():
-            benign_pts = reduced_emb[benign_mask]
-
-            if benign_pts.shape[0] >= 2:
-                cov = np.cov(benign_pts, rowvar=False)
-                d = cov.shape[0]
-                trace = np.trace(cov)
-                epsilon = 0.01 * trace / d if d > 0 and trace > 0 else 1e-6
-                cov_reg = cov + epsilon * np.eye(d)
-
-                try:
-                    L = np.linalg.cholesky(cov_reg)
-                    diff = reduced_emb[is_suspicious] - benign_centroid
-                    whitened = np.linalg.solve(L, diff.T)
-                    sq_mahal = np.sum(whitened ** 2, axis=0)
-                    raw_distances = np.sqrt(np.maximum(sq_mahal, 0.0))
-                except np.linalg.LinAlgError:
-                    inv_cov = np.linalg.pinv(cov_reg)
-                    diff = reduced_emb[is_suspicious] - benign_centroid
-                    sq_mahal = np.sum(diff @ inv_cov * diff, axis=1)
-                    raw_distances = np.sqrt(np.maximum(sq_mahal, 0.0))
-            else:
-                diff = reduced_emb[is_suspicious] - benign_centroid
-                raw_distances = np.linalg.norm(diff, axis=1)
+            diff = reduced_emb[is_suspicious] - benign_centroid
+            raw_distances = np.linalg.norm(diff, axis=1)
 
             distances[is_suspicious] = raw_distances
 
@@ -467,6 +446,22 @@ class WindowBreakerModel:
         loss = loss_fn(embeddings, graph_ids, adj_matrices)
         return loss.item()
 
+    def _topk_flag(self, scores, k):
+        n = len(scores)
+        flags = np.zeros(n, dtype=int)
+
+        if k <= 0 or n == 0:
+            return flags
+
+        k = min(k, n)
+
+        # Argsort ascending, then take the last k indices
+        # For ties, last-occurrence wins (deterministic since argsort is stable)
+        sorted_indices = np.argsort(scores, kind='stable')
+        topk_indices = sorted_indices[-k:]
+        flags[topk_indices] = 1
+        return flags
+
     def _fit_standard_scaler(self, train_data_loader, indices):
         self.model.eval()
         all_flat = []
@@ -506,73 +501,7 @@ class WindowBreakerModel:
         print(f"  [Scaler] Fitted StandardScaler with mean={scaler.mean_[:3]}... on {len(all_flat)} samples")
         return scaler
 
-    def _run_threshold_validation(self, train_data_loader, thresh_val_indices, classifier):
-        print()
-        print("=" * 72)
-        print("[Threshold Validation] Running post-training threshold analysis")
-        print("=" * 72)
-        print("  All graphs in this set are benign — any anomaly is a false positive.")
-        print()
 
-        self.model.eval()
-        all_agent_scores = []
-
-        with torch.no_grad():
-            for idx in thresh_val_indices:
-                graph_data = train_data_loader.data[idx]
-                topology = graph_data['topology']
-                embeddings = graph_data['embeddings']
-                agent_ids = graph_data['agent_ids']
-                round_ids = graph_data['round_ids']
-
-                num_agents = len(topology)
-                unique_rounds = sorted(set(round_ids))
-
-                print(f"  [Graph {idx}] {len(unique_rounds)} round(s)")
-
-                for round_id in unique_rounds:
-                    round_mask = [i for i, r in enumerate(round_ids) if r == round_id]
-                    round_embeddings_list = [embeddings[i] for i in round_mask]
-                    round_agent_ids_list = [agent_ids[i] for i in round_mask]
-
-                    agent_embeddings = [[] for _ in range(num_agents)]
-                    for emb, aid in zip(round_embeddings_list, round_agent_ids_list):
-                        if not isinstance(emb, torch.Tensor):
-                            emb = torch.tensor(emb, dtype=torch.float32)
-                        agent_embeddings[aid].append(emb)
-
-                    window_counts = [len(a) for a in agent_embeddings]
-
-                    padded = _pad_agent_windows(agent_embeddings, device=self.device)
-                    adj = torch.tensor(topology, dtype=torch.float32).to(self.device)
-
-                    node_points_cloud = self.model(padded, adj)
-                    _, anomaly_scores, _, clusters = classifier.classify_embeddings(
-                        node_points_cloud.cpu()
-                    )
-
-                    all_agent_scores.extend(anomaly_scores.tolist())
-
-                    cluster_counts = np.bincount(clusters)
-                    num_clusters = len(cluster_counts)
-
-                    print(f"    [Round {round_id}] agent anomaly scores: {np.array2string(anomaly_scores, precision=6, suppress_small=True)}")
-                    print(f"      windows per agent: {window_counts}")
-                    print(f"      clusters: {num_clusters} total, sizes: {cluster_counts.tolist()}")
-
-                print()
-
-            if all_agent_scores:
-                arr = np.array(all_agent_scores)
-                n = len(arr)
-                optimal_threshold = float(np.percentile(arr, 65))
-                print(f"  Summary over {n} agent-level scores across all threshold-validation graphs:")
-                print(f"    using threshold = 65th percentile = {optimal_threshold:.6f} for live evaluation")
-                print()
-            else:
-                optimal_threshold = None
-
-        return all_agent_scores, optimal_threshold
 
     def _train(self, train_data_loader):
 
@@ -748,15 +677,7 @@ class WindowBreakerModel:
         else:
             self.fitted_scaler = None
 
-        if has_thresh_val:
-            thresh_classifier = KMeansCluster(self.device, self.config.kmeans_config, scaler=self.fitted_scaler)
-            all_agent_scores, optimal_threshold = self._run_threshold_validation(
-                train_data_loader, thresh_val_indices, thresh_classifier
-            )
-            self.computed_threshold = optimal_threshold
-            print(f"[Threshold] Computed inference threshold from training data: {self.computed_threshold:.6f}")
-        else:
-            self.computed_threshold = None
+        self.computed_threshold = None
 
         del self.scheduler
         del self.optimizer
@@ -777,11 +698,12 @@ class WindowBreakerModel:
         embeddings = _pad_agent_windows(per_agent, device=self.device)
         adj = torch.tensor(adj_matrix).to(self.device)
         classifier = KMeansCluster(self.device, self.config.kmeans_config, scaler=getattr(self, 'fitted_scaler', None))
-        if getattr(self, 'computed_threshold', None) is not None:
-            classifier.threshold = self.computed_threshold
         with torch.no_grad():
             node_points_cloud = self.model(embeddings, adj)
-            flags, anomaly_score, embeddings, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
+            _, anomaly_score, _, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
+
+        k = getattr(self.config, 'top_k_flags', 2)
+        flags = self._topk_flag(anomaly_score.numpy() if hasattr(anomaly_score, 'numpy') else anomaly_score, k)
 
         n_agents = len(flags)
         if flags_ground_truth is None:
@@ -798,7 +720,7 @@ class WindowBreakerModel:
         #         gt = int(flags_ground_truth[i]) if flags_ground_truth[i] != -1 else -1
         #         gt_str = f"ground_truth={gt}" if gt != -1 else "ground_truth=N/A"
         #         f.write(f"  Agent {i}: score={anomaly_score[i]:.6f}  {gt_str}  flagged={int(flags[i])}\n")
-        #     f.write(f"  Threshold used: {classifier.threshold:.6f}\n")
+        #     f.write(f"  Gini threshold T used: {gini_t:.6f}\n" if gini_t is not None else f"  Gini threshold T: N/A\n")
         #     f.write("=" * 72 + "\n")
         #     f.write("\n")
 
