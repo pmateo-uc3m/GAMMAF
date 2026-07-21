@@ -1,5 +1,6 @@
 import os
-import copy 
+import copy
+import threading
 from DebateAgent import DebateAgent
 from typing import List
 from langchain_openai import ChatOpenAI
@@ -99,6 +100,7 @@ class LiveDebateOrchestration:
         np.random.seed(self.numpy_seed)
         self.timestamp = datetime.fromtimestamp(time.time()).strftime("%Y%m%d%H%M%S")
         self._current_threshold = None
+        self._model_predict_lock = threading.Lock()
         
         dataset_tag = getattr(
             config,
@@ -367,7 +369,8 @@ class LiveDebateOrchestration:
         static_mode = getattr(self.config, "static_adjacency_mode", False)
         
         debate_embeddings = self.text_processor.process_round(last_round_responses)
-        flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
+        with self._model_predict_lock:
+            flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
         
         adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
         debate_trace.append({
@@ -405,7 +408,8 @@ class LiveDebateOrchestration:
             )
             
             debate_embeddings = self.text_processor.process_round(last_round_responses)
-            flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
+            with self._model_predict_lock:
+                flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
             adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
             
             debate_trace.append({
