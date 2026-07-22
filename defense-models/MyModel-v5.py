@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 import umap
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
+from scipy.stats import t as t_dist
 
 
 def _pad_agent_windows(per_agent_lists, device=None):
@@ -396,6 +397,11 @@ class KMeansCluster:
 
         agent_scores = distances.reshape(n_agents, n_windows).mean(axis=1)
 
+        # Normalize scores to sum to 1 per round
+        total = agent_scores.sum()
+        if total > 0:
+            agent_scores = agent_scores / total
+
         predictions = (agent_scores >= self.threshold).astype(int)
 
         return predictions, agent_scores, reduced_emb, clusters
@@ -710,15 +716,19 @@ class WindowBreakerModel:
                         all_scores.extend(scores.tolist())
 
             all_scores = np.array(all_scores)
-            median = float(np.median(all_scores))
-            abs_dev = np.abs(all_scores - median)
-            mad = float(np.median(abs_dev))
-            self.computed_threshold = median + 3.0 * mad
+            n = len(all_scores)
+            mean = float(np.mean(all_scores))
+            std = float(np.std(all_scores, ddof=1))
+            t_crit = float(t_dist.ppf(0.975, max(1, n - 1)))
+            ci = t_crit * std / np.sqrt(n)
+            self.computed_threshold = mean + ci
             print()
-            print(f"  [Threshold Calibration] Calibrated threshold from {len(all_scores)} agent scores")
-            print(f"    median     = {median:.6f}")
-            print(f"    MAD        = {mad:.6f}")
-            print(f"    threshold  = median + 3.0 * MAD = {self.computed_threshold:.6f}")
+            print(f"  [Threshold Calibration] Calibrated threshold from {n} agent scores")
+            print(f"    mean      = {mean:.6f}")
+            print(f"    std       = {std:.6f}")
+            print(f"    t_crit    = {t_crit:.6f}")
+            print(f"    CI        = {ci:.6f}")
+            print(f"    threshold = mean + 0.95 CI = {self.computed_threshold:.6f}")
             print()
         else:
             self.computed_threshold = None
@@ -746,7 +756,8 @@ class WindowBreakerModel:
             node_points_cloud = self.model(embeddings, adj)
             _, anomaly_score, _, clusters = classifier.classify_embeddings(node_points_cloud.cpu())
 
-        if self.computed_threshold is not None:
+        thresh_val_split = getattr(self.config, 'threshold_validation_split', 0.0)
+        if self.computed_threshold is not None and thresh_val_split > 0:
             flags = (np.asarray(anomaly_score) >= self.computed_threshold).astype(int)
         else:
             k = getattr(self.config, 'top_k_flags', 2)
