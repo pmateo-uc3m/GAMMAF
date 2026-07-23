@@ -5,6 +5,7 @@ from DebateAgent import DebateAgent
 from typing import List
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
+from pydantic import SecretStr
 import random
 import importlib.util
 import numpy as np
@@ -131,7 +132,7 @@ class LiveDebateOrchestration:
             
         self._model_name = _require_env("MODEL_NAME")
         self._base_url = _require_env("BASE_URL")
-        self._api_key = _require_env("API_KEY")
+        self._api_key = SecretStr(_require_env("API_KEY"))
 
         self.llm_max_retries = getattr(config, "llm_max_retries", 3)
         self._llm_timeout = config.timeout
