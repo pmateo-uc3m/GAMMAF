@@ -33,6 +33,9 @@ class DataProcessor:
         """Should load the debates data in the proper format to feed into the model (geometric graph)."""
         with open(pkl_path, 'rb') as f:
             data = pickle.load(f)
+
+        if "data" in data:
+            data = data["data"]
             
         def convert_round_to_geo_graph(round_messages, attacker_idxes, edge_idx_tensor):
             node_features_s = []
