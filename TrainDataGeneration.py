@@ -322,7 +322,7 @@ def main():
             number_malicious_agents=num_malicious,
             consensus_threshold=consensus_threshold,
             topology=adj_matrix,
-            prompts_file=args.prompts if args.prompts is not None else "prompts_blindguard.json",
+            prompts_file=None,
             malicious_randomization_seed=malicious_randomization_seed,
             parallel_questions=args.parallel_questions,
             parallel_agents=True,
