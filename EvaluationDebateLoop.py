@@ -91,7 +91,7 @@ def modify_adjacency(flags, adjacency_matrix):
     return modified_matrix
 
 class LiveDebateOrchestration:
-    def __init__(self, config):
+    def __init__(self, config, train_indexes = []):
         self.config = config
         self.python_seed = getattr(config, "python_seed", getattr(config, "questions_random_seed", 0))
         self.numpy_seed = getattr(config, "numpy_seed", self.python_seed)
@@ -101,7 +101,8 @@ class LiveDebateOrchestration:
         self.timestamp = datetime.fromtimestamp(time.time()).strftime("%Y%m%d%H%M%S")
         self._current_threshold = None
         self._model_predict_lock = threading.Lock()
-        
+        self.train_indexes = train_indexes
+
         dataset_tag = getattr(
             config,
             "questions_dataset_tag",
@@ -121,7 +122,8 @@ class LiveDebateOrchestration:
 
         self.dataloader = questions_loader(
             num_questions = max(config.num_questions, config.n_questions_on_random_topo),
-            random_seed = config.questions_random_seed
+            random_seed = config.questions_random_seed,
+            indexes = self.train_indexes
         )
         self.prompts = self.dataloader.get_prompts()
         

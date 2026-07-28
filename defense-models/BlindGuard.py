@@ -74,6 +74,9 @@ class TrainDataProcessor(DataGenerationParams):
         """Load pickle data and normalize to per-debate entries with their own adjacency."""
         with open(pkl_path, 'rb') as f:
             data = pickle.load(f)
+        
+        if "data" in data:
+            data = data["data"]
             
         processed_data = []
         for idx, entry in enumerate(data):
@@ -586,7 +589,7 @@ class Master:
     def __init__(self, config_path):
         self.args = load_config_from_path(config_path)
         
-    def _run(self):
+    def _run(self, train_pkl_path=None):
         # if self.args.save_model and not self.args.save_path:
         #     raise ValueError("If --save_model is True, you must provide a --save_path to save the model.")
         
@@ -606,7 +609,10 @@ class Master:
 
         log_info("Loading and processing training data...")
         train_data = TrainDataProcessor(data_params, target_topologies=self.args.topologies, rng_seed=data_seed)
-        train_data.load_pkl(self.args.pkl_train)
+        if train_pkl_path:
+            train_data.load_pkl(train_pkl_path)
+        else:
+            train_data.load_pkl(self.args.pkl_train)
         
         if self.args.anomalize_data:
             train_data.anomalize_data()

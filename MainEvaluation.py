@@ -296,7 +296,10 @@ if __name__ == "__main__":
     try:
         log_section("Topology Resolution")
         topologies = resolve_topologies(config, parsed_args.config_file)
-        liveEvaluator = LiveDebateOrchestration(config.live_evaluation_config)
+        
+        train_indexes = pickle.load(open(config.train_pkl_path, "rb")).get("idx_metadata", [])
+        
+        liveEvaluator = LiveDebateOrchestration(config.live_evaluation_config, train_indexes=train_indexes)
 
         live_cfg = config.live_evaluation_config
         if getattr(live_cfg, "no_defense_baseline", False):
@@ -341,7 +344,7 @@ if __name__ == "__main__":
                 log_config(f"config", model_info["config_path"])
 
                 train_t0 = time()
-                metrics, model_instance = model_info["master"]._run()
+                metrics, model_instance = model_info["master"]._run(config.train_pkl_path)
                 effective_name = model_name
                 computed_threshold = metrics.get("computed_threshold") if isinstance(metrics, dict) else None
                 if computed_threshold is not None:

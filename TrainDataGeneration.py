@@ -441,8 +441,12 @@ def main():
     
     os.makedirs(save_data_dir, exist_ok=True)
     output_filepath = os.path.join(save_data_dir, file_name)
+    output = {
+        "data" : all_results,
+        "idx_metadata" : debate_orchestration.dataloader.indexes if hasattr(debate_orchestration, "dataloader") and hasattr(debate_orchestration.dataloader, "indexes") else None,
+    }
     with open(output_filepath, 'wb') as f:
-        pickle.dump(all_results, f)
+        pickle.dump(output, f)
     log_info(f"Processed text data saved to {output_filepath}")
     elapsed_seconds = time() - t0
     log_info(f"Total execution time: {fmt_seconds(elapsed_seconds)}")

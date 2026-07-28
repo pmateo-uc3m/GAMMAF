@@ -695,7 +695,7 @@ class Master:
     def __init__(self, config_path):
         self.args = load_config_from_path(config_path)
     
-    def _run(self):
+    def _run(self, train_pkl_path=None):
         random.seed(self.args.seed)
         np.random.seed(self.args.seed)
         torch.manual_seed(self.args.seed)
@@ -712,8 +712,11 @@ class Master:
         
         log_info("Loading and processing training data...")
         train_processor = DataProcessor(target_topologies=self.args.topologies)
-        train_data = train_processor.load_pkl(self.args.pkl_train)
-        
+        if train_pkl_path:
+            train_data = train_processor.load_pkl(train_pkl_path)
+        else:
+            train_data = train_processor.load_pkl(self.args.pkl_train)
+
         train_pairs = []
         for topology_data in train_data:
             for debate_rounds in topology_data['results']:

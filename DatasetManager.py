@@ -19,13 +19,15 @@ def extract_reason_answer(text: str):
 class MMLULoader:
     TAG = "MMLU"
     PROMPTS_FILE = "prompts/prompts_blindguard.json"
-    def __init__(self, num_questions: int = 25, random_seed: int = 23):
+    def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = []):
 
         self.num_questions = num_questions
         self.random_seed = random_seed
+        self.indexes = indexes
         self.dataset = load_dataset("cais/mmlu", "all", split="all")
         self.questions = self.load_questions()
         self.formatted_questions = self.format_questions()
+
 
     def get_prompts(self):
         import json
@@ -43,8 +45,20 @@ class MMLULoader:
                 'choices': choices,
                 'answer': answer
             })
-        return np.random.default_rng(self.random_seed).choice(questions, size=self.num_questions, replace=False)
-    
+        rng = np.random.default_rng(self.random_seed)
+        available_indexes = [
+            i for i in range(len(questions)) if i not in self.indexes
+        ]
+        selected_indexes = rng.choice(
+            available_indexes,
+            size = self.num_questions,
+            replace = False
+        )
+        
+        self.indexes = selected_indexes
+        
+        return [questions[i] for i in selected_indexes]
+
     def format_questions(self) -> List[dict]:
         formatted_questions = []
         for i, q in enumerate(self.questions):
@@ -90,9 +104,10 @@ class MMLULoader:
 
 class CSQALoader(MMLULoader):
     TAG = "CSQA"
-    def __init__(self, num_questions: int = 25, random_seed: int = 23):
+    def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = []):
         self.num_questions = num_questions
         self.random_seed = random_seed
+        self.indexes = indexes
         self.dataset = load_dataset("tau/commonsense_qa", split="train")
         self.questions = self.load_questions()
         self.formatted_questions = self.format_questions()
@@ -108,7 +123,19 @@ class CSQALoader(MMLULoader):
                 'choices': choices,
                 'answer': answer
             })
-        return np.random.default_rng(self.random_seed).choice(questions, size=self.num_questions, replace=False)
+        rng = np.random.default_rng(self.random_seed)
+        available_indexes = [
+                    i for i in range(len(questions)) if i not in self.indexes
+                ]
+        selected_indexes = rng.choice(
+            available_indexes,
+            size = self.num_questions,
+            replace = False
+        )
+                
+        self.indexes = selected_indexes
+        
+        return [questions[i] for i in selected_indexes]
     
     def format_questions(self) -> List[dict]:
         formatted_questions = []
@@ -143,9 +170,10 @@ class CSQALoader(MMLULoader):
 class GSM8KLoader(MMLULoader):
     TAG = "GSM8K"
     PROMPTS_FILE = "prompts/prompts_gsm8k.json"
-    def __init__(self, num_questions: int = 25, random_seed: int = 23):
+    def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = []):
         self.num_questions = num_questions
         self.random_seed = random_seed
+        self.indexes = indexes
         self.dataset = load_dataset("openai/gsm8k", 'main', split="train")
         self.questions = self.load_questions()
         self.formatted_questions = self.format_questions()
@@ -162,7 +190,19 @@ class GSM8KLoader(MMLULoader):
                 'choices': choices,
                 'answer': answer
             })
-        return np.random.default_rng(self.random_seed).choice(questions, size=self.num_questions, replace=False)
+        rng = np.random.default_rng(self.random_seed)
+        available_indexes = [
+            i for i in range(len(questions)) if i not in self.indexes
+        ]
+        selected_indexes = rng.choice(
+            available_indexes,
+            size = self.num_questions,
+            replace = False
+        )
+        
+        self.indexes = selected_indexes
+        
+        return [questions[i] for i in selected_indexes]
     
     def format_questions(self) -> List[dict]:
         formatted_questions = []
@@ -212,9 +252,10 @@ class GSM8KLoader(MMLULoader):
     
 class MMLUProLoader(MMLULoader):
     TAG = "MMLUPro"
-    def __init__(self, num_questions: int = 25, random_seed: int = 23):
+    def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = []):
         self.num_questions = num_questions
         self.random_seed = random_seed
+        self.indexes = indexes  
         self.dataset = load_dataset("TIGER-Lab/MMLU-Pro", split="test")
         self.questions = self.load_questions()
         self.formatted_questions = self.format_questions()
@@ -230,8 +271,18 @@ class MMLUProLoader(MMLULoader):
                 'choices': choices,
                 'answer': answer
             })
-        return np.random.default_rng(self.random_seed).choice(questions, size=self.num_questions, replace=False)
-    
+        rng = np.random.default_rng(self.random_seed)
+        available_indexes = [
+            i for i in range(len(questions)) if i not in self.indexes
+        ]
+        selected_indexes = rng.choice(
+            available_indexes,
+            size = self.num_questions,
+            replace = False
+        )
+        self.indexes = selected_indexes
+        return [questions[i] for i in selected_indexes]
+
     def format_questions(self) -> List[dict]:
         formatted_questions = []
         for i, q in enumerate(self.questions):
@@ -249,11 +300,12 @@ class MSMARCOLoader(MMLULoader):
     TAG = "MA"
     PROMPTS_FILE = "prompts/prompts_msmarco.json"
 
-    def __init__(self, num_questions: int = 25, random_seed: int = 23):
+    def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = []):
         from Utils import AnomalyJudgeLLM
         import json
         self.num_questions = num_questions
         self.random_seed = random_seed
+        self.indexes = indexes
         self.dataset = self._load_json()
         self.questions = self.load_questions()
         self.formatted_questions = self.format_questions()
@@ -292,9 +344,14 @@ class MSMARCOLoader(MMLULoader):
             })
         if not questions:
             raise ValueError("No valid questions found in MSMARCO dataset")
+        available_indexes = [
+            i for i in range(len(questions)) if i not in self.indexes
+        ]
         rng = np.random.default_rng(self.random_seed)
         n = min(self.num_questions, len(questions))
-        return list(rng.choice(questions, size=n, replace=False))
+        selected_indexes = rng.choice(available_indexes, size=n, replace=False)
+        self.indexes = selected_indexes
+        return [questions[i] for i in selected_indexes]
 
     def format_questions(self) -> List[dict]:
         formatted = []
