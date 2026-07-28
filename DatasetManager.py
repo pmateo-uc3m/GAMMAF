@@ -39,7 +39,7 @@ class MMLULoader:
         for item in self.dataset:
             question_text = item['question']
             choices = item['choices']
-            answer = item['answer']
+            answer = chr(ord('A') + item['answer'] - 1)
             questions.append({
                 'question': question_text,
                 'choices': choices,
