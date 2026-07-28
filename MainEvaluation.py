@@ -1,5 +1,6 @@
 import argparse
 import inspect
+import traceback
 from pathlib import Path
 import importlib.util
 import os
@@ -390,7 +391,10 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         log_warn("KeyboardInterrupt received. All previously completed results have been saved.")
     except Exception as e:
+        tb = traceback.format_exc()
         log_error(f"Unhandled exception: {e}")
+        for line in tb.strip().splitlines():
+            log_error(line)
         log_warn("Previously completed results are preserved in the output file.")
     finally:
         for model_info in models.values():
