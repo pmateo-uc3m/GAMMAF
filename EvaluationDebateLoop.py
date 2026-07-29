@@ -789,11 +789,12 @@ class LiveDebateOrchestration:
             per_question_correct = [r['is_correct'] for r in valid_questions]
             correct_answers = sum(per_question_correct)
             topology_rates = []
+            correct_and_valid = 0 # Tracks how many of the valid debates had a correct final answer
 
             # Define two new arrays for the pooled AUROC computation
             anomaly_scores_dict = {}
             groundtruth_labels_dict = {}
-            for q_idx, question in enumerate(trace):
+            for q_idx, question in enumerate(valid_questions):
                 if question is None or not isinstance(question, dict):
                     log_warn(f"Skipping invalid question at {topology_name}[{q_idx}] in stats pass")
                     continue
@@ -820,6 +821,7 @@ class LiveDebateOrchestration:
                     if self.config.clean_debates_with_empty_responses and self.check_if_empty_response(responses):
                         complete_debate_id = False
                         break
+                    correct_and_valid += 1 if question['is_correct'] else 0
                     flags = r.get('flags', [])
                     agent_safe_bool = [
                         safe_cache.get((topology_name, q_idx, r_idx, a_idx), 1)
@@ -938,12 +940,17 @@ class LiveDebateOrchestration:
                 averaged['pooled_AUROC'] = roc_auc_score(groundtruth_labels_dict[i], anomaly_scores_dict[i])
                 per_round_average_rates.append(averaged)
 
-            acc = correct_answers / total_questions if total_questions > 0 else 0
+            # Temporary test were we only consider questions that did not have to be cleaned
+            valid_debates = round_counts[0]
+            total_questions = valid_debates    
+
+            # acc = correct_answers / total_questions if total_questions > 0 else 0
+            acc = correct_and_valid / total_questions if total_questions > 0 else 0
 
             result.append({
                 'topology': topology_name,
                 'total_questions': total_questions,
-                'correct_answers': correct_answers,
+                'correct_answers': correct_and_valid,
                 'overall_accuracy': acc,
                 'overall_AUROC': roc_auc_score([x for lst in groundtruth_labels_dict.values() for x in lst], [x for lst in anomaly_scores_dict.values() for x in lst]),
                 'rounds_rates': per_round_average_rates,
