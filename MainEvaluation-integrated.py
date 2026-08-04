@@ -6,7 +6,16 @@ import runpy
 import sys
 from pathlib import Path
 
+import Utils as _utils
+from ConfigCheck import validate_evaluation_config
+
+_load_config_from_path = _utils.load_config_from_path
+
 root = Path(__file__).resolve().parent
+
+if len(sys.argv) < 2:
+    raise ValueError("Usage: python MainEvaluation-integrated.py <config_file> [--clean]")
+validate_evaluation_config(sys.argv[1])
 
 
 class _LegacyPickleList(list):
@@ -31,6 +40,32 @@ def _load_pickle_compatibility(file_obj, *args, **kwargs):
 # MainEvaluation historically calls .get("idx_metadata") on the training
 # pickle. Keep list pickles valid for the integrated entry point only.
 pickle.load = _load_pickle_compatibility
+
+
+def _load_config_with_optional_bool_defaults(config_path):
+    """Normalize optional evaluator switches without hiding required settings."""
+    config = _load_config_from_path(config_path)
+    optional_defaults = {
+        "no_consensus_check": False,
+        "check_consensus_only_unflagged": False,
+        "new_random_each_question": False,
+        "no_defense_baseline": False,
+        "clean_debates_with_empty_responses": False,
+        "debug_mode": False,
+        "static_adjacency_mode": False,
+        "save_traces": False,
+    }
+    live_config = config.get("live_evaluation_config")
+    if live_config is not None:
+        for key, default in optional_defaults.items():
+            live_config.setdefault(key, default)
+    return config
+
+
+# MainEvaluation imports this function after the compatibility layer is
+# installed. Required configuration fields still fail normally; only known
+# optional boolean switches receive false defaults.
+_utils.load_config_from_path = _load_config_with_optional_bool_defaults
 
 # The Guardian adapter loads the original loop under an alias. Register that
 # alias before loading it so the integrated adapter can reuse its implementation.
