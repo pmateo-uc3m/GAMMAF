@@ -27,7 +27,7 @@ defense_model_train_configs:
     remove_count: 2
 
 live_evaluation_config:
-  timeout: 20
+  timeout: 60
   questions_path: DatasetManager.py
   questions_dataset_tag: MMLUPRO
   questions_random_seed: 28
