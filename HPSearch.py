@@ -751,7 +751,6 @@ def main():
                 # HPS stage: evaluate each run only on the random topology (a
                 # fresh random topology is generated per question), so the fixed
                 # topologies are not evaluated during the search.
-                log_section(f"Topology Resolution [{idx}/{total_plans}]")
                 live_cfg.new_random_each_question = True
                 topologies = {"random": None}
 
