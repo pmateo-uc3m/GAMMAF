@@ -137,11 +137,23 @@ class Guardian:
         self.weight_decay = float(getattr(self.config, "weight_decay", 1e-4))
         self.epochs = int(getattr(self.config, "num_epochs", getattr(self.config, "epochs", 20)))
         self.batch_size = int(getattr(self.config, "batch_size", 16))
+        self.val_split = float(getattr(self.config, "val_split", 0.2))
+        self.lr_patience = int(getattr(self.config, "lr_patience", getattr(self.config, "lr_patience_max", 5)))
+        self.lr_factor = float(getattr(
+            self.config,
+            "lr_factor",
+            getattr(self.config, "lr_patience_factor", getattr(self.config, "lr_reduce_factor", 0.5)),
+        ))
+        self.early_stop = int(getattr(self.config, "early_stop", 10))
         self.remove_count = int(getattr(self.config, "remove_count", getattr(self.config, "top_k", 1)))
         if not 0 <= self.alpha <= 1:
             raise ValueError("Guardian alpha must be in [0, 1]")
+        if not 0 <= self.val_split < 1:
+            raise ValueError("Guardian val_split must be in [0, 1)")
         if self.gamma < 0 or self.epochs < 1 or self.batch_size < 1 or self.remove_count < 0:
             raise ValueError("Guardian gamma, epochs, batch_size, and remove_count are invalid")
+        if self.lr_patience < 1 or not 0 < self.lr_factor < 1 or self.early_stop < 1:
+            raise ValueError("Guardian lr_patience and early_stop must be >= 1, and lr_factor must be in (0, 1)")
 
     @staticmethod
     def _round_embedding(round_data) -> np.ndarray:
@@ -189,6 +201,26 @@ class Guardian:
             raise ValueError(f"No valid temporal debates found in Guardian training data: {path}")
         return windows
 
+    def _sample_loss(self, sample_x, sample_a):
+        x_hat, edge_logits, _, mu, logvar = self.model(sample_x, sample_a)
+        target_x = sample_x[-1]
+        target_a = (sample_a > 0).float()
+        attr = F.mse_loss(x_hat, target_x)
+        structure = F.binary_cross_entropy_with_logits(edge_logits, target_a)
+        kl = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+        return self.alpha * attr + (1 - self.alpha) * structure + self.gamma * kl
+
+    def _evaluate(self, loader):
+        self.model.eval()
+        total = 0.0
+        count = 0
+        with torch.no_grad():
+            for batch in loader:
+                for sample_x, sample_a in batch:
+                    total += self._sample_loss(sample_x.to(self.device), sample_a.to(self.device)).item()
+                    count += 1
+        return total / max(1, count)
+
     def train(self, topology_data):
         """Train on normalized windows or the framework's raw topology record."""
         windows = topology_data
@@ -199,11 +231,36 @@ class Guardian:
         if any(x.ndim != 3 or x.shape[-1] != input_dim for x, _ in windows):
             raise ValueError("Guardian training windows must have shape [time, agents, embedding_dim]")
         self._make_model(input_dim)
+
+        split_seed = int(getattr(self.config, "split_seed", getattr(self.config, "seed", 0)))
+        split_rng = np.random.default_rng(split_seed)
+        indices = split_rng.permutation(len(windows))
+        if len(windows) >= 2 and self.val_split > 0:
+            val_count = max(1, int(round(len(windows) * self.val_split)))
+            val_count = min(val_count, len(windows) - 1)
+            val_windows = [windows[i] for i in indices[:val_count]]
+            train_windows = [windows[i] for i in indices[val_count:]]
+        else:
+            log_warn("Guardian validation split is unavailable; validating on the training windows")
+            train_windows = windows
+            val_windows = windows
+
         # Prefix windows have different lengths in early rounds, so batching
         # uses a list collator rather than silently padding unrelated history.
-        loader = DataLoader(_WindowDataset(windows), batch_size=self.batch_size, shuffle=True,
-                            collate_fn=lambda batch: batch)
+        dataloader_seed = int(getattr(self.config, "dataloader_seed", getattr(self.config, "seed", 0)))
+        dataloader_generator = torch.Generator()
+        dataloader_generator.manual_seed(dataloader_seed)
+        loader = DataLoader(_WindowDataset(train_windows), batch_size=self.batch_size, shuffle=True,
+                            generator=dataloader_generator, collate_fn=lambda batch: batch)
+        val_loader = DataLoader(_WindowDataset(val_windows), batch_size=self.batch_size, shuffle=False,
+                                collate_fn=lambda batch: batch)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        best_val_loss = float("inf")
+        best_model_state = None
+        best_epoch = 0
+        lr_wait = 0
+        early_wait = 0
+        training_info = {"best_epoch": None, "best_val_loss": None, "stopped_epoch": None, "lr_reductions": 0}
         for epoch in range(self.epochs):
             self.model.train()
             total = 0.0
@@ -212,20 +269,60 @@ class Guardian:
                 losses = []
                 for sample_x, sample_a in batch:
                     sample_x, sample_a = sample_x.to(self.device), sample_a.to(self.device)
-                    x_hat, edge_logits, _, mu, logvar = self.model(sample_x, sample_a)
-                    target_x = sample_x[-1]
-                    target_a = (sample_a > 0).float()
-                    attr = F.mse_loss(x_hat, target_x)
-                    structure = F.binary_cross_entropy_with_logits(edge_logits, target_a)
-                    kl = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-                    losses.append(self.alpha * attr + (1 - self.alpha) * structure + self.gamma * kl)
+                    losses.append(self._sample_loss(sample_x, sample_a))
                 loss = torch.stack(losses).mean()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5.0)
                 optimizer.step()
                 total += loss.item()
-            print_epoch_log(epoch + 1, self.epochs, total / max(1, len(loader)), 0.0, optimizer.param_groups[0]["lr"], False)
-        log_done("Guardian training complete")
+
+            train_loss = total / max(1, len(loader))
+            val_loss = self._evaluate(val_loader)
+            is_best = val_loss < best_val_loss
+            if is_best:
+                best_val_loss = val_loss
+                best_epoch = epoch + 1
+                best_model_state = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+                lr_wait = 0
+                early_wait = 0
+                log_info(f"[BEST] Validation improved at epoch {epoch + 1}; saving model state.")
+            else:
+                stop_after_epoch = False
+                lr_wait += 1
+                early_wait += 1
+
+                if lr_wait >= self.lr_patience:
+                    old_lr = optimizer.param_groups[0]["lr"]
+                    new_lr = old_lr * self.lr_factor
+                    for group in optimizer.param_groups:
+                        group["lr"] = new_lr
+                    lr_wait = 0
+                    training_info["lr_reductions"] += 1
+                    log_info(
+                        f"No validation improvement for {self.lr_patience} epochs. "
+                        f"Reducing learning rate: {old_lr:.6f} -> {new_lr:.6f}"
+                    )
+
+                if early_wait >= self.early_stop:
+                    training_info["stopped_epoch"] = epoch + 1
+                    stop_after_epoch = True
+
+            current_lr = optimizer.param_groups[0]["lr"]
+            print_epoch_log(epoch + 1, self.epochs, train_loss, val_loss, current_lr, is_best)
+            if not is_best and stop_after_epoch:
+                log_info(f"Early stopping triggered after {self.early_stop} epochs without validation improvement.")
+                break
+
+        if best_model_state is None:
+            raise RuntimeError("Guardian training completed without a validation model state")
+        self.best_model_state = {k: v.clone() for k, v in best_model_state.items()}
+        self.model.load_state_dict({k: v.to(self.device) for k, v in best_model_state.items()})
+        training_info["best_epoch"] = best_epoch
+        training_info["best_val_loss"] = best_val_loss
+        self.training_info = training_info
+        if training_info["stopped_epoch"] is not None:
+            log_info(f"Restoring best model from epoch {best_epoch}.")
+        log_done(f"Guardian training complete. Best validation loss: {best_val_loss:.6f}")
 
     def _prepare_sequence(self, current, temporal_rounds):
         rounds = temporal_rounds if temporal_rounds is not None else [current]

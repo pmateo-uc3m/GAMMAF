@@ -17,6 +17,10 @@ defense_model_train_configs:
     gamma: 0.001
     batch_size: 8
     num_epochs: 20
+    val_split: 0.2
+    lr_patience: 5
+    lr_factor: 0.5
+    early_stop: 10
     learning_rate: 0.001
     weight_decay: 0.0001
     remove_count: 1
