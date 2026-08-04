@@ -1,0 +1,306 @@
+"""GUARDIAN temporal attributed-graph anomaly detector.
+
+The paper specifies the encoder/decoder losses but does not publish the
+reference implementation's exact GIB estimator or a fixed history length.
+This implementation uses a variational Gaussian bottleneck and a configurable
+recent window.  Early rounds use the prefix that is actually available; no
+future round is ever included.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import pickle
+import threading
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+from torch import nn
+from torch.nn import functional as F
+from torch.utils.data import DataLoader, Dataset
+
+import sys
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from LoggingUtils import log_done, log_info, log_section, log_warn, print_epoch_log
+from Utils import load_config, load_config_from_path
+
+
+def _adjacency(adj: Any, n: int) -> np.ndarray:
+    if adj is None:
+        return np.ones((n, n), dtype=np.float32) - np.eye(n, dtype=np.float32)
+    a = np.asarray(adj, dtype=np.float32)
+    if a.shape != (n, n):
+        raise ValueError(f"Guardian adjacency must have shape {(n, n)}, got {a.shape}")
+    if not np.isfinite(a).all() or (a < 0).any():
+        raise ValueError("Guardian adjacency must contain finite non-negative values")
+    return a
+
+
+def _normalized_adjacency(adj: torch.Tensor) -> torch.Tensor:
+    n = adj.shape[-1]
+    eye = torch.eye(n, device=adj.device, dtype=adj.dtype)
+    a = adj + eye
+    degree = a.sum(-1).clamp_min(1e-12)
+    inv = degree.rsqrt()
+    return inv.unsqueeze(-1) * a * inv.unsqueeze(-2)
+
+
+class GuardianNet(nn.Module):
+    def __init__(self, input_dim: int, hidden_dim: int, latent_dim: int,
+                 temporal_heads: int, temporal_layers: int, dropout: float):
+        super().__init__()
+        if latent_dim % temporal_heads:
+            raise ValueError("Guardian latent_dim must be divisible by temporal_heads")
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.latent_dim = latent_dim
+        self.gcn1 = nn.Linear(input_dim, hidden_dim)
+        self.gcn2 = nn.Linear(hidden_dim, latent_dim)
+        layer = nn.TransformerEncoderLayer(
+            d_model=latent_dim,
+            nhead=temporal_heads,
+            dropout=dropout,
+            batch_first=True,
+            activation="relu",
+        )
+        self.temporal = nn.TransformerEncoder(layer, num_layers=temporal_layers)
+        self.attr_decoder = nn.Sequential(nn.Linear(latent_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, input_dim))
+        self.edge_decoder = nn.Sequential(nn.Linear(latent_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, latent_dim))
+        self.mu = nn.Linear(latent_dim, latent_dim)
+        self.logvar = nn.Linear(latent_dim, latent_dim)
+
+    def encode(self, x: torch.Tensor, adj: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # x: [time, agents, features], adj: [agents, agents]
+        norm = _normalized_adjacency(adj)
+        states = []
+        for xt in x:
+            h = F.relu(norm @ self.gcn1(xt))
+            states.append(norm @ self.gcn2(h))
+        z_by_time = torch.stack(states, dim=0)
+        # Attention is over time independently for each agent.
+        temporal_in = z_by_time.transpose(0, 1)
+        temporal_out = self.temporal(temporal_in)
+        current = temporal_out[:, -1, :]
+        mu, logvar = self.mu(current), self.logvar(current).clamp(-20.0, 10.0)
+        if self.training:
+            z = mu + torch.exp(0.5 * logvar) * torch.randn_like(mu)
+        else:
+            z = mu
+        return z, mu, logvar
+
+    def forward(self, x: torch.Tensor, adj: torch.Tensor):
+        z, mu, logvar = self.encode(x, adj)
+        x_hat = self.attr_decoder(z)
+        edge_latent = self.edge_decoder(z)
+        edge_logits = edge_latent @ edge_latent.transpose(0, 1)
+        return x_hat, edge_logits, z, mu, logvar
+
+
+class _WindowDataset(Dataset):
+    def __init__(self, windows):
+        self.windows = windows
+
+    def __len__(self):
+        return len(self.windows)
+
+    def __getitem__(self, index):
+        x, a = self.windows[index]
+        return torch.from_numpy(x).float(), torch.from_numpy(a).float()
+
+
+class Guardian:
+    """Training and inference object consumed by the evaluation framework."""
+
+    def __init__(self, args):
+        self.config = args
+        self.device = torch.device(getattr(args, "device", None) or ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.model: GuardianNet | None = None
+        self._predict_lock = threading.RLock()
+        self._validate_config()
+
+    def _validate_config(self):
+        self.window = int(getattr(self.config, "temporal_window", 3))
+        if self.window < 1:
+            raise ValueError("Guardian temporal_window must be >= 1")
+        self.hidden_dim = int(getattr(self.config, "hidden_dim", 128))
+        self.latent_dim = int(getattr(self.config, "latent_dim", self.hidden_dim))
+        self.temporal_heads = int(getattr(self.config, "temporal_heads", 4))
+        self.temporal_layers = int(getattr(self.config, "temporal_layers", 1))
+        self.dropout = float(getattr(self.config, "dropout", 0.1))
+        self.alpha = float(getattr(self.config, "alpha", 0.5))
+        self.gamma = float(getattr(self.config, "gamma", 0.001))
+        self.learning_rate = float(getattr(self.config, "learning_rate", 1e-3))
+        self.weight_decay = float(getattr(self.config, "weight_decay", 1e-4))
+        self.epochs = int(getattr(self.config, "num_epochs", getattr(self.config, "epochs", 20)))
+        self.batch_size = int(getattr(self.config, "batch_size", 16))
+        self.remove_count = int(getattr(self.config, "remove_count", getattr(self.config, "top_k", 1)))
+        if not 0 <= self.alpha <= 1:
+            raise ValueError("Guardian alpha must be in [0, 1]")
+        if self.gamma < 0 or self.epochs < 1 or self.batch_size < 1 or self.remove_count < 0:
+            raise ValueError("Guardian gamma, epochs, batch_size, and remove_count are invalid")
+
+    @staticmethod
+    def _round_embedding(round_data) -> np.ndarray:
+        if isinstance(round_data, np.ndarray):
+            x = round_data
+        else:
+            try:
+                x = np.asarray([item["st_embedding"] for item in round_data], dtype=np.float32)
+            except (KeyError, TypeError) as exc:
+                raise ValueError("Guardian round must contain st_embedding for every agent") from exc
+        if x.ndim != 2 or x.shape[0] < 1 or x.shape[1] < 1 or not np.isfinite(x).all():
+            raise ValueError(f"Guardian round embeddings must be finite 2-D data, got {x.shape}")
+        return x.astype(np.float32, copy=False)
+
+    def _make_model(self, input_dim):
+        if getattr(self.config, "input_dim", None) is not None and int(self.config.input_dim) != input_dim:
+            raise ValueError(f"Guardian input_dim={self.config.input_dim} does not match embeddings ({input_dim})")
+        self.model = GuardianNet(input_dim, self.hidden_dim, self.latent_dim,
+                                self.temporal_heads, self.temporal_layers, self.dropout).to(self.device)
+
+    def _windows_from_pickle(self, path):
+        with open(path, "rb") as handle:
+            raw = pickle.load(handle)
+        records = raw.get("data", raw) if isinstance(raw, dict) else raw
+        windows = []
+        for entry in records:
+            if not isinstance(entry, dict):
+                continue
+            debates = entry.get("results", [entry])
+            base_adj = entry.get("adj_matrix", entry.get("topology", entry.get("adjacency_matrix")))
+            for debate in debates:
+                if not isinstance(debate, dict) or "debate_rounds" not in debate:
+                    continue
+                rounds = [self._round_embedding(r) for r in debate["debate_rounds"]]
+                if not rounds:
+                    continue
+                n, d = rounds[0].shape
+                if any(r.shape != (n, d) for r in rounds):
+                    raise ValueError("Guardian training debate has inconsistent agent or embedding dimensions")
+                a = _adjacency(debate.get("adj_matrix", debate.get("topology", base_adj)), n)
+                for end in range(len(rounds)):
+                    start = max(0, end + 1 - self.window)
+                    windows.append((np.stack(rounds[start:end + 1]), a))
+        if not windows:
+            raise ValueError(f"No valid temporal debates found in Guardian training data: {path}")
+        return windows
+
+    def train(self, topology_data):
+        """Train on normalized windows or the framework's raw topology record."""
+        windows = topology_data
+        if isinstance(topology_data, dict) and "windows" in topology_data:
+            windows = topology_data["windows"]
+        windows = [(np.asarray(x, dtype=np.float32), _adjacency(a, np.asarray(x).shape[1])) for x, a in windows]
+        input_dim = windows[0][0].shape[-1]
+        if any(x.ndim != 3 or x.shape[-1] != input_dim for x, _ in windows):
+            raise ValueError("Guardian training windows must have shape [time, agents, embedding_dim]")
+        self._make_model(input_dim)
+        # Prefix windows have different lengths in early rounds, so batching
+        # uses a list collator rather than silently padding unrelated history.
+        loader = DataLoader(_WindowDataset(windows), batch_size=self.batch_size, shuffle=True,
+                            collate_fn=lambda batch: batch)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+        for epoch in range(self.epochs):
+            self.model.train()
+            total = 0.0
+            for batch in loader:
+                optimizer.zero_grad()
+                losses = []
+                for sample_x, sample_a in batch:
+                    sample_x, sample_a = sample_x.to(self.device), sample_a.to(self.device)
+                    x_hat, edge_logits, _, mu, logvar = self.model(sample_x, sample_a)
+                    target_x = sample_x[-1]
+                    target_a = (sample_a > 0).float()
+                    attr = F.mse_loss(x_hat, target_x)
+                    structure = F.binary_cross_entropy_with_logits(edge_logits, target_a)
+                    kl = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+                    losses.append(self.alpha * attr + (1 - self.alpha) * structure + self.gamma * kl)
+                loss = torch.stack(losses).mean()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5.0)
+                optimizer.step()
+                total += loss.item()
+            print_epoch_log(epoch + 1, self.epochs, total / max(1, len(loader)), 0.0, optimizer.param_groups[0]["lr"], False)
+        log_done("Guardian training complete")
+
+    def _prepare_sequence(self, current, temporal_rounds):
+        rounds = temporal_rounds if temporal_rounds is not None else [current]
+        if not rounds:
+            raise ValueError("Guardian received an empty temporal sequence")
+        arrays = [self._round_embedding(r) for r in rounds]
+        current_array = self._round_embedding(current)
+        if not np.array_equal(arrays[-1], current_array):
+            raise ValueError("Guardian temporal sequence must end with the current round")
+        n, d = current_array.shape
+        if any(a.shape != (n, d) for a in arrays):
+            raise ValueError("Guardian temporal rounds must preserve agent ordering and dimensions")
+        return np.stack(arrays[-self.window:]), _adjacency(None, n)
+
+    def predict(self, round_data, adj_matrix, temporal_rounds=None):
+        if self.model is None:
+            raise RuntimeError("Guardian model is not initialized; train or load a checkpoint first")
+        x_np, default_adj = self._prepare_sequence(round_data, temporal_rounds)
+        adj = _adjacency(adj_matrix if adj_matrix is not None else default_adj, x_np.shape[1])
+        with self._predict_lock, torch.no_grad():
+            self.model.eval()
+            x = torch.from_numpy(x_np).float().to(self.device)
+            a = torch.from_numpy(adj).float().to(self.device)
+            x_hat, edge_logits, _, _, _ = self.model(x, a)
+            attr_error = ((x_hat - x[-1]) ** 2).mean(dim=1)
+            edge_error = F.binary_cross_entropy_with_logits(edge_logits, (a > 0).float(), reduction="none").mean(dim=1)
+            scores = self.alpha * attr_error + (1 - self.alpha) * edge_error
+            scores = scores.cpu().numpy().astype(float)
+        threshold = getattr(self.config, "threshold", None)
+        flags = np.zeros(len(scores), dtype=int)
+        if threshold is not None:
+            flags[scores > float(threshold)] = 1
+        elif self.remove_count:
+            flags[np.argsort(-scores)[:min(self.remove_count, len(scores))]] = 1
+        return flags, scores
+
+    def reset(self):
+        """Clear inference-only state; histories are owned by the orchestration task."""
+        return None
+
+    def save_model(self, path):
+        if self.model is None:
+            raise RuntimeError("Cannot save an uninitialized Guardian model")
+        torch.save({"model_state_dict": self.model.state_dict(), "input_dim": self.model.input_dim,
+                    "hidden_dim": self.hidden_dim, "latent_dim": self.latent_dim,
+                    "temporal_heads": self.temporal_heads, "temporal_layers": self.temporal_layers,
+                    "dropout": self.dropout}, path)
+
+    def load_model(self, path):
+        checkpoint = torch.load(path, map_location=self.device)
+        required = {"model_state_dict", "input_dim", "hidden_dim", "latent_dim", "temporal_heads", "temporal_layers", "dropout"}
+        if not required.issubset(checkpoint):
+            raise ValueError(f"Guardian checkpoint is missing keys: {sorted(required - set(checkpoint))}")
+        self.model = GuardianNet(checkpoint["input_dim"], checkpoint["hidden_dim"], checkpoint["latent_dim"],
+                                 checkpoint["temporal_heads"], checkpoint["temporal_layers"], checkpoint["dropout"]).to(self.device)
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.eval()
+
+
+class Master:
+    def __init__(self, config_path):
+        self.args = load_config_from_path(config_path)
+
+    def _run(self, train_pkl_path=None):
+        path = train_pkl_path or getattr(self.args, "pkl_train", None)
+        if not path:
+            raise ValueError("Guardian requires pkl_train or a training path")
+        model = Guardian(self.args)
+        windows = model._windows_from_pickle(path)
+        model.train(windows)
+        return {}, model
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config")
+    args = parser.parse_args()
+    Guardian(load_config_from_path(args.config)).train(Guardian(load_config_from_path(args.config))._windows_from_pickle(load_config_from_path(args.config).pkl_train))
