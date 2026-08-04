@@ -7,6 +7,7 @@ its own ordered embedding history.
 
 import importlib.util
 import sys
+import threading
 from pathlib import Path
 
 _root = Path(__file__).resolve().parent
@@ -20,6 +21,18 @@ for _name in dir(_original):
 
 
 class LiveDebateOrchestration(_original.LiveDebateOrchestration):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # RoundProcessor lazily constructs large Transformer models. Its
+        # thread-local initialization is not safe when many debate tasks
+        # initialize it simultaneously, so serialize embedding calls while
+        # preserving concurrent LLM/debate task execution.
+        self._guardian_text_processing_lock = threading.Lock()
+
+    def _process_guardian_round(self, responses):
+        with self._guardian_text_processing_lock:
+            return self.text_processor.process_round(responses)
+
     def debate_question(self, defense_model, question, question_groundtruth, choices,
                         adjacency_matrix, mal_answer="", question_index=None,
                         question_format_data=None):
@@ -42,7 +55,7 @@ class LiveDebateOrchestration(_original.LiveDebateOrchestration):
         last_round_responses = self.generate_round_1_concurrent(
             question, choices, agents, mal_answer=mal_answer,
             question_format_data=question_format_data, round_num=1)
-        history.append(self.text_processor.process_round(last_round_responses))
+        history.append(self._process_guardian_round(last_round_responses))
         static_adjacency = copy.deepcopy(adjacency_matrix)
         static_mode = getattr(self.config, "static_adjacency_mode", False)
         predict_adj = static_adjacency if static_mode else adjacency_matrix
@@ -66,7 +79,7 @@ class LiveDebateOrchestration(_original.LiveDebateOrchestration):
             last_round_responses = self.generate_debate_round_concurrent(
                 adjacency_matrix, question, choices, last_round_responses, agents, round=i,
                 mal_answer=mal_answer, question_format_data=question_format_data)
-            history.append(self.text_processor.process_round(last_round_responses))
+            history.append(self._process_guardian_round(last_round_responses))
             predict_adj = static_adjacency if static_mode else adjacency_matrix
             with self._model_predict_lock:
                 flags, anomaly_scores = defense_model.predict(history[-1], predict_adj, temporal_rounds=list(history))
