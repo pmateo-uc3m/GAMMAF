@@ -821,7 +821,6 @@ class LiveDebateOrchestration:
                     if self.config.clean_debates_with_empty_responses and self.check_if_empty_response(responses):
                         complete_debate_id = False
                         break
-                    correct_and_valid += 1 if question['is_correct'] else 0
                     flags = r.get('flags', [])
                     agent_safe_bool = [
                         safe_cache.get((topology_name, q_idx, r_idx, a_idx), 1)
@@ -905,6 +904,7 @@ class LiveDebateOrchestration:
                             anomaly_scores_dict.setdefault(i, []).extend([1.0 if flag==0 else 0.0 for flag in gt_flags])
                             groundtruth_labels_dict.setdefault(i, []).extend(gt_flags)
                 if complete_debate_id:
+                    correct_and_valid += 1 if question['is_correct'] else 0
                     topology_rates.append(rounds_rates)
                     actual_rounds = len(question["debate_trace"])
                     for j in range(actual_rounds):
