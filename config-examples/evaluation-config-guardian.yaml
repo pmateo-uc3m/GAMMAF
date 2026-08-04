@@ -24,15 +24,15 @@ defense_model_train_configs:
     early_stop: 10
     learning_rate: 0.001
     weight_decay: 0.0001
-    remove_count: 1
+    remove_count: 2
 
 live_evaluation_config:
   timeout: 20
   questions_path: DatasetManager.py
-  questions_dataset_tag: MMLU
+  questions_dataset_tag: MMLUPRO
   questions_random_seed: 28
   llm_max_retries: 3
-  num_agents: 5
+  num_agents: 8
   num_malicious_agents: 2
   malicious_seed: 123
   max_rounds: 3
