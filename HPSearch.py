@@ -417,18 +417,21 @@ def _config_signature(model_name, effective_dict):
 #  Per-run reproducible subsampling
 # ---------------------------------------------------------------------------
 
-def _subsampling_seed(hps_split_seed, effective_dict, model_name):
-    payload = {"seed": hps_split_seed, "config": effective_dict, "model": model_name}
+def _subsampling_seed(hps_split_seed, run_identity):
+    payload = {"seed": hps_split_seed, "run": run_identity}
     h = hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
     return int(h[:16], 16)
 
 
-def _draw_run_subset(pool_questions, hps_run_samples, hps_split_seed,
-                     effective_dict, model_name):
+def _draw_run_subset(pool_questions, hps_run_samples, hps_split_seed, run_identity):
     pool_size = len(pool_questions)
     if hps_run_samples is None or hps_run_samples >= pool_size:
         return list(pool_questions)
-    rng = np.random.default_rng(_subsampling_seed(hps_split_seed, effective_dict, model_name))
+    # The seed is derived from the run's stable identity (model + its effective
+    # hyperparameter configuration), so every run draws a *different* random
+    # subset while the same split_seed reproduces the exact same subset for the
+    # same run across program executions.
+    rng = np.random.default_rng(_subsampling_seed(hps_split_seed, run_identity))
     chosen = rng.choice(pool_size, size=hps_run_samples, replace=False)
     chosen.sort()
     return [pool_questions[int(i)] for i in chosen]
@@ -556,17 +559,6 @@ def _log_combo_header(idx, total, base_name, varied, run_name, t0,
             f"Progress: {done}/{total} done | elapsed {fmt_seconds(elapsed_prev)} "
             f"| ETA ~{fmt_seconds(remaining)}"
         )
-
-
-def _log_effective_config(eff):
-    """Expose the complete effective configuration for a run for debugging."""
-    log_info("Effective configuration for this run:")
-    try:
-        text = yaml.safe_dump(eff, sort_keys=False, default_flow_style=False)
-        for line in text.strip().splitlines():
-            log_info(f"    {line}")
-    except Exception:
-        log_info(f"    {_canonical(eff)}")
 
 
 # ---------------------------------------------------------------------------
@@ -712,7 +704,6 @@ def main():
                 idx, total_plans, model_name, varied, run_name,
                 overall_t0, elapsed_accum, done_before
             )
-            _log_effective_config(eff)
 
             combo_t0 = time()
             model_instance = None
@@ -721,10 +712,11 @@ def main():
                 # Load the effective config as a namespace.
                 config = load_config_from_path(temp_main)
 
-                # Per-run reproducible subset of the pool.
+                # Per-run reproducible subset of the pool.  Seeded from the
+                # run's stable identity so each run gets its own random subset
+                # and the same split_seed reproduces it across executions.
                 subset = _draw_run_subset(
-                    pool_questions, hps_run_samples, hps_split_seed,
-                    eff, model_name,
+                    pool_questions, hps_run_samples, hps_split_seed, signature,
                 )
                 log_info(
                     f"Per-run subset: {len(subset)}/{len(pool_questions)} questions "
