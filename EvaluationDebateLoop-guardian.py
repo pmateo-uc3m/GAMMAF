@@ -8,6 +8,7 @@ its own ordered embedding history.
 import importlib.util
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 _root = Path(__file__).resolve().parent
@@ -23,15 +24,48 @@ for _name in dir(_original):
 class LiveDebateOrchestration(_original.LiveDebateOrchestration):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # RoundProcessor lazily constructs large Transformer models. Its
-        # thread-local initialization is not safe when many debate tasks
-        # initialize it simultaneously, so serialize embedding calls while
-        # preserving concurrent LLM/debate task execution.
-        self._guardian_text_processing_lock = threading.Lock()
+        # Keep embedding work in a bounded pool separate from the debate pool.
+        # Round N+1 still waits on its own round N, while independent debates
+        # can use different processor workers concurrently.
+        processor_workers = max(
+            1,
+            int(getattr(self.config, "max_concurrent_inference", 1))
+            // max(1, int(getattr(self.config, "num_agents", 1))),
+        )
+        self._guardian_processor_pool = ThreadPoolExecutor(
+            max_workers=processor_workers,
+            thread_name_prefix="guardian-round-processor",
+        )
+        self._guardian_processor_workers = processor_workers
+        self._guardian_processor_init_lock = threading.Lock()
 
-    def _process_guardian_round(self, responses):
-        with self._guardian_text_processing_lock:
-            return self.text_processor.process_round(responses)
+    def _process_on_guardian_worker(self, responses):
+        # RoundProcessor keeps resources in thread-local storage. Initialize
+        # each worker's resources one at a time to avoid concurrent model/cache
+        # construction, then allow the expensive inference calls to overlap.
+        get_resources = getattr(self.text_processor, "_get_local_resources", None)
+        if get_resources is not None:
+            with self._guardian_processor_init_lock:
+                get_resources()
+        return self.text_processor.process_round(responses)
+
+    def _process_guardian_round(self, responses, question_index=None, round_number=None):
+        if self._guardian_processor_pool is None:
+            raise RuntimeError("Guardian RoundProcessor pool has already been shut down")
+        future = self._guardian_processor_pool.submit(self._process_on_guardian_worker, responses)
+        try:
+            return future.result()
+        except BaseException as exc:
+            future.cancel()
+            context = f"question={question_index}, round={round_number}"
+            raise RuntimeError(f"RoundProcessor failed for {context}: {exc}") from exc
+
+    def shutdown_guardian_processors(self, wait=True, cancel_pending=False):
+        """Stop processor workers without affecting already collected traces."""
+        pool = getattr(self, "_guardian_processor_pool", None)
+        if pool is not None:
+            pool.shutdown(wait=wait, cancel_futures=cancel_pending)
+            self._guardian_processor_pool = None
 
     def debate_question(self, defense_model, question, question_groundtruth, choices,
                         adjacency_matrix, mal_answer="", question_index=None,
@@ -55,7 +89,7 @@ class LiveDebateOrchestration(_original.LiveDebateOrchestration):
         last_round_responses = self.generate_round_1_concurrent(
             question, choices, agents, mal_answer=mal_answer,
             question_format_data=question_format_data, round_num=1)
-        history.append(self._process_guardian_round(last_round_responses))
+        history.append(self._process_guardian_round(last_round_responses, question_index, 1))
         static_adjacency = copy.deepcopy(adjacency_matrix)
         static_mode = getattr(self.config, "static_adjacency_mode", False)
         predict_adj = static_adjacency if static_mode else adjacency_matrix
@@ -79,7 +113,7 @@ class LiveDebateOrchestration(_original.LiveDebateOrchestration):
             last_round_responses = self.generate_debate_round_concurrent(
                 adjacency_matrix, question, choices, last_round_responses, agents, round=i,
                 mal_answer=mal_answer, question_format_data=question_format_data)
-            history.append(self._process_guardian_round(last_round_responses))
+            history.append(self._process_guardian_round(last_round_responses, question_index, i + 1))
             predict_adj = static_adjacency if static_mode else adjacency_matrix
             with self._model_predict_lock:
                 flags, anomaly_scores = defense_model.predict(history[-1], predict_adj, temporal_rounds=list(history))
