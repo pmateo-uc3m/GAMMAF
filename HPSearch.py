@@ -1,14 +1,20 @@
 """
 HPSearch.py  --  Hyperparameter search orchestration.
 
-Repeatedly trains and evaluates defense models over the Cartesian product of all
-list-valued configuration parameters, then immediately persists the evaluation
-results to a CSV file.
+Repeatedly trains and evaluates defense models over model-specific
+hyperparameter configurations, then immediately persists the evaluation results
+to a CSV file.
 
-The configuration format is identical to the standard evaluation configuration,
-with the addition that *any* parameter may be given as a list of values.  Every
-combination of all list-valued parameters is evaluated (recursively, including
-nested configuration sections).
+The configuration format is identical to the standard evaluation configuration.
+Each model under the model-config section (e.g. ``defense_model_train_configs``)
+may declare *any* of its own parameters as a list of values.  The Cartesian
+product of list-valued parameters is expanded **independently for each model**,
+so the parameters of one model never combine with those of another model.
+
+Every generated run receives the complete global (top-level) configuration
+together with the selected model and one of that model's hyperparameter
+combinations, so parameters such as ``train_pkl_path`` are propagated to the
+training/evaluation pipeline exactly as in the standard evaluation.
 
 New configuration:
 
@@ -200,18 +206,30 @@ def _make_hp_suffix(varied):
     return "_".join(parts) if parts else ""
 
 
-def expand_config(raw):
-    """
-    Expand a raw config dict into the full Cartesian product of all list-valued
-    scalar parameters.
+def _model_section_key(raw):
+    """Return the top-level key holding the per-model training configs."""
+    for key in ("defense_model_train_configs", "model_train_configs", "models_train_configs"):
+        if isinstance(raw.get(key), dict):
+            return key
+    return None
 
-    Returns a list of (effective_dict, varied_dict) where ``varied_dict`` maps
-    path-strings to the chosen scalar value.  When no list parameters exist, a
-    single (raw, {}) entry is returned.
+
+def expand_model_config(model_cfg):
     """
-    list_params = _find_list_params(raw)
+    Expand list-valued scalar parameters *within a single model configuration*.
+
+    Returns a list of ``(effective_cfg, varied_dict)`` where ``effective_cfg`` is
+    a deep copy of ``model_cfg`` with one combination applied, and ``varied_dict``
+    maps model-relative dotted path-strings to the chosen scalar value.
+
+    The Cartesian product is computed only over parameters belonging to this one
+    model, so hyperparameters of other models are never combined here.  When the
+    model declares no list-valued parameters, a single ``(deepcopy, {})`` entry
+    is returned so the model still produces exactly one run.
+    """
+    list_params = _find_list_params(model_cfg)
     if not list_params:
-        return [(copy.deepcopy(raw), {})]
+        return [(copy.deepcopy(model_cfg), {})]
 
     # Deterministic ordering for reproducible combination ordering.
     list_params.sort(key=lambda x: _path_to_str(x[0]))
@@ -220,7 +238,7 @@ def expand_config(raw):
 
     expanded = []
     for combo in itertools.product(*value_lists):
-        eff = copy.deepcopy(raw)
+        eff = copy.deepcopy(model_cfg)
         varied = {}
         for path, val in zip(paths, combo):
             _set_path(eff, path, val)
@@ -229,30 +247,100 @@ def expand_config(raw):
     return expanded
 
 
+def build_run_plans(raw):
+    """
+    Build one independent, self-contained run plan per (model, hyperparameter
+    combination).
+
+    The Cartesian product of list-valued parameters is generated separately for
+    every model inside the model-config section, so parameters belonging to
+    different models are never combined.  Each returned plan is:
+
+    * ``eff`` -- the complete effective configuration: the original top-level
+      (global) configuration plus the *single* selected model carrying one of
+      that model's hyperparameter combinations.  No other model is present, so
+      no model leaks into another model's run.
+    * ``run_name`` -- ``<base>_<hp_suffix>`` (or ``<base>`` when the model has no
+      varying parameters), uniquely naming the run.
+    * ``signature`` -- stable run identity derived from the model name and that
+      model's own effective hyperparameter configuration only.
+
+    Returns a list of plan dicts::
+
+        {"model_name", "run_name", "eff", "varied", "signature"}
+
+    A model with ``n`` combinations produces exactly ``n`` plans; the total
+    number of plans is the sum of all per-model combinations.
+    """
+    section_key = _model_section_key(raw)
+    if section_key is None:
+        raise ValueError(
+            "Missing embedded defense train config section in main config "
+            "(expected 'defense_model_train_configs', 'model_train_configs' or "
+            "'models_train_configs')."
+        )
+    section = raw[section_key]
+    global_cfg = _strip_hps_internal(raw)
+
+    plans = []
+    for model_name, model_cfg in section.items():
+        if isinstance(model_cfg, dict):
+            entries = [model_cfg]
+        elif isinstance(model_cfg, list):
+            entries = model_cfg
+        else:
+            log_warn(
+                f"Skipping model '{model_name}': config must be a dict or list of dicts."
+            )
+            continue
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                log_warn(f"Skipping model '{model_name}': config entry must be a dict.")
+                continue
+            base_name = entry.get("run_name", model_name)
+
+            for combo_cfg, model_varied in expand_model_config(entry):
+                # Prefix varied paths with the model location so CSV columns are
+                # unambiguous across models.
+                varied = {
+                    f"{section_key}.{model_name}.{k}": v
+                    for k, v in model_varied.items()
+                }
+                hp_suffix = _make_hp_suffix(varied)
+                run_name = f"{base_name}_{hp_suffix}" if hp_suffix else base_name
+
+                combo_cfg["run_name"] = run_name
+
+                # Complete effective configuration: global top-level config +
+                # the single selected model with this combination applied.
+                eff = copy.deepcopy(global_cfg)
+                eff[section_key] = {model_name: combo_cfg}
+
+                # Stable identity based on the model name + this model's own
+                # hyperparameter configuration only (never other models).
+                identity_cfg = copy.deepcopy(combo_cfg)
+                identity_cfg.pop("run_name", None)
+                signature = _config_signature(model_name, identity_cfg)
+
+                plans.append(
+                    {
+                        "model_name": model_name,
+                        "run_name": run_name,
+                        "eff": eff,
+                        "varied": varied,
+                        "signature": signature,
+                    }
+                )
+    return plans
+
+
 def _strip_hps_internal(cfg):
     """Return a copy of *cfg* without the HPS-only top-level keys."""
     out = copy.deepcopy(cfg)
     for k in HPS_INTERNAL_KEYS:
         out.pop(k, None)
     return out
-
-
-def _set_run_names(eff, hp_suffix):
-    """Stamp each model config in *eff* with a unique, readable run_name."""
-    section = eff.get("defense_model_train_configs") or eff.get(
-        "model_train_configs"
-    ) or eff.get("models_train_configs")
-    if not isinstance(section, dict):
-        return
-    for model_name, cfg in section.items():
-        if isinstance(cfg, dict):
-            base = cfg.get("run_name", model_name)
-            cfg["run_name"] = f"{base}_{hp_suffix}" if hp_suffix else base
-        elif isinstance(cfg, list):
-            for i, c in enumerate(cfg):
-                if isinstance(c, dict):
-                    base = c.get("run_name", f"{model_name}_{i}")
-                    c["run_name"] = f"{base}_{hp_suffix}" if hp_suffix else base
 
 
 # ---------------------------------------------------------------------------
@@ -470,6 +558,17 @@ def _log_combo_header(idx, total, base_name, varied, run_name, t0,
         )
 
 
+def _log_effective_config(eff):
+    """Expose the complete effective configuration for a run for debugging."""
+    log_info("Effective configuration for this run:")
+    try:
+        text = yaml.safe_dump(eff, sort_keys=False, default_flow_style=False)
+        for line in text.strip().splitlines():
+            log_info(f"    {line}")
+    except Exception:
+        log_info(f"    {_canonical(eff)}")
+
+
 # ---------------------------------------------------------------------------
 #  Main entry point
 # ---------------------------------------------------------------------------
@@ -525,13 +624,13 @@ def main():
     train_indexes = _load_train_indexes(raw)
     log_info(f"Loaded {len(train_indexes)} training indices (excluded from pool).")
 
-    # -- Expand hyperparameter combinations --------------------------------
-    combos = expand_config(raw)
-    total_combos = len(combos)
+    # -- Expand hyperparameter combinations (independently per model) ------
+    run_plans = build_run_plans(raw)
+    total_plans = len(run_plans)
     # Union of all varied-parameter column names (stable ordering).
     varied_key_set = set()
-    for _, varied in combos:
-        varied_key_set.update(varied.keys())
+    for plan in run_plans:
+        varied_key_set.update(plan["varied"].keys())
     varied_cols = sorted(varied_key_set)
 
     # max_rounds is constant across configs (read from the base live cfg).
@@ -541,9 +640,14 @@ def main():
     fieldnames = list(BASE_COLUMNS) + varied_cols + metric_cols
 
     log_info(
-        f"Hyperparameter expansion: {total_combos} configuration combination(s) "
+        f"Hyperparameter expansion: {total_plans} run(s) across models "
         f"({len(varied_cols)} varied parameter column(s))."
     )
+    for plan in run_plans:
+        log_info(
+            f"  - {plan['model_name']} | {plan['run_name']} | "
+            f"signature={plan['signature'][:12]}"
+        )
 
     results_csv_path = Path(results_csv)
     completed_signatures = _read_completed_signatures(results_csv_path)
@@ -585,53 +689,30 @@ def main():
     temp_paths = []
 
     try:
-        for idx, (eff_raw, varied) in enumerate(combos, start=1):
-            # Effective config (without HPS-only internal keys) for training/eval.
-            eff = _strip_hps_internal(eff_raw)
-            hp_suffix = _make_hp_suffix(varied)
-            _set_run_names(eff, hp_suffix)
-
-            # Write the effective config to a temp main-config file.
-            temp_main = _write_temp_main_config(eff)
-            temp_paths.append(temp_main)
-
-            # Determine the (single) model name for signature/logging.
-            section = eff.get("defense_model_train_configs") or eff.get(
-                "model_train_configs"
-            ) or eff.get("models_train_configs")
-            base_model_name = ""
-            primary_run_name = ""
-            if isinstance(section, dict) and section:
-                base_model_name = next(iter(section.keys()))
-                mc = section[base_model_name]
-                if isinstance(mc, dict):
-                    primary_run_name = mc.get("run_name", base_model_name)
-                elif isinstance(mc, list) and mc and isinstance(mc[0], dict):
-                    primary_run_name = mc[0].get("run_name", base_model_name)
-                else:
-                    primary_run_name = base_model_name
-
-            # Signature based on the COMPLETE effective configuration (+ model).
-            # Uses the run_name (which uniquely identifies the HP combination),
-            # not merely the model section name.
-            signature = _config_signature(primary_run_name, eff)
+        for idx, plan in enumerate(run_plans, start=1):
+            eff = plan["eff"]
+            varied = plan["varied"]
+            signature = plan["signature"]
+            model_name = plan["model_name"]
+            run_name = plan["run_name"]
 
             if signature in completed_signatures:
-                log_section(f"HP Search [{idx}/{total_combos}]: {base_model_name} -- SKIPPED")
-                log_info(
-                    f"Skipping configuration (already present in CSV): {primary_run_name}"
-                )
+                log_section(f"HP Search [{idx}/{total_plans}]: {model_name} -- SKIPPED")
+                log_info(f"Skipping run (already present in CSV): {run_name}")
                 if varied:
                     for k, v in sorted(varied.items()):
                         log_config(k, v)
                 continue
 
-            run_name = primary_run_name
+            # Write the effective config to a temp main-config file.
+            temp_main = _write_temp_main_config(eff)
+            temp_paths.append(temp_main)
 
             _log_combo_header(
-                idx, total_combos, base_model_name, varied, run_name,
+                idx, total_plans, model_name, varied, run_name,
                 overall_t0, elapsed_accum, done_before
             )
+            _log_effective_config(eff)
 
             combo_t0 = time()
             model_instance = None
@@ -643,7 +724,7 @@ def main():
                 # Per-run reproducible subset of the pool.
                 subset = _draw_run_subset(
                     pool_questions, hps_run_samples, hps_split_seed,
-                    eff, base_model_name,
+                    eff, model_name,
                 )
                 log_info(
                     f"Per-run subset: {len(subset)}/{len(pool_questions)} questions "
@@ -655,10 +736,7 @@ def main():
                 # Mutate live config question counts so run_debate_with_defense
                 # uses the whole subset.
                 live_cfg.num_questions = len(subset)
-                if hasattr(live_cfg, "n_questions_on_random_topo"):
-                    live_cfg.n_questions_on_random_topo = len(subset)
-                else:
-                    live_cfg.n_questions_on_random_topo = len(subset)
+                live_cfg.n_questions_on_random_topo = len(subset)
 
                 tp_key = (
                     getattr(live_cfg, "text_processor_path", None),
@@ -681,21 +759,23 @@ def main():
                     train_indexes=train_indexes,
                 )
 
-                # Resolve topologies for this combination's live config.
-                log_section(f"Topology Resolution [{idx}/{total_combos}]")
+                # Resolve topologies for this run's live config.
+                log_section(f"Topology Resolution [{idx}/{total_plans}]")
                 topologies = resolve_topologies(
                     SimpleNamespace(live_evaluation_config=live_cfg),
                     temp_main,
                 )
 
                 # Build / train the model(s) for this effective config.
+                # Only the single model selected for this run is embedded, so no
+                # other model is instantiated or evaluated as part of this run.
                 embedded = load_embedded_model_configs(temp_main)
                 models = get_models_from_path(config.models_directory, embedded)
 
                 if not models:
                     log_warn(
-                        f"No trainable models resolved for this configuration; "
-                        f"skipping."
+                        f"No trainable model resolved for '{model_name}' in "
+                        f"{config.models_directory}; skipping this run."
                     )
                     continue
 
@@ -703,24 +783,22 @@ def main():
                     if _mi.get("temp_config_path"):
                         combo_model_temps.append(_mi["temp_config_path"])
 
-                for model_name, model_info in models.items():
-                    model_sig = _config_signature(model_name, eff)
-                    if model_sig in completed_signatures:
-                        log_info(
-                            f"Skipping model '{model_name}' -- already in CSV."
-                        )
-                        continue
-
-                    log_section(f"Training [{idx}/{total_combos}]: {model_name}")
+                for _loaded_run_name, model_info in models.items():
+                    log_section(f"Training [{idx}/{total_plans}]: {model_name}")
                     train_t0 = time()
-                    metrics, model_instance = model_info["master"]._run()
+                    # Pass the top-level train_pkl_path to the training code
+                    # exactly like MainEvaluation, so the complete global
+                    # configuration reaches the model's training.
+                    metrics, model_instance = model_info["master"]._run(
+                        getattr(config, "train_pkl_path", None)
+                    )
                     computed_threshold = (
                         metrics.get("computed_threshold") if isinstance(metrics, dict) else None
                     )
-                    effective_name = model_name
+                    effective_name = run_name
                     if computed_threshold is not None:
                         effective_name = _update_name_with_threshold(
-                            model_name, computed_threshold
+                            run_name, computed_threshold
                         )
                         log_info(
                             f"Threshold computed: {computed_threshold:.6f} "
@@ -728,7 +806,7 @@ def main():
                         )
                     log_info(f"Training completed in {fmt_seconds(time() - train_t0)}")
 
-                    log_section(f"Evaluating [{idx}/{total_combos}]: {effective_name}")
+                    log_section(f"Evaluating [{idx}/{total_plans}]: {effective_name}")
                     eval_t0 = time()
                     traces = orchestrator.run_debate_with_defense(
                         subset, model_instance, topologies
@@ -741,7 +819,7 @@ def main():
                     print_stats_table(stats, model_name=effective_name)
 
                     base_row = {
-                        "config_signature": model_sig,
+                        "config_signature": signature,
                         "model_name": model_name,
                         "run_name": effective_name,
                         "effective_config": _canonical(eff),
@@ -761,7 +839,7 @@ def main():
                         f"Results flushed to CSV: {results_csv_path} "
                         f"({len(rows)} topology row(s))"
                     )
-                    completed_signatures.add(model_sig)
+                    completed_signatures.add(signature)
 
                     del traces, stats
                     _cleanup_model(model_instance)
@@ -772,7 +850,7 @@ def main():
                 elapsed_accum += combo_elapsed
                 done_before += 1
                 log_info(
-                    f"Combination elapsed: {fmt_seconds(combo_elapsed)} | "
+                    f"Run elapsed: {fmt_seconds(combo_elapsed)} | "
                     f"total so far: {fmt_seconds(time() - overall_t0)}"
                 )
 
@@ -785,17 +863,17 @@ def main():
                 if model_instance is not None:
                     _cleanup_model(model_instance)
                 log_error(
-                    f"Combination [{idx}/{total_combos}] failed: {e}"
+                    f"Run [{idx}/{total_plans}] failed: {e}"
                 )
                 for line in traceback.format_exc().strip().splitlines():
                     log_error(line)
                 log_warn(
-                    "This configuration was NOT marked as completed. "
+                    "This run was NOT marked as completed. "
                     "It will be retried on the next run."
                 )
                 continue
             finally:
-                # Remove the per-combo temp main config.
+                # Remove the per-run temp main config.
                 if temp_main in temp_paths:
                     temp_paths.remove(temp_main)
                 Path(temp_main).unlink(missing_ok=True)
