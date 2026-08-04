@@ -1,11 +1,12 @@
 # Guardian-specific evaluation example. Use MainEvaluation-guardian.py.
 models_directory: defense-models
 output_file: results/guardian.json
+train_pkl_path: data/train-gpt-oss-300.pkl
 defense_model_train_configs:
   Guardian:
     pkl_train: data/train-gpt-oss-300.pkl
     seed: 42
-    device: cpu
+    device: cuda
     temporal_window: 3
     input_dim: 384
     hidden_dim: 128
@@ -15,8 +16,8 @@ defense_model_train_configs:
     dropout: 0.1
     alpha: 0.5
     gamma: 0.001
-    batch_size: 8
-    num_epochs: 20
+    batch_size: 32
+    num_epochs: 40
     val_split: 0.2
     lr_patience: 5
     lr_factor: 0.5
@@ -41,11 +42,11 @@ live_evaluation_config:
   top_k_defense: 1
   no_defense_baseline: false
   max_concurrent_inference: 150
-  num_questions: 20
+  num_questions: 0
   new_random_each_question: true
-  n_questions_on_random_topo: 20
+  n_questions_on_random_topo: 50
   topologies_seed: 24
-  density_range_for_random_topo: [0.3, 0.7]
+  density_range_for_random_topo: [0.4, 0.9]
   text_processor_path: TextProcessingManager.py
   text_processor_class_name: RoundProcessor
   clean_debates_with_empty_responses: true
