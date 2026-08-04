@@ -264,6 +264,57 @@ def _get_completed_run_names(output_path: Path) -> set:
         return set()
 
 
+def _load_hps_indexes(hps_indexes_path: str) -> list:
+    """
+    Load the HPS index file written by HPSearch and return the stored dataset
+    indexes as a sorted list of ints.
+
+    The PKL format produced by HPSearch (see EvaluationDebateLoop-HPS.py) is a
+    pickled dict::
+
+        {"indices": [int, ...], "params": {...}}
+
+    Raises a clear error whenever the configured file is missing, cannot be
+    read, or does not have the expected structure.  The indexes are normalized
+    to ints so they compare reliably with the training-index exclusion set.
+    """
+    path = Path(hps_indexes_path)
+    if not path.exists():
+        raise ValueError(
+            f"HPS_indexes file not found: {hps_indexes_path}"
+        )
+    try:
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+    except Exception as e:
+        raise ValueError(
+            f"Could not read HPS_indexes file: {hps_indexes_path} ({e})"
+        ) from e
+
+    if not isinstance(data, dict) or "indices" not in data:
+        raise ValueError(
+            f"HPS_indexes file '{hps_indexes_path}' has an unexpected structure: "
+            f"expected a pickled dict containing an 'indices' key (as written by "
+            f"HPSearch), got {type(data).__name__}."
+        )
+
+    indices = data["indices"]
+    if not isinstance(indices, (list, tuple)):
+        raise ValueError(
+            f"HPS_indexes file '{hps_indexes_path}' has an unexpected 'indices' "
+            f"structure: expected a list of dataset indexes, got "
+            f"{type(indices).__name__}."
+        )
+
+    try:
+        return sorted({int(i) for i in indices})
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            f"HPS_indexes file '{hps_indexes_path}' contains non-integer "
+            f"indexes: {e}"
+        ) from e
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("config_file", type=str, help="Path to the configuration file.")
@@ -299,7 +350,21 @@ if __name__ == "__main__":
         topologies = resolve_topologies(config, parsed_args.config_file)
         
         train_indexes = pickle.load(open(config.train_pkl_path, "rb")).get("idx_metadata", [])
-        
+
+        # Optional HPS index exclusion: indexes previously selected during the
+        # hyperparameter search are added to the exclusion set so the current
+        # evaluation only samples from tasks never seen during HPS.
+        excluded_indexes = set(int(i) for i in train_indexes)
+        hps_indexes_path = getattr(config, "HPS_indexes", None)
+        if hps_indexes_path:
+            hps_indexes = _load_hps_indexes(hps_indexes_path)
+            excluded_indexes.update(hps_indexes)
+            log_info(
+                f"HPS index exclusion: added {len(hps_indexes)} HPS index(es) "
+                f"from {hps_indexes_path} (total excluded: {len(excluded_indexes)})."
+            )
+        train_indexes = sorted(excluded_indexes)
+
         liveEvaluator = LiveDebateOrchestration(config.live_evaluation_config, train_indexes=train_indexes)
 
         live_cfg = config.live_evaluation_config

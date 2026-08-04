@@ -16,6 +16,23 @@ def extract_reason_answer(text: str):
     answer = answer_match.group(1).strip() if answer_match else ""
     return reason, answer
 
+
+def _select_evaluation_indexes(available_indexes, num_questions, rng):
+    """
+    Sample *num_questions* indexes without replacement from *available_indexes*.
+
+    Raises a clear error when the exclusion of training/HPS indexes leaves fewer
+    available tasks than requested, so an excluded task is never silently
+    selected to satisfy the sample size.  The sampling itself is unchanged.
+    """
+    if len(available_indexes) < num_questions:
+        raise ValueError(
+            f"Not enough available tasks for evaluation: requested "
+            f"{num_questions} question(s), but only {len(available_indexes)} "
+            f"remain after excluding the configured (training/HPS) indexes."
+        )
+    return rng.choice(available_indexes, size=num_questions, replace=False)
+
 class MMLULoader:
     TAG = "MMLU"
     PROMPTS_FILE = "prompts/prompts_blindguard.json"
@@ -49,10 +66,8 @@ class MMLULoader:
         available_indexes = [
             i for i in range(len(questions)) if i not in self.indexes
         ]
-        selected_indexes = rng.choice(
-            available_indexes,
-            size = self.num_questions,
-            replace = False
+        selected_indexes = _select_evaluation_indexes(
+            available_indexes, self.num_questions, rng
         )
         
         self.indexes = selected_indexes
@@ -127,10 +142,8 @@ class CSQALoader(MMLULoader):
         available_indexes = [
                     i for i in range(len(questions)) if i not in self.indexes
                 ]
-        selected_indexes = rng.choice(
-            available_indexes,
-            size = self.num_questions,
-            replace = False
+        selected_indexes = _select_evaluation_indexes(
+            available_indexes, self.num_questions, rng
         )
                 
         self.indexes = selected_indexes
@@ -194,10 +207,8 @@ class GSM8KLoader(MMLULoader):
         available_indexes = [
             i for i in range(len(questions)) if i not in self.indexes
         ]
-        selected_indexes = rng.choice(
-            available_indexes,
-            size = self.num_questions,
-            replace = False
+        selected_indexes = _select_evaluation_indexes(
+            available_indexes, self.num_questions, rng
         )
         
         self.indexes = selected_indexes
@@ -275,10 +286,8 @@ class MMLUProLoader(MMLULoader):
         available_indexes = [
             i for i in range(len(questions)) if i not in self.indexes
         ]
-        selected_indexes = rng.choice(
-            available_indexes,
-            size = self.num_questions,
-            replace = False
+        selected_indexes = _select_evaluation_indexes(
+            available_indexes, self.num_questions, rng
         )
         self.indexes = selected_indexes
         return [questions[i] for i in selected_indexes]
@@ -349,7 +358,7 @@ class MSMARCOLoader(MMLULoader):
         ]
         rng = np.random.default_rng(self.random_seed)
         n = min(self.num_questions, len(questions))
-        selected_indexes = rng.choice(available_indexes, size=n, replace=False)
+        selected_indexes = _select_evaluation_indexes(available_indexes, n, rng)
         self.indexes = selected_indexes
         return [questions[i] for i in selected_indexes]
 
