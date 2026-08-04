@@ -46,7 +46,6 @@ import tempfile
 import traceback
 from pathlib import Path
 from time import time
-from types import SimpleNamespace
 
 import numpy as np
 import yaml
@@ -66,11 +65,9 @@ from LoggingUtils import (
 from MainEvaluation import (
     load_embedded_model_configs,
     get_models_from_path,
-    resolve_topologies,
     _update_name_with_threshold,
     _cleanup_model,
     _write_temp_model_config,
-    generate_topologies,
 )
 
 
@@ -751,12 +748,12 @@ def main():
                     train_indexes=train_indexes,
                 )
 
-                # Resolve topologies for this run's live config.
+                # HPS stage: evaluate each run only on the random topology (a
+                # fresh random topology is generated per question), so the fixed
+                # topologies are not evaluated during the search.
                 log_section(f"Topology Resolution [{idx}/{total_plans}]")
-                topologies = resolve_topologies(
-                    SimpleNamespace(live_evaluation_config=live_cfg),
-                    temp_main,
-                )
+                live_cfg.new_random_each_question = True
+                topologies = {"random": None}
 
                 # Build / train the model(s) for this effective config.
                 # Only the single model selected for this run is embedded, so no
