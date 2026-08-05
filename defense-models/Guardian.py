@@ -1,10 +1,10 @@
 """GUARDIAN temporal attributed-graph anomaly detector.
 
-The paper specifies the encoder/decoder losses but does not publish the
-reference implementation's exact GIB estimator or a fixed history length.
-This implementation uses a variational Gaussian bottleneck and a configurable
-recent window.  Early rounds use the prefix that is actually available; no
-future round is ever included.
+The model follows the public temporal implementation: each graph is encoded
+through a variational GNN, the sampled graph states are aggregated over time,
+and the latest state reconstructs node attributes and graph structure.
+Embeddings remain GAMMAF's input contract in place of the original BERT
+text encoder.
 """
 
 from __future__ import annotations
@@ -69,7 +69,13 @@ class GuardianNet(nn.Module):
         )
         self.temporal = nn.TransformerEncoder(layer, num_layers=temporal_layers)
         self.attr_decoder = nn.Sequential(nn.Linear(latent_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, input_dim))
-        self.edge_decoder = nn.Sequential(nn.Linear(latent_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, latent_dim))
+        # The reference model scores every ordered node pair with an MLP rather
+        # than using a latent inner product.
+        self.edge_decoder = nn.Sequential(
+            nn.Linear(latent_dim * 2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),
+        )
         self.mu = nn.Linear(latent_dim, latent_dim)
         self.logvar = nn.Linear(latent_dim, latent_dim)
 
@@ -77,27 +83,36 @@ class GuardianNet(nn.Module):
         # x: [time, agents, features], adj: [agents, agents]
         norm = _normalized_adjacency(adj)
         states = []
+        mus = []
+        logvars = []
         for xt in x:
             h = F.relu(norm @ self.gcn1(xt))
-            states.append(norm @ self.gcn2(h))
+            h = norm @ self.gcn2(h)
+            mu, logvar = self.mu(h), self.logvar(h).clamp(-20.0, 10.0)
+            if self.training:
+                z = mu + torch.exp(0.5 * logvar) * torch.randn_like(mu)
+            else:
+                z = mu
+            states.append(z)
+            mus.append(mu)
+            logvars.append(logvar)
         z_by_time = torch.stack(states, dim=0)
         # Attention is over time independently for each agent.
         temporal_in = z_by_time.transpose(0, 1)
         temporal_out = self.temporal(temporal_in)
         current = temporal_out[:, -1, :]
-        mu, logvar = self.mu(current), self.logvar(current).clamp(-20.0, 10.0)
-        if self.training:
-            z = mu + torch.exp(0.5 * logvar) * torch.randn_like(mu)
-        else:
-            z = mu
-        return z, mu, logvar
+        # The original implementation applies the GIB penalty to the latest
+        # graph encoder output, before temporal aggregation.
+        return current, mus[-1], logvars[-1]
 
     def forward(self, x: torch.Tensor, adj: torch.Tensor):
         z, mu, logvar = self.encode(x, adj)
         x_hat = self.attr_decoder(z)
-        edge_latent = self.edge_decoder(z)
-        edge_logits = edge_latent @ edge_latent.transpose(0, 1)
-        return x_hat, edge_logits, z, mu, logvar
+        n = z.shape[0]
+        source = z.unsqueeze(1).expand(n, n, -1)
+        target = z.unsqueeze(0).expand(n, n, -1)
+        edge_probs = torch.sigmoid(self.edge_decoder(torch.cat((source, target), dim=-1)).squeeze(-1))
+        return x_hat, edge_probs, z, mu, logvar
 
 
 class _WindowDataset(Dataset):
@@ -131,7 +146,9 @@ class Guardian:
         self.temporal_heads = int(getattr(self.config, "temporal_heads", 4))
         self.temporal_layers = int(getattr(self.config, "temporal_layers", 1))
         self.dropout = float(getattr(self.config, "dropout", 0.1))
-        self.alpha = float(getattr(self.config, "alpha", 0.5))
+        # The original temporal implementation uses feature_weight=0.3 and
+        # structure_weight=0.7.
+        self.alpha = float(getattr(self.config, "alpha", 0.3))
         self.gamma = float(getattr(self.config, "gamma", 0.001))
         self.learning_rate = float(getattr(self.config, "learning_rate", 1e-3))
         self.weight_decay = float(getattr(self.config, "weight_decay", 1e-4))
@@ -202,13 +219,13 @@ class Guardian:
         return windows
 
     def _sample_loss(self, sample_x, sample_a):
-        x_hat, edge_logits, _, mu, logvar = self.model(sample_x, sample_a)
+        x_hat, adjacency_reconstructed, _, mu, logvar = self.model(sample_x, sample_a)
         target_x = sample_x[-1]
         target_a = (sample_a > 0).float()
-        attr = F.mse_loss(x_hat, target_x)
-        structure = F.binary_cross_entropy_with_logits(edge_logits, target_a)
+        attr = ((x_hat - target_x) ** 2).mean(dim=1)
+        structure = ((adjacency_reconstructed - target_a) ** 2).mean(dim=1)
         kl = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-        return self.alpha * attr + (1 - self.alpha) * structure + self.gamma * kl
+        return torch.mean(self.alpha * attr + (1 - self.alpha) * structure) + self.gamma * kl
 
     def _evaluate(self, loader):
         self.model.eval()
@@ -346,9 +363,9 @@ class Guardian:
             self.model.eval()
             x = torch.from_numpy(x_np).float().to(self.device)
             a = torch.from_numpy(adj).float().to(self.device)
-            x_hat, edge_logits, _, _, _ = self.model(x, a)
+            x_hat, adjacency_reconstructed, _, _, _ = self.model(x, a)
             attr_error = ((x_hat - x[-1]) ** 2).mean(dim=1)
-            edge_error = F.binary_cross_entropy_with_logits(edge_logits, (a > 0).float(), reduction="none").mean(dim=1)
+            edge_error = ((adjacency_reconstructed - (a > 0).float()) ** 2).mean(dim=1)
             scores = self.alpha * attr_error + (1 - self.alpha) * edge_error
             scores = scores.cpu().numpy().astype(float)
         threshold = getattr(self.config, "threshold", None)
