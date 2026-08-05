@@ -45,6 +45,7 @@ class RoundProcessor:
             add_special_tokens=False,
             truncation=False,
             return_attention_mask=False,
+            verbose=False,
         )["input_ids"]
         if not token_ids:
             token_chunks = [[]]
