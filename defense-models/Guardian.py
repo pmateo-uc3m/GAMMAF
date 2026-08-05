@@ -196,6 +196,8 @@ class Guardian:
             raw = pickle.load(handle)
         records = raw.get("data", raw) if isinstance(raw, dict) else raw
         windows = []
+        window_group_ids = []
+        debate_id = 0
         for entry in records:
             if not isinstance(entry, dict):
                 continue
@@ -214,8 +216,14 @@ class Guardian:
                 for end in range(len(rounds)):
                     start = max(0, end + 1 - self.window)
                     windows.append((np.stack(rounds[start:end + 1]), a))
+                    window_group_ids.append(debate_id)
+                debate_id += 1
         if not windows:
             raise ValueError(f"No valid temporal debates found in Guardian training data: {path}")
+        # Keep group membership alongside the flattened windows. This lets
+        # train() split complete debates instead of correlated round windows.
+        self._window_group_ids = window_group_ids
+        self._window_group_source = windows
         return windows
 
     def _sample_loss(self, sample_x, sample_a):
@@ -243,6 +251,8 @@ class Guardian:
         windows = topology_data
         if isinstance(topology_data, dict) and "windows" in topology_data:
             windows = topology_data["windows"]
+        grouped_windows = windows is getattr(self, "_window_group_source", None)
+        group_ids = getattr(self, "_window_group_ids", None) if grouped_windows else None
         windows = [(np.asarray(x, dtype=np.float32), _adjacency(a, np.asarray(x).shape[1])) for x, a in windows]
         input_dim = windows[0][0].shape[-1]
         if any(x.ndim != 3 or x.shape[-1] != input_dim for x, _ in windows):
@@ -251,12 +261,29 @@ class Guardian:
 
         split_seed = int(getattr(self.config, "split_seed", getattr(self.config, "seed", 0)))
         split_rng = np.random.default_rng(split_seed)
-        indices = split_rng.permutation(len(windows))
-        if len(windows) >= 2 and self.val_split > 0:
+        unique_groups = np.unique(group_ids) if group_ids is not None and len(group_ids) == len(windows) else []
+        if len(unique_groups) >= 2 and self.val_split > 0:
+            group_order = split_rng.permutation(unique_groups)
+            val_group_count = max(1, int(round(len(unique_groups) * self.val_split)))
+            val_group_count = min(val_group_count, len(unique_groups) - 1)
+            val_groups = set(group_order[:val_group_count].tolist())
+            val_indices = [i for i, group in enumerate(group_ids) if group in val_groups]
+            train_indices = [i for i, group in enumerate(group_ids) if group not in val_groups]
+            val_windows = [windows[i] for i in val_indices]
+            train_windows = [windows[i] for i in train_indices]
+            log_info(
+                f"Guardian validation split uses {val_group_count} of {len(unique_groups)} debates "
+                f"({len(val_windows)} validation windows; {len(train_windows)} training windows)."
+            )
+        elif len(windows) >= 2 and self.val_split > 0:
+            # Preserve support for callers that provide already-flattened
+            # windows without debate identifiers.
+            indices = split_rng.permutation(len(windows))
             val_count = max(1, int(round(len(windows) * self.val_split)))
             val_count = min(val_count, len(windows) - 1)
             val_windows = [windows[i] for i in indices[:val_count]]
             train_windows = [windows[i] for i in indices[val_count:]]
+            log_warn("Guardian debate-group split is unavailable; splitting individual windows")
         else:
             log_warn("Guardian validation split is unavailable; validating on the training windows")
             train_windows = windows
