@@ -56,8 +56,12 @@ def _normalized_adjacency(adj: torch.Tensor) -> torch.Tensor:
 class DOMINANTNet(nn.Module):
     """Single-snapshot GNN autoencoder (static DOMINANT).
 
-    A multi-layer GCN encodes the current round's node features and two
-    decoders reconstruct node attributes and the binary adjacency matrix.
+    Mirrors the reference ``model_static.py`` DOMINANT: node attributes
+    (GAMMAF ``st_embedding`` vectors) are first projected into the hidden
+    feature space that the autoencoder reconstructs (this replaces the
+    reference BERT ``TextEncoder.fc``), encoded by a multi-layer GCN, and
+    decoded back into that same space together with the binary adjacency
+    matrix.
     """
 
     def __init__(self, input_dim: int, hidden_dim: int, num_gnn_layers: int, dropout: float):
@@ -67,32 +71,30 @@ class DOMINANTNet(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_gnn_layers = num_gnn_layers
-        layers = [nn.Linear(input_dim, hidden_dim)]
-        layers.extend(nn.Linear(hidden_dim, hidden_dim) for _ in range(num_gnn_layers - 1))
-        self.gcn_layers = nn.ModuleList(layers)
-        self.dropout_layer = nn.Dropout(dropout)
-        self.attr_decoder = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, input_dim)
+        # Replaces the reference BERT TextEncoder projection; every GCN layer
+        # operates in the reconstructed feature space like the original.
+        self.feature_proj = nn.Linear(input_dim, hidden_dim)
+        self.gcn_layers = nn.ModuleList(
+            nn.Linear(hidden_dim, hidden_dim) for _ in range(num_gnn_layers)
         )
+        self.dropout_layer = nn.Dropout(dropout)
+        self.attr_decoder = nn.Linear(hidden_dim, hidden_dim)
         # The reference model scores every ordered node pair with the inner
         # product of a structure projection rather than an MLP edge decoder.
         self.structure_decoder = nn.Linear(hidden_dim, hidden_dim)
 
-    def encode(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, adj: torch.Tensor):
         # x: [agents, features], adj: [agents, agents]
         norm = _normalized_adjacency(adj)
-        h = x
+        h = self.feature_proj(x)
+        z = h
         for layer in self.gcn_layers:
-            h = F.relu(layer(norm @ h))
-            h = self.dropout_layer(h)
-        return h
-
-    def forward(self, x: torch.Tensor, adj: torch.Tensor):
-        z = self.encode(x, adj)
+            z = F.relu(layer(norm @ z))
+            z = self.dropout_layer(z)
         x_hat = self.attr_decoder(z)
         s = self.structure_decoder(z)
         adjacency_reconstructed = torch.sigmoid(s @ s.transpose(-1, -2))
-        return x_hat, adjacency_reconstructed, z
+        return x_hat, adjacency_reconstructed, z, h
 
 
 class _RoundDataset(Dataset):
@@ -201,9 +203,9 @@ class GuardianStatic:
         return samples
 
     def _sample_loss(self, sample_x, sample_a):
-        x_hat, adjacency_reconstructed, _ = self.model(sample_x, sample_a)
+        x_hat, adjacency_reconstructed, _, x_proj = self.model(sample_x, sample_a)
         target_a = (sample_a > 0).float()
-        attr = F.mse_loss(x_hat, sample_x)
+        attr = F.mse_loss(x_hat, x_proj)
         structure = F.binary_cross_entropy(adjacency_reconstructed, target_a)
         return self.alpha * attr + (1 - self.alpha) * structure
 
@@ -350,8 +352,8 @@ class GuardianStatic:
             self.model.eval()
             x = torch.from_numpy(x_np).float().to(self.device)
             a = torch.from_numpy(adj).float().to(self.device)
-            x_hat, adjacency_reconstructed, _ = self.model(x, a)
-            attr_error = ((x_hat - x) ** 2).mean(dim=1)
+            x_hat, adjacency_reconstructed, _, x_proj = self.model(x, a)
+            attr_error = ((x_hat - x_proj) ** 2).mean(dim=1)
             edge_error = ((adjacency_reconstructed - (a > 0).float()) ** 2).mean(dim=1)
             scores = (self.alpha * attr_error + (1 - self.alpha) * edge_error).cpu().numpy().astype(float)
         threshold = getattr(self.config, "threshold", None)
