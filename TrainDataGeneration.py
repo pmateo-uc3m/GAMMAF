@@ -298,6 +298,7 @@ def main():
     if process_text and processor is None:
         raise RuntimeError("process_text is enabled but no processor could be initialized.")
     all_results = []
+    all_used_indexes = []
     total_initial_debates = 0
     total_valid_debates = 0
     total_topologies = len(topologies)
@@ -354,6 +355,7 @@ def main():
         if clean_data:
             log_info("Cleaning data: removing debates with invalid/empty responses...")
             cleaned_results = []
+            kept_positions = []
             invalid_reason_counts = {}
             invalid_examples = []
 
@@ -361,6 +363,7 @@ def main():
                 invalid_reasons = get_debate_invalid_reasons(debate)
                 if not invalid_reasons:
                     cleaned_results.append(debate)
+                    kept_positions.append(debate_idx)
                     continue
 
                 for reason in invalid_reasons:
@@ -392,6 +395,9 @@ def main():
                     for ex in invalid_examples:
                         reasons_str = ", ".join(ex["reasons"])
                         print(f"      - debate_index={ex['debate_index']}: {reasons_str}")
+
+        else:
+            kept_positions = [i for i, debate in enumerate(results) if debate is not None]
 
         if process_text:
             log_info("Starting text processing on cleaned debates...")
@@ -430,7 +436,17 @@ def main():
                     )
 
         total_valid_debates += len(results)
-            
+
+        # Keep the dataset indexes of the debates that actually made it into
+        # the saved data, dropping any cleaned/invalid or failed (None) ones.
+        dataloader = getattr(debate_orchestration, "dataloader", None)
+        if dataloader is not None and hasattr(dataloader, "indexes") and dataloader.indexes is not None:
+            all_used_indexes.extend(
+                dataloader.indexes[pos]
+                for pos in kept_positions
+                if pos < len(dataloader.indexes)
+            )
+
         all_results.append(
             {"topology_name": topo_name, 
              "topology": adj_matrix,
@@ -443,8 +459,10 @@ def main():
     output_filepath = os.path.join(save_data_dir, file_name)
     output = {
         "data" : all_results,
-        "idx_metadata" : debate_orchestration.dataloader.indexes if hasattr(debate_orchestration, "dataloader") and hasattr(debate_orchestration.dataloader, "indexes") else None,
+        "idx_metadata" : all_used_indexes if all_used_indexes else None,
     }
+    if all_used_indexes:
+        log_info(f"Stored {len(all_used_indexes)} used dataset indexes in idx_metadata (cleaned/invalid debates excluded).")
     with open(output_filepath, 'wb') as f:
         pickle.dump(output, f)
     log_info(f"Processed text data saved to {output_filepath}")
