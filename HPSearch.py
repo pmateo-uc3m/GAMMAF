@@ -774,11 +774,15 @@ def main():
                 for _loaded_run_name, model_info in models.items():
                     log_section(f"Training [{idx}/{total_plans}]: {model_name}")
                     train_t0 = time()
-                    # Pass the top-level train_pkl_path to the training code
-                    # exactly like MainEvaluation, so the complete global
-                    # configuration reaches the model's training.
+                    # Resolve this model's training itinerary: a model-specific
+                    # pkl_train wins; otherwise fall back to the global
+                    # train_pkl_path (injected as the config default).
+                    model_train_pkl = (
+                        getattr(getattr(model_info["master"], "args", None), "pkl_train", None)
+                        or getattr(config, "train_pkl_path", None)
+                    )
                     metrics, model_instance = model_info["master"]._run(
-                        getattr(config, "train_pkl_path", None)
+                        model_train_pkl
                     )
                     computed_threshold = (
                         metrics.get("computed_threshold") if isinstance(metrics, dict) else None

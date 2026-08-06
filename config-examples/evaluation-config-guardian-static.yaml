@@ -8,7 +8,6 @@ output_file: results/guardian-static.json
 train_pkl_path: data/train-gpt-oss-300.pkl
 defense_model_train_configs:
   Guardian-static:
-    pkl_train: data/train-gpt-oss-300.pkl
     seed: 42
     device: cuda
     input_dim: 384

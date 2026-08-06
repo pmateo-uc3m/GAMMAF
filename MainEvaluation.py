@@ -133,6 +133,10 @@ def load_embedded_model_configs(config_file_path: str):
     with open(config_file_path, "r", encoding="utf-8") as f:
         raw_config = yaml.safe_load(f) or {}
 
+    # Global default training itinerary: every model that does not define its
+    # own 'pkl_train' falls back to the top-level train_pkl_path.
+    default_train_pkl = raw_config.get("train_pkl_path")
+
     section_candidates = [
         "defense_model_train_configs",
         "model_train_configs",
@@ -148,10 +152,14 @@ def load_embedded_model_configs(config_file_path: str):
         normalized = {}
         for model_name, cfg in section.items():
             if isinstance(cfg, dict):
+                if default_train_pkl is not None and "pkl_train" not in cfg:
+                    cfg["pkl_train"] = default_train_pkl
                 cfg.setdefault("run_name", model_name)
                 normalized[model_name] = [cfg]
             elif isinstance(cfg, list):
                 for i, c in enumerate(cfg):
+                    if default_train_pkl is not None and "pkl_train" not in c:
+                        c["pkl_train"] = default_train_pkl
                     c.setdefault("run_name", f"{model_name}_{i}")
                 normalized[model_name] = cfg
             else:
@@ -410,7 +418,11 @@ if __name__ == "__main__":
                 log_config(f"config", model_info["config_path"])
 
                 train_t0 = time()
-                metrics, model_instance = model_info["master"]._run(config.train_pkl_path)
+                # Resolve each model's training itinerary: a model-specific
+                # pkl_train wins; otherwise fall back to the global
+                # train_pkl_path (also injected as the config default above).
+                model_train_pkl = getattr(getattr(model_info["master"], "args", None), "pkl_train", None) or config.train_pkl_path
+                metrics, model_instance = model_info["master"]._run(model_train_pkl)
                 effective_name = model_name
                 computed_threshold = metrics.get("computed_threshold") if isinstance(metrics, dict) else None
                 if computed_threshold is not None:
