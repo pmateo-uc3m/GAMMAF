@@ -75,7 +75,7 @@ def anonymized_propagation(adj_matrix, k):
     return s_k
 
 
-def build_prem_dataset(train_data, prop_steps):
+def build_prem_dataset(train_data, prop_steps, propagation_fn=anonymized_propagation):
     """Turn BlindGuard's processed data into PREM's (ego, neighbor) node pairs.
 
     For every debate round of every topology the ego features are the raw
@@ -87,7 +87,7 @@ def build_prem_dataset(train_data, prop_steps):
     labels_list = []
     for topology in train_data.data:
         adj_matrix = np.asarray(topology["adj_matrix"])
-        prop = anonymized_propagation(adj_matrix, prop_steps)
+        prop = propagation_fn(adj_matrix, prop_steps)
         labels = topology.get("labels")
         for debate_idx, debate in enumerate(topology["debates"]):
             agent_labels = labels[debate_idx] if labels is not None else None
@@ -132,7 +132,8 @@ class PREMDiscriminator(nn.Module):
 class PREMTopologyLoop:
     """PREM train / inference object consumed by the evaluation framework."""
 
-    def __init__(self, args):
+    def __init__(self, args, propagation_fn=anonymized_propagation,
+                 discriminator_cls=PREMDiscriminator):
         self.args = args
         self.config = args
         if getattr(args, "device", None):
@@ -141,6 +142,8 @@ class PREMTopologyLoop:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
         self.prop_steps = int(getattr(args, "prop_steps", 2))
+        self._propagation_fn = propagation_fn
+        self._discriminator_cls = discriminator_cls
         self._predict_lock = threading.Lock()
 
     def _contrastive_loss(self, ego, neighbor, alpha, gamma):
@@ -217,7 +220,7 @@ class PREMTopologyLoop:
         if batch_size <= 0:
             batch_size = max(1, len(train_idx))
 
-        self.model = PREMDiscriminator(input_dim, emb_dim).to(self.device)
+        self.model = self._discriminator_cls(input_dim, emb_dim).to(self.device)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
         ego_t = torch.from_numpy(ego)
@@ -289,7 +292,7 @@ class PREMTopologyLoop:
             x = np.asarray([agent["st_embedding"] for agent in debate_embeddings], dtype=np.float32)
         n_agents = x.shape[0]
 
-        prop = anonymized_propagation(np.asarray(adj_matrix), self.prop_steps)
+        prop = self._propagation_fn(np.asarray(adj_matrix), self.prop_steps)
         xn = (prop @ x).astype(np.float32)
 
         with self._predict_lock, torch.no_grad():
@@ -322,7 +325,7 @@ class PREMTopologyLoop:
 
     def load_model(self, path):
         checkpoint = torch.load(path, map_location=self.device)
-        self.model = PREMDiscriminator(checkpoint["input_dim"], checkpoint["emb_dim"])
+        self.model = self._discriminator_cls(checkpoint["input_dim"], checkpoint["emb_dim"])
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(self.device)
         self.model.eval()

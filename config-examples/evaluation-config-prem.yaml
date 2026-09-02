@@ -24,6 +24,26 @@ defense_model_train_configs:
 
     topologies: null
 
+  PREM-v2:
+    pkl_train: data/train-gpt-oss-300.pkl # Path to the pkl with the training data
+    seed: 42
+    device: cpu # Device for model training
+
+    # PREM-v2 hyperparameters (mean-aggregation variant / PREM-v2.py)
+    input_dim: 384      # sentence-embedding (node feature) dimension
+    emb_dim: 128        # ego/neighbor embedding dimension d_h
+    prop_steps: 2       # anonymized message-passing steps k
+    batch_size: 256     # mini-batch size (-1 = full batch)
+    val_split: 0.2
+    num_epochs: 100
+    learning_rate: 0.0003
+    weight_decay: 0.0
+    alpha: 0.9          # trade-off for neighbor-based negative term
+    gamma: 0.1          # trade-off for ego-based negative term
+    top_k: 2
+
+    topologies: null
+
 live_evaluation_config:
   timeout: 20 # Added a default value
   prompts_file: prompts/prompts_blindguard.json # Added a path
