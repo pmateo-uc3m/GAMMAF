@@ -22,6 +22,7 @@ import json
 from types import SimpleNamespace
 from langchain_core.runnables import RunnableLambda
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done
+from ConfigCheck import OPTIONAL_BOOLEAN_DEFAULTS
 import time
 from datetime import datetime
 
@@ -93,6 +94,12 @@ def modify_adjacency(flags, adjacency_matrix):
 class LiveDebateOrchestration:
     def __init__(self, config, train_indexes = []):
         self.config = config
+        # Non-essential optional booleans default to False instead of crashing
+        # the whole evaluation when they are absent from the config.
+        for _key, _default in OPTIONAL_BOOLEAN_DEFAULTS.items():
+            if not hasattr(config, _key):
+                log_warn(f"Optional live-evaluation config '{_key}' missing; using default {_default}.")
+                config[_key] = _default
         self.python_seed = getattr(config, "python_seed", getattr(config, "questions_random_seed", 0))
         self.numpy_seed = getattr(config, "numpy_seed", self.python_seed)
         self.answer_seed = getattr(config, "answer_seed", self.python_seed)
