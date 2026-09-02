@@ -4,6 +4,11 @@ import numpy as np
 import torch
 import threading
 
+# Guard the lazy per-thread embedding-model initialization. ``transformers``
+# loads weights via the ``meta`` device (low_cpu_mem_usage), which races when
+# many worker threads build their own SentenceTransformer/AutoModel at once.
+_EMBEDDING_MODEL_LOCK = threading.Lock()
+
 class RoundProcessor:
     def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu'):
         self.device = device
@@ -13,11 +18,13 @@ class RoundProcessor:
 
     def _get_local_resources(self):
         if not hasattr(self._local, '_init'):
-            self._local.st_model = SentenceTransformer(self.model_id, device=self.device)
-            self._local.hf_tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-            self._local.hf_model = AutoModel.from_pretrained(self.model_id)
-            self._local.hf_model.eval()
-            self._local._init = True
+            with _EMBEDDING_MODEL_LOCK:
+                if not hasattr(self._local, '_init'):
+                    self._local.st_model = SentenceTransformer(self.model_id, device=self.device)
+                    self._local.hf_tokenizer = AutoTokenizer.from_pretrained(self.model_id)
+                    self._local.hf_model = AutoModel.from_pretrained(self.model_id)
+                    self._local.hf_model.eval()
+                    self._local._init = True
         return self._local.st_model, self._local.hf_tokenizer, self._local.hf_model
 
     @staticmethod
