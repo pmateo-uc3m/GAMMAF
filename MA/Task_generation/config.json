@@ -6,6 +6,7 @@
     },
     "n": 2,
     "num_entries": 100,
+    "max_concurrent_calls": 200,
     "entry_selection_seed": 42,
     "passage_selection_seed": 7,
     "output": {

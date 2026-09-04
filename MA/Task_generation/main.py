@@ -22,9 +22,11 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List
 
 import numpy as np
+from tqdm import tqdm
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
@@ -91,6 +93,8 @@ def main() -> int:
     num_entries = int(config.get("num_entries", 0))
     if args.limit is not None:
         num_entries = args.limit
+
+    max_concurrent_calls = int(config.get("max_concurrent_calls", 200))
 
     entry_seed = int(config["entry_selection_seed"])
     passage_seed = int(config["passage_selection_seed"])
@@ -161,6 +165,8 @@ def main() -> int:
 
     start_time = time.time()
 
+    # --- phase 1: build jobs (deterministic entry + passage selection) ---
+    jobs = []  # each job: dict with entry_out fields + user_prompt
     for idx in row_indices:
         stats["considered"] += 1
         row = dataset[int(idx)]
@@ -191,42 +197,55 @@ def main() -> int:
             prompts["user"], entry["query"], correct_answer, safe_passages, n
         )
 
-        # --- LLM contamination ---
-        try:
-            result = llm.generate(
-                prompts["system"], user_prompt, n, retry_settings=retry_cfg
-            )
-        except LLMGenerationError as exc:
-            print(f"[WARN] LLM failure for query_id={entry['query_id']}: {exc}")
-            stats["llm_failed"] += 1
-            continue
-
-        # Internal metadata (target answer) is captured for debugging but not
-        # written into the final benchmark schema.
-        entry_out = {
-            "query_id": entry["query_id"],
-            "query": entry["query"],
-            "answers": entry["answers"],
+        job = {
+            "entry": entry,
             "safe_passages": safe_passages,
-            "adv_passages": result["adv_passages"],
+            "user_prompt": user_prompt,
         }
-        _debug_meta = {
-            "incorrect_answer": result["incorrect_answer"],
+        jobs.append(job)
+
+    # --- phase 2: parallel LLM contamination ---
+    completed: Dict[int, Dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=max_concurrent_calls) as executor:
+        futures = {
+            executor.submit(
+                llm.generate,
+                prompts["system"],
+                job["user_prompt"],
+                n,
+                retry_settings=retry_cfg,
+            ): (i, job)
+            for i, job in enumerate(jobs)
         }
 
-        # Final safety check: exactly n vs n.
-        if len(entry_out["safe_passages"]) != n or len(entry_out["adv_passages"]) != n:
-            print(f"[WARN] Skipping query_id={entry['query_id']} (size validation failed)")
-            stats["skipped_malformed"] += 1
-            continue
+        with tqdm(total=len(jobs), desc="Contaminating passages", unit="entry") as bar:
+            for future in as_completed(futures):
+                i, job = futures[future]
+                try:
+                    result = future.result()
+                except LLMGenerationError:
+                    stats["llm_failed"] += 1
+                except Exception as exc:
+                    print(f"[WARN] Unexpected LLM error for query_id={job['entry']['query_id']}: {exc}")
+                    stats["llm_failed"] += 1
+                else:
+                    entry_out = {
+                        "query_id": job["entry"]["query_id"],
+                        "query": job["entry"]["query"],
+                        "answers": job["entry"]["answers"],
+                        "safe_passages": job["safe_passages"],
+                        "adv_passages": result["adv_passages"],
+                    }
+                    if len(entry_out["safe_passages"]) != n or len(entry_out["adv_passages"]) != n:
+                        stats["skipped_malformed"] += 1
+                    else:
+                        completed[i] = entry_out
+                        stats["generated"] += 1
+                bar.update(1)
 
-        output_entries.append(entry_out)
-        stats["generated"] += 1
-
-        print(
-            f"[OK] query_id={entry['query_id']}  "
-            f"incorrect_answer={_debug_meta['incorrect_answer']!r}"
-        )
+    # --- preserve deterministic input order in the output ---
+    for i in sorted(completed):
+        output_entries.append(completed[i])
 
     elapsed = time.time() - start_time
 

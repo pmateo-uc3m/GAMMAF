@@ -45,6 +45,7 @@ No files outside `MA/Task_generation` are created or modified.
 | `dataset.split` | Split to read (`validation`). |
 | `n` | Number of passages per generated task. |
 | `num_entries` | Total MS MARCO entries to process. |
+| `max_concurrent_calls` | Maximum number of LLM requests in flight (default 200). |
 | `entry_selection_seed` | Seed for selecting which dataset entries are processed. |
 | `passage_selection_seed` | Seed for selecting passages within each entry. |
 | `output.dir` / `output.file_name` | Where the final benchmark JSON is written. |
