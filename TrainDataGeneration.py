@@ -271,6 +271,13 @@ def main():
     text_process_workers = int(getattr(args, "text_process_workers", 0) or 0)
     save_data_dir = getattr(args, "save_data_dir", "data")
     file_name = getattr(args, "file_name", "train-data.pkl")
+    # Path to the MS MARCO dataset JSON (see MSMARCOLoader). Supports the
+    # nested debate_config.* and legacy flat keys.
+    ma_dataset_path = getattr(
+        debate_cfg,
+        "ma_dataset_path",
+        getattr(args, "ma_dataset_path", None),
+    )
 
     # random_config = {
     #     'num_topologies': args.num_random_topologies,
@@ -333,6 +340,7 @@ def main():
             num_questions=questions_for_topology,
             questions_random_seed=args.questions_random_seed + (i - 1),
             dataset_tag=args.dataset_tag,
+            ma_dataset_path=ma_dataset_path,
         )
 
         debate_orchestration = DebateOrchestration(config)
