@@ -4,11 +4,9 @@
         "config": "v2.1",
         "split": "train"
     },
-    "n": 2,
     "num_entries": 100,
     "max_concurrent_calls": 200,
     "entry_selection_seed": 42,
-    "passage_selection_seed": 7,
     "output": {
         "dir": "output",
         "file_name": "msmarco_contaminated_benchmark.json"

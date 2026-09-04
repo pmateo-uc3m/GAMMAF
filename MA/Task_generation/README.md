@@ -45,11 +45,9 @@ No files outside `MA/Task_generation` are created or modified.
 | `dataset.name` | Hugging Face dataset name (`microsoft/ms_marco`). |
 | `dataset.config` | Subset/version (`v2.1`). |
 | `dataset.split` | Split to read (`validation`). |
-| `n` | Number of passages per generated task. |
 | `num_entries` | Total MS MARCO entries to process. |
 | `max_concurrent_calls` | Maximum number of LLM requests in flight (default 200). |
 | `entry_selection_seed` | Seed for selecting which dataset entries are processed. |
-| `passage_selection_seed` | Seed for selecting passages within each entry. |
 | `output.dir` / `output.file_name` | Where the final benchmark JSON is written. |
 | `llm_settings_file` | Path to the LLM settings JSON. |
 | `prompts.system_prompt_file` / `prompts.user_prompt_file` | Contamination prompt template files. |
@@ -131,31 +129,32 @@ Ordinary entries keep their original MS MARCO `answers` unchanged.
 For each selected entry:
 
 1. Read `query`, `answers`, `is_selected` (0/1 list) and `passages`.
-2. Prioritize passages with `is_selected == 1`.
-3. Include as many selected passages as possible within the `n`-passage budget.
-4. Fill remaining slots with randomly chosen non-selected passages.
-5. Return exactly `n` passages.
+2. Select **all** passages with `is_selected == 1`, preserving their original
+   order. These become `safe_passages` (byte-for-byte unchanged).
+3. The number of passages per task therefore equals the number of relevant
+   passages in the MS MARCO entry.
 
-**Skipping policy:** if an entry has fewer than `n` available passages, it is
-skipped (counted in the summary) rather than silently producing an incorrectly
-sized example.
+**Skipping policy:** if an entry has **no** selected passage (`is_selected` all
+0), it is skipped and counted as `skipped (no selected passages)` in the
+summary rather than silently producing an empty example.
 
 ## Reproducibility
 
 * Entry selection uses `numpy.random.default_rng(entry_selection_seed)`.
-* Passage selection uses `numpy.random.default_rng(passage_selection_seed)`.
+* Passage selection is fully deterministic — it simply returns every passage
+  with `is_selected == 1`; no random sampling is involved.
 * No uncontrolled global randomness is used.
 
-Running with identical seeds and config yields identical entry/passage
-selection. LLM generation may vary with the model/sampling parameters
+Running with identical seeds and config yields identical entry selection and
+passage sets. LLM generation may vary with the model/sampling parameters
 (`temperature`, etc.).
 
 ## LLM failures and retries
 
 For each entry the LLM is asked to produce a JSON object containing a single
-`incorrect_answer` and exactly `n` `adv_passages`. For unanswerable entries it
-is also asked to produce a single `answer` from the safe passages. Responses
-are parsed and validated:
+`incorrect_answer` and one `adv_passage` per safe passage. For unanswerable
+entries it is also asked to produce a single `answer` from the safe passages.
+Responses are parsed and validated:
 
 * invalid JSON / no JSON object → fail,
 * wrong number of passages → fail,
@@ -166,8 +165,8 @@ are parsed and validated:
 On failure the request is retried up to `retry.max_llm_attempts` times with
 exponential backoff. If all attempts fail, the entry is skipped and counted in
 `LLM failures`; generation continues with the next entry. No entry is emitted
-unless both `safe_passages` and `adv_passages` contain exactly `n` valid
-passages.
+unless `adv_passages` contains exactly as many valid passages as
+`safe_passages`.
 
 ## Validation
 

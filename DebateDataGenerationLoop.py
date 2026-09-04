@@ -20,6 +20,7 @@ import re
 from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage
 import DatasetManager
+from DatasetManager import make_loader_kwargs
 import inspect
 from LoggingUtils import log_info, log_warn, log_error
 
@@ -479,12 +480,12 @@ class DebateOrchestration:
             raise ValueError(f"Unsupported dataset: {dataset_name}")
         loader_cls = dataset_classes[dataset_name]
 
-        
-        loader_kwargs = {
-            "num_questions": getattr(self.config, "num_questions", None),
-            "random_seed": getattr(self.config, "questions_random_seed", None),
-        }
-            
+        loader_kwargs = make_loader_kwargs(
+            loader_cls,
+            self.config,
+            num_questions=getattr(self.config, "num_questions", None),
+            random_seed=getattr(self.config, "questions_random_seed", None),
+        )
         self.dataloader = loader_cls(**loader_kwargs)
         self.prompts = self.dataloader.get_prompts()
 

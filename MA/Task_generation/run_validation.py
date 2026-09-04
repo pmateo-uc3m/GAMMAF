@@ -6,7 +6,7 @@ verify:
 1. Dataset loads and expected fields/types are present.
 2. Deterministic entry + passage selection with fixed seeds.
 3. LLM JSON parsing and validation (valid + malformed payloads).
-4. Every successful output entry has exactly n safe + n adversarial passages.
+4. Every successful output entry has equal safe/adversarial passage counts.
 5. Safe passages are byte-for-byte unchanged from source.
 6. Adversarial passages generated as a coordinated group (single target answer).
 7. Output JSON follows the required schema.
@@ -26,10 +26,8 @@ _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
-import numpy as np  # noqa: E402
-
 from dataset_utils import load_msmarco, extract_entry  # noqa: E402
-from passage_selection import select_passages  # noqa: E402
+from passage_selection import select_selected_passages  # noqa: E402
 from contamination_llm import (  # noqa: E402
     validate_contamination,
     validate_answer,
@@ -102,31 +100,31 @@ def test_entry_extraction() -> bool:
 
 
 def test_passage_selection() -> bool:
-    print("\n--- 3. Deterministic passage selection ---")
+    print("\n--- 3. Passage selection (all is_selected==1) ---")
     ok = True
     passages = [f"p{i}" for i in range(10)]
-    is_selected = [1 if i == 3 else 0 for i in range(10)]
+    is_selected = [1 if i in (2, 5, 7) else 0 for i in range(10)]
 
-    rng1 = np.random.default_rng(7)
-    rng2 = np.random.default_rng(7)
-    s1, idx1 = select_passages(passages, is_selected, 5, rng1)
-    s2, idx2 = select_passages(passages, is_selected, 5, rng2)
+    s1, idx1 = select_selected_passages(passages, is_selected)
+    ok &= check("returns all selected passages", s1 == ["p2", "p5", "p7"])
+    ok &= check("preserves original order", idx1 == [2, 5, 7])
 
-    ok &= check("returns exactly n", len(s1) == 5)
-    ok &= check("deterministic (same seed -> same result)", s1 == s2 and idx1 == idx2)
-    ok &= check("prioritizes selected passage (p3 in result)", "p3" in s1)
+    s2, idx2 = select_selected_passages(passages, is_selected)
+    ok &= check("deterministic (idempotent)", s1 == s2 and idx1 == idx2)
 
-    # distinct seed -> (likely) different fill order of non-selected
-    rng3 = np.random.default_rng(99)
-    s3, _ = select_passages(passages, is_selected, 5, rng3)
-    ok &= check("different seed gives different fill", s1 != s3 or len(set(idx1)) == 5)
-
-    # insufficient passages
+    # no selected passage -> skip
     try:
-        select_passages(["a", "b"], [1, 0], 5, np.random.default_rng(1))
-        ok &= check("insufficient passages raise ValueError", False)
+        select_selected_passages(["a", "b"], [0, 0])
+        ok &= check("no selected passage raises ValueError", False)
     except ValueError:
-        ok &= check("insufficient passages raise ValueError", True)
+        ok &= check("no selected passage raises ValueError", True)
+
+    # length mismatch
+    try:
+        select_selected_passages(["a", "b"], [1])
+        ok &= check("length mismatch raises ValueError", False)
+    except ValueError:
+        ok &= check("length mismatch raises ValueError", True)
     return ok
 
 
