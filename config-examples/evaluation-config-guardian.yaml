@@ -1,7 +1,7 @@
 # Guardian-specific evaluation example. Use MainEvaluation-guardian.py.
 models_directory: defense-models
-output_file: results/guardian.json
-train_pkl_path: data/train-gpt-oss-300.pkl
+output_file: results/guardian-no-consensus.json
+train_pkl_path: data/guardian-data.pkl
 defense_model_train_configs:
   Guardian:
     pkl_train: data/train-gpt-oss-300.pkl
@@ -11,18 +11,18 @@ defense_model_train_configs:
     input_dim: 384
     hidden_dim: 128
     latent_dim: 64
-    temporal_heads: 4
+    temporal_heads: 8
     temporal_layers: 1
-    dropout: 0.1
+    dropout: 0.5
     alpha: 0.5
-    gamma: 0.001
-    batch_size: 32
-    num_epochs: 40
-    val_split: 0.2
-    lr_patience: 5
+    gamma: 0.01
+    batch_size: 16
+    num_epochs: 30
+    val_split: 0.25
+    lr_patience: 4
     lr_factor: 0.5
-    early_stop: 10
-    learning_rate: 0.001
+    early_stop: 13
+    learning_rate: 0.0003
     weight_decay: 0.0001
     remove_count: 2
 
@@ -41,7 +41,7 @@ live_evaluation_config:
   check_consensus_only_unflagged: true
   top_k_defense: 1
   no_defense_baseline: false
-  max_concurrent_inference: 150
+  max_concurrent_inference: 250
   num_questions: 0
   new_random_each_question: true
   n_questions_on_random_topo: 50
@@ -50,3 +50,5 @@ live_evaluation_config:
   text_processor_path: TextProcessingManager.py
   text_processor_class_name: RoundProcessor
   clean_debates_with_empty_responses: true
+
+  debug_mode: true

@@ -12,14 +12,14 @@ defense_model_train_configs:
 
     # DOMINANT hyperparameters (from the paper / DOMINANT.py)
     input_dim: 384      # sentence-embedding (node feature) dimension
-    hidden_dim: 64      # hidden embedding dimension
+    hidden_dim: [64, 128]      # hidden embedding dimension
     dropout: 0.3        # GCN dropout rate
-    alpha: 0.8          # balance between attribute (alpha) and structure (1-alpha) error
-    batch_size: 16      # rounds per mini-batch
+    alpha: [0.8, 0.6, 0.4]          # balance between attribute (alpha) and structure (1-alpha) error
+    batch_size: 32      # rounds per mini-batch
     val_split: 0.2
     num_epochs: 100
     learning_rate: 0.005
-    weight_decay: 0.0
+    weight_decay: 0.0001
     top_k: 2
 
     topologies: null
@@ -45,17 +45,17 @@ live_evaluation_config:
 
   # Defense settings
   top_k_defense: 2
-  no_defense_baseline: true
+  no_defense_baseline: false
 
   # Concurrency
   max_concurrent_inference: 150 # Added a default value
 
   # Questions
-  num_questions: 20
+  num_questions: 50
   new_random_each_question: true
-  n_questions_on_random_topo: 20
+  n_questions_on_random_topo: 50
   topologies_seed: 24
-  density_range_for_random_topo: [0.3, 0.7]
+  density_range_for_random_topo: [0.4, 0.85]
 
   # Text processor
   text_processor_path: TextProcessingManager.py

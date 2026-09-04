@@ -5,17 +5,17 @@
 # defense-models/Guardian-static.py.
 models_directory: defense-models
 output_file: results/guardian-static.json
-train_pkl_path: data/train-gpt-oss-300.pkl
+train_pkl_path: data/guardian-data.pkl
 defense_model_train_configs:
   Guardian-static:
     seed: 42
-    device: cuda
+    device: cpu
     input_dim: 384
     hidden_dim: 128
     num_gnn_layers: 2
-    dropout: 0.0
+    dropout: 0.3
     alpha: 0.3
-    batch_size: 32
+    batch_size: 64
     num_epochs: 40
     val_split: 0.2
     lr_patience: 5
