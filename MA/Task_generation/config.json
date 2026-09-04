@@ -1,0 +1,25 @@
+{
+    "dataset": {
+        "name": "microsoft/ms_marco",
+        "config": "v2.1",
+        "split": "train"
+    },
+    "n": 2,
+    "num_entries": 100,
+    "entry_selection_seed": 42,
+    "passage_selection_seed": 7,
+    "output": {
+        "dir": "output",
+        "file_name": "msmarco_contaminated_benchmark.json"
+    },
+    "llm_settings_file": "llm_settings.json",
+    "prompts": {
+        "system_prompt_file": "prompts_system.txt",
+        "user_prompt_file": "prompts_user.txt"
+    },
+    "retry": {
+        "max_llm_attempts": 3,
+        "retry_delay_seconds": 1.0,
+        "backoff_factor": 2.0
+    }
+}
