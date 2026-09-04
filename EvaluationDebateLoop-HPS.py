@@ -30,6 +30,7 @@ from EvaluationDebateLoop import (
     load_class_from_path,
     load_class_by_tag_from_path,
 )
+from DatasetManager import make_loader_kwargs
 from LoggingUtils import log_info, log_warn, log_error
 
 
@@ -64,7 +65,7 @@ class _IdentityRNG:
         return _noop
 
 
-def _build_full_question_list(loader_cls):
+def _build_full_question_list(loader_cls, live_cfg=None):
     """
     Instantiate *loader_cls* while patching ``np.random.default_rng`` so that
     ``load_questions`` returns every available question (in dataset order),
@@ -74,7 +75,13 @@ def _build_full_question_list(loader_cls):
     _orig = _np.random.default_rng
     _np.random.default_rng = lambda seed=None: _IdentityRNG()
     try:
-        loader = loader_cls(num_questions=10**12, random_seed=0, indexes=[])
+        loader = loader_cls(**make_loader_kwargs(
+            loader_cls,
+            live_cfg,
+            num_questions=10**12,
+            random_seed=0,
+            indexes=[],
+        ))
     finally:
         _np.random.default_rng = _orig
     return loader
@@ -158,7 +165,7 @@ def build_hps_pool_loader(
             )
 
         # Reconstruct the pool from the stored dataset indices.
-        full_loader = _build_full_question_list(loader_cls)
+        full_loader = _build_full_question_list(loader_cls, live_cfg)
         pool_raw = [full_loader.questions[i] for i in stored_indices]
         full_loader.questions = pool_raw
         full_loader.indexes = list(stored_indices)
@@ -177,11 +184,13 @@ def build_hps_pool_loader(
         f"Selecting HPS pool of {hps_total_samples} questions "
         f"(seed={hps_split_seed}, excluding {len(train_set)} training indices)"
     )
-    pool_loader = loader_cls(
+    pool_loader = loader_cls(**make_loader_kwargs(
+        loader_cls,
+        live_cfg,
         num_questions=hps_total_samples,
         random_seed=hps_split_seed,
         indexes=list(train_set),
-    )
+    ))
     pool_indices = [int(i) for i in list(pool_loader.indexes)]
 
     leaked = train_set.intersection(pool_indices)

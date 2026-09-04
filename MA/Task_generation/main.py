@@ -4,9 +4,10 @@ Runs the full generation pipeline:
 
 1. Load configuration (``config.json``) and LLM settings (``llm_settings.json``).
 2. Load ``microsoft/ms_marco`` (v2.1) and deterministically select entries.
-3. For each entry, deterministically select ``n`` passages (prioritizing
-   ``is_selected == 1``), skipping entries with fewer than ``n`` passages.
-4. Ask the LLM to produce a coordinated set of contaminated passages.
+3. For each entry, select all passages with ``is_selected == 1`` (skipping
+   entries that have no selected passage).
+4. Ask the LLM to produce a coordinated set of contaminated passages, one per
+   selected passage.
 5. Write the final benchmark JSON with the required schema.
 
 Usage:
@@ -33,7 +34,7 @@ if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
 
 from dataset_utils import load_msmarco, extract_entry, DatasetEntryError  # noqa: E402
-from passage_selection import select_passages  # noqa: E402
+from passage_selection import select_selected_passages  # noqa: E402
 from contamination_llm import ContaminationLLM, LLMGenerationError  # noqa: E402
 from prompts import (  # noqa: E402
     load_prompts,
@@ -106,7 +107,6 @@ def main() -> int:
     dataset_version = ds_cfg["config"]
     split = ds_cfg.get("split", "validation")
 
-    n = int(config["n"])
     num_entries = int(config.get("num_entries", 0))
     if args.limit is not None:
         num_entries = args.limit
@@ -114,7 +114,6 @@ def main() -> int:
     max_concurrent_calls = int(config.get("max_concurrent_calls", 200))
 
     entry_seed = int(config["entry_selection_seed"])
-    passage_seed = int(config["passage_selection_seed"])
 
     # --- output settings ---
     out_cfg = config.get("output", {})
@@ -173,15 +172,12 @@ def main() -> int:
         num_entries = total_rows
     row_indices = rng_entry.choice(total_rows, size=num_entries, replace=False)
 
-    # --- passage selection rng ---
-    rng_passage = np.random.default_rng(passage_seed)
-
     llm = ContaminationLLM(llm_settings)
 
     stats = {
         "considered": 0,
         "generated": 0,
-        "skipped_insufficient": 0,
+        "skipped_no_selected": 0,
         "skipped_malformed": 0,
         "llm_failed": 0,
         "llm_retries": 0,
@@ -209,14 +205,14 @@ def main() -> int:
         passages = entry["passages"]
         is_selected = entry["is_selected"]
 
-        # --- passage selection ---
+        # --- passage selection: all is_selected == 1 passages ---
         try:
-            safe_passages, _ = select_passages(
-                passages, is_selected, n, rng_passage
+            safe_passages, _ = select_selected_passages(
+                passages, is_selected
             )
         except ValueError as exc:
-            # Fewer than n passages: skip per documented policy.
-            stats["skipped_insufficient"] += 1
+            # No selected passage: skip per documented policy.
+            stats["skipped_no_selected"] += 1
             continue
 
         correct_answer = ", ".join(entry["answers"])
@@ -234,6 +230,7 @@ def main() -> int:
         """Run answer generation (if needed) then contamination for one entry."""
         entry = job["entry"]
         safe_passages = job["safe_passages"]
+        n_job = len(safe_passages)
 
         if job["needs_answer_gen"]:
             answer_user = build_answer_prompt(
@@ -251,10 +248,10 @@ def main() -> int:
             correct_answer = job["correct_answer"]
 
         user_prompt = build_user_prompt(
-            prompts["user"], entry["query"], correct_answer, safe_passages, n
+            prompts["user"], entry["query"], correct_answer, safe_passages, n_job
         )
         result = llm.generate(
-            prompts["system"], user_prompt, n, retry_settings=retry_cfg
+            prompts["system"], user_prompt, n_job, retry_settings=retry_cfg
         )
         return {
             "query_id": entry["query_id"],
@@ -283,7 +280,7 @@ def main() -> int:
                     print(f"[WARN] Unexpected LLM error for query_id={job['entry']['query_id']}: {exc}")
                     stats["llm_failed"] += 1
                 else:
-                    if len(entry_out["safe_passages"]) != n or len(entry_out["adv_passages"]) != n:
+                    if len(entry_out["safe_passages"]) == 0 or len(entry_out["safe_passages"]) != len(entry_out["adv_passages"]):
                         stats["skipped_malformed"] += 1
                     else:
                         completed[i] = entry_out
@@ -306,7 +303,7 @@ def main() -> int:
     print("=" * 72)
     print(f"  {'entries considered':.<30s} {stats['considered']}")
     print(f"  {'entries generated':.<30s} {stats['generated']}")
-    print(f"  {'skipped (insufficient passages)':.<30s} {stats['skipped_insufficient']}")
+    print(f"  {'skipped (no selected passages)':.<30s} {stats['skipped_no_selected']}")
     print(f"  {'skipped (malformed entries)':.<30s} {stats['skipped_malformed']}")
     print(f"  {'LLM failures':.<30s} {stats['llm_failed']}")
     print(f"  {'output location':.<30s} {out_path}")

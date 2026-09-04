@@ -3,6 +3,8 @@ from typing import List
 import numpy as np
 from langchain_core.messages import AIMessage
 import re
+import inspect
+import os
 
 from DebateAgent import ResponseFormat
 
@@ -32,6 +34,25 @@ def _select_evaluation_indexes(available_indexes, num_questions, rng):
             f"remain after excluding the configured (training/HPS) indexes."
         )
     return rng.choice(available_indexes, size=num_questions, replace=False)
+
+
+def make_loader_kwargs(loader_cls, config=None, **base):
+    """Build kwargs for a questions loader.
+
+    Threads ``ma_dataset_path`` from ``config`` into the loader arguments when
+    the loader class supports it (currently ``MSMARCOLoader``).  Loaders are
+    selected by tag and may be loaded as separate module instances, so the
+    capability is detected via the constructor signature rather than class
+    identity.
+    """
+    kwargs = dict(base)
+    if config is not None and "dataset_path" in inspect.signature(
+        loader_cls.__init__
+    ).parameters:
+        ma_path = getattr(config, "ma_dataset_path", None)
+        if ma_path:
+            kwargs["dataset_path"] = ma_path
+    return kwargs
 
 class MMLULoader:
     TAG = "MMLU"
@@ -309,12 +330,18 @@ class MSMARCOLoader(MMLULoader):
     TAG = "MA"
     PROMPTS_FILE = "prompts/prompts_msmarco.json"
 
-    def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = []):
+    # Old-format dataset produced by the legacy generator (dict keyed by id).
+    DEFAULT_DATASET_PATH = "MA/msmarco.json"
+    # New-format benchmark produced by MA/Task_generation/main.py (JSON array).
+    NEW_DATASET_PATH = "MA/Task_generation/output/msmarco_contaminated_benchmark.json"
+
+    def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = [], dataset_path: str | None = None):
         from Utils import AnomalyJudgeLLM
         import json
         self.num_questions = num_questions
         self.random_seed = random_seed
         self.indexes = indexes
+        self.dataset_path = self._resolve_dataset_path(dataset_path)
         self.dataset = self._load_json()
         self.questions = self.load_questions()
         self.formatted_questions = self.format_questions()
@@ -326,31 +353,94 @@ class MSMARCOLoader(MMLULoader):
             answer_correctness_prompt=judge_prompts.get("ANSWER_CORRECTNESS_PROMPT", "")
         )
 
+    def _resolve_dataset_path(self, dataset_path: str | None) -> str:
+        """Resolve the dataset JSON path.
+
+        Precedence: explicit ``dataset_path`` argument, ``MA_DATASET_PATH``
+        environment variable, then the legacy/new default paths (the first one
+        that exists wins, so both formats keep working).
+        """
+        if dataset_path:
+            return dataset_path
+        env_path = os.getenv("MA_DATASET_PATH")
+        if env_path:
+            return env_path
+        for candidate in (self.DEFAULT_DATASET_PATH, self.NEW_DATASET_PATH):
+            if os.path.exists(candidate):
+                return candidate
+        return self.DEFAULT_DATASET_PATH
+
     def _load_json(self):
         import json
-        with open("MA/msmarco.json", "r", encoding="utf-8") as f:
+        with open(self.dataset_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if not isinstance(data, dict):
-            raise ValueError("Expected MSMARCO dataset to be a JSON object")
-        return data
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return data
+        raise ValueError("Expected MSMARCO dataset to be a JSON object or an array")
 
-    def load_questions(self):
-        questions = []
-        for key, item in self.dataset.items():
-            if not isinstance(item, dict):
-                continue
+    def _normalize_entry(self, key, item):
+        """Normalize one raw dataset entry to the internal question schema.
+
+        Supports the legacy format (dict keyed by query id with ``question`` /
+        ``correct answer`` / ``incorrect answer`` / ``adv_texts``) and the new
+        Task_generation format (``query`` / ``answers`` / ``safe_passages`` /
+        ``adv_passages``).  Returns ``None`` for malformed entries.
+        """
+        if not isinstance(item, dict):
+            return None
+
+        if "question" in item:
             question_text = item.get("question")
             correct_answer = item.get("correct answer")
             incorrect_answer = item.get("incorrect answer")
             adv_texts = item.get("adv_texts")
             if question_text is None or correct_answer is None:
-                continue
-            questions.append({
+                return None
+            return {
+                "query_id": item.get("id", key),
                 "question": question_text,
                 "correct_answer": correct_answer,
                 "incorrect_answer": incorrect_answer,
                 "adv_texts": adv_texts if isinstance(adv_texts, list) else [],
-            })
+                "safe_texts": [],
+            }
+
+        if "query" in item:
+            query_text = item.get("query")
+            answers = item.get("answers")
+            adv_passages = item.get("adv_passages")
+            if query_text is None or answers is None:
+                return None
+            if isinstance(answers, list) and answers:
+                correct_answer = ", ".join(str(a) for a in answers)
+            else:
+                correct_answer = str(answers)
+            if not correct_answer.strip():
+                return None
+            return {
+                "query_id": item.get("query_id", key),
+                "question": query_text,
+                "correct_answer": correct_answer,
+                "incorrect_answer": "",
+                "adv_texts": adv_passages if isinstance(adv_passages, list) else [],
+                "safe_texts": item.get("safe_passages") if isinstance(item.get("safe_passages"), list) else [],
+            }
+
+        return None
+
+    def load_questions(self):
+        questions = []
+        if isinstance(self.dataset, dict):
+            raw_items = self.dataset.items()
+        else:
+            raw_items = ((str(i), item) for i, item in enumerate(self.dataset))
+        for key, item in raw_items:
+            entry = self._normalize_entry(key, item)
+            if entry is None:
+                continue
+            questions.append(entry)
         if not questions:
             raise ValueError("No valid questions found in MSMARCO dataset")
         available_indexes = [
@@ -369,8 +459,10 @@ class MSMARCOLoader(MMLULoader):
                 "question_index": i,
                 "question": q["question"],
                 "adv_texts": q["adv_texts"],
+                "safe_texts": q["safe_texts"],
                 "correct_answer": q["correct_answer"],
                 "incorrect_answer": q["incorrect_answer"],
+                "query_id": q.get("query_id"),
             })
         return formatted
 

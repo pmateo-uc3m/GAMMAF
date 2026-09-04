@@ -21,6 +21,7 @@ from tqdm import tqdm
 import json
 from types import SimpleNamespace
 from langchain_core.runnables import RunnableLambda
+from DatasetManager import make_loader_kwargs
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done
 from ConfigCheck import OPTIONAL_BOOLEAN_DEFAULTS
 import time
@@ -127,11 +128,13 @@ class LiveDebateOrchestration:
                 config.questions_class_name,
             )
 
-        self.dataloader = questions_loader(
-            num_questions = max(config.num_questions, config.n_questions_on_random_topo),
-            random_seed = config.questions_random_seed,
-            indexes = self.train_indexes
-        )
+        self.dataloader = questions_loader(**make_loader_kwargs(
+            questions_loader,
+            config,
+            num_questions=max(config.num_questions, config.n_questions_on_random_topo),
+            random_seed=config.questions_random_seed,
+            indexes=self.train_indexes,
+        ))
         self.prompts = self.dataloader.get_prompts()
         
         textProcessor = load_class_from_path(
