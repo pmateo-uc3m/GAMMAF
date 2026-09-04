@@ -45,7 +45,7 @@ No files outside `MA/Task_generation` are created or modified.
 | `dataset.name` | Hugging Face dataset name (`microsoft/ms_marco`). |
 | `dataset.config` | Subset/version (`v2.1`). |
 | `dataset.split` | Split to read (`validation`). |
-| `num_entries` | Total MS MARCO entries to process. |
+| `num_entries` | Target number of generated tasks. Skipped/failed entries are replaced with additional entries from the dataset until this many tasks are produced (or the dataset is exhausted). |
 | `max_concurrent_calls` | Maximum number of LLM requests in flight (default 200). |
 | `entry_selection_seed` | Seed for selecting which dataset entries are processed. |
 | `output.dir` / `output.file_name` | Where the final benchmark JSON is written. |
@@ -136,18 +136,22 @@ For each selected entry:
 
 **Skipping policy:** if an entry has **no** selected passage (`is_selected` all
 0), it is skipped and counted as `skipped (no selected passages)` in the
-summary rather than silently producing an empty example.
+summary. Skipped or LLM-failed entries do **not** reduce the final task count:
+`num_entries` is a target number of *generated* tasks, and additional entries
+are consumed from the dataset (in the same seeded order) to replace them.
 
 ## Reproducibility
 
-* Entry selection uses `numpy.random.default_rng(entry_selection_seed)`.
+* Entry ordering uses `numpy.random.default_rng(entry_selection_seed)` to
+  produce a deterministic permutation of the dataset; entries are consumed in
+  that order until `num_entries` tasks are generated.
 * Passage selection is fully deterministic — it simply returns every passage
   with `is_selected == 1`; no random sampling is involved.
 * No uncontrolled global randomness is used.
 
-Running with identical seeds and config yields identical entry selection and
-passage sets. LLM generation may vary with the model/sampling parameters
-(`temperature`, etc.).
+Running with identical seeds and config yields identical entry ordering,
+passage sets, and output ordering. LLM generation may vary with the
+model/sampling parameters (`temperature`, etc.).
 
 ## LLM failures and retries
 
@@ -163,10 +167,11 @@ Responses are parsed and validated:
 * missing/empty generated `answer` → fail.
 
 On failure the request is retried up to `retry.max_llm_attempts` times with
-exponential backoff. If all attempts fail, the entry is skipped and counted in
-`LLM failures`; generation continues with the next entry. No entry is emitted
-unless `adv_passages` contains exactly as many valid passages as
-`safe_passages`.
+exponential backoff. If all attempts fail, the entry is counted in
+`LLM failures` and replaced with an additional entry from the dataset, so the
+requested `num_entries` is still produced whenever the dataset has enough valid
+entries. No entry is emitted unless `adv_passages` contains exactly as many
+valid passages as `safe_passages`.
 
 ## Validation
 

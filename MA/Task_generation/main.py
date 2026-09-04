@@ -3,12 +3,17 @@
 Runs the full generation pipeline:
 
 1. Load configuration (``config.json``) and LLM settings (``llm_settings.json``).
-2. Load ``microsoft/ms_marco`` (v2.1) and deterministically select entries.
+2. Load ``microsoft/ms_marco`` (v2.1) and consume entries in a seeded order.
 3. For each entry, select all passages with ``is_selected == 1`` (skipping
    entries that have no selected passage).
 4. Ask the LLM to produce a coordinated set of contaminated passages, one per
    selected passage.
 5. Write the final benchmark JSON with the required schema.
+
+``num_entries`` is the *target* number of generated tasks. Entries that are
+skipped (malformed or with no selected passage) or that fail LLM generation
+are replaced by additional entries from the dataset, so the requested number
+of tasks is produced whenever the dataset has enough valid entries.
 
 Usage:
     python main.py [--config PATH] [--limit NUM]
@@ -23,7 +28,7 @@ import json
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import Any, Dict, List
 
 import numpy as np
@@ -163,14 +168,11 @@ def main() -> int:
     total_rows = len(dataset)
     print(f"Loaded {total_rows} rows.")
 
-    # --- deterministic entry selection ---
+    # --- deterministic entry ordering ---
     rng_entry = np.random.default_rng(entry_seed)
     if num_entries <= 0:
         raise ValueError("num_entries must be a positive integer")
-    if num_entries > total_rows:
-        print(f"[WARN] num_entries={num_entries} > available rows={total_rows}; using {total_rows}")
-        num_entries = total_rows
-    row_indices = rng_entry.choice(total_rows, size=num_entries, replace=False)
+    row_order = rng_entry.permutation(total_rows)
 
     llm = ContaminationLLM(llm_settings)
 
@@ -188,43 +190,38 @@ def main() -> int:
 
     start_time = time.time()
 
-    # --- phase 1: build jobs (deterministic entry + passage selection) ---
-    jobs = []  # each job: dict with entry_out fields + user_prompt
-    for idx in row_indices:
-        stats["considered"] += 1
-        row = dataset[int(idx)]
+    # --- job generation: consume entries in seeded order ---
+    # Entries that are malformed or have no selected passage are skipped;
+    # the generator keeps yielding valid jobs so that, when combined with the
+    # failure-replenishing executor below, exactly ``num_entries`` tasks are
+    # produced (or the dataset is exhausted first).
+    def iter_jobs():
+        for idx in row_order:
+            stats["considered"] += 1
+            row = dataset[int(idx)]
 
-        # --- entry field extraction / validation ---
-        try:
-            entry = extract_entry(row)
-        except DatasetEntryError as exc:
-            print(f"[WARN] Skipping row {int(idx)} (malformed): {exc}")
-            stats["skipped_malformed"] += 1
-            continue
+            try:
+                entry = extract_entry(row)
+            except DatasetEntryError as exc:
+                print(f"[WARN] Skipping row {int(idx)} (malformed): {exc}")
+                stats["skipped_malformed"] += 1
+                continue
 
-        passages = entry["passages"]
-        is_selected = entry["is_selected"]
+            try:
+                safe_passages, _ = select_selected_passages(
+                    entry["passages"], entry["is_selected"]
+                )
+            except ValueError:
+                # No selected passage: skip per documented policy.
+                stats["skipped_no_selected"] += 1
+                continue
 
-        # --- passage selection: all is_selected == 1 passages ---
-        try:
-            safe_passages, _ = select_selected_passages(
-                passages, is_selected
-            )
-        except ValueError as exc:
-            # No selected passage: skip per documented policy.
-            stats["skipped_no_selected"] += 1
-            continue
-
-        correct_answer = ", ".join(entry["answers"])
-        needs_answer_gen = _is_no_answer(entry["answers"])
-
-        job = {
-            "entry": entry,
-            "safe_passages": safe_passages,
-            "needs_answer_gen": needs_answer_gen,
-            "correct_answer": correct_answer,
-        }
-        jobs.append(job)
+            yield {
+                "entry": entry,
+                "safe_passages": safe_passages,
+                "needs_answer_gen": _is_no_answer(entry["answers"]),
+                "correct_answer": ", ".join(entry["answers"]),
+            }
 
     def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
         """Run answer generation (if needed) then contamination for one entry."""
@@ -261,31 +258,70 @@ def main() -> int:
             "adv_passages": result["adv_passages"],
         }
 
-    # --- phase 2: parallel LLM contamination ---
+    # --- parallel LLM contamination with failure replenishment ---
     completed: Dict[int, Dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=max_concurrent_calls) as executor:
-        futures = {
-            executor.submit(process_job, job): (i, job)
-            for i, job in enumerate(jobs)
-        }
+    target = num_entries
+    job_gen = iter_jobs()
 
-        with tqdm(total=len(jobs), desc="Contaminating passages", unit="entry") as bar:
-            for future in as_completed(futures):
-                i, job = futures[future]
+    with ThreadPoolExecutor(max_workers=max_concurrent_calls) as executor:
+        pending: Dict[Any, int] = {}
+        next_index = 0
+
+        def fill() -> None:
+            """Submit jobs to keep the window full without overshooting.
+
+            The number of in-flight jobs never exceeds the remaining number of
+            tasks still needed, so in-flight calls are not wasted once the
+            target is nearly reached.
+            """
+            nonlocal next_index
+            if stats["generated"] >= target:
+                return
+            cap = max(1, min(max_concurrent_calls, target - stats["generated"]))
+            while len(pending) < cap:
                 try:
-                    entry_out = future.result()
-                except LLMGenerationError:
-                    stats["llm_failed"] += 1
-                except Exception as exc:
-                    print(f"[WARN] Unexpected LLM error for query_id={job['entry']['query_id']}: {exc}")
-                    stats["llm_failed"] += 1
-                else:
-                    if len(entry_out["safe_passages"]) == 0 or len(entry_out["safe_passages"]) != len(entry_out["adv_passages"]):
-                        stats["skipped_malformed"] += 1
+                    job = next(job_gen)
+                except StopIteration:
+                    return
+                future = executor.submit(process_job, job)
+                pending[future] = next_index
+                next_index += 1
+
+        fill()
+
+        with tqdm(total=target, desc="Contaminating passages", unit="entry") as bar:
+            while pending:
+                done, _ = wait(list(pending.keys()), return_when=FIRST_COMPLETED)
+                for future in done:
+                    if stats["generated"] >= target:
+                        break
+                    i = pending.pop(future)
+                    try:
+                        entry_out = future.result()
+                    except LLMGenerationError:
+                        stats["llm_failed"] += 1
+                    except Exception as exc:
+                        print(f"[WARN] Unexpected LLM error (job {i}): {exc}")
+                        stats["llm_failed"] += 1
                     else:
-                        completed[i] = entry_out
-                        stats["generated"] += 1
-                bar.update(1)
+                        if len(entry_out["safe_passages"]) == 0 or len(entry_out["safe_passages"]) != len(entry_out["adv_passages"]):
+                            stats["skipped_malformed"] += 1
+                        else:
+                            completed[i] = entry_out
+                            stats["generated"] += 1
+                            bar.update(1)
+                if stats["generated"] >= target:
+                    break
+                fill()
+
+        for future in pending:
+            future.cancel()
+
+    if stats["generated"] < target:
+        print(
+            f"[WARN] Dataset exhausted: generated {stats['generated']} tasks "
+            f"instead of the requested {target}."
+        )
 
     # --- preserve deterministic input order in the output ---
     for i in sorted(completed):
