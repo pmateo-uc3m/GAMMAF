@@ -35,7 +35,24 @@ if _THIS_DIR not in sys.path:
 from dataset_utils import load_msmarco, extract_entry, DatasetEntryError  # noqa: E402
 from passage_selection import select_passages  # noqa: E402
 from contamination_llm import ContaminationLLM, LLMGenerationError  # noqa: E402
-from prompts import load_prompts, build_user_prompt  # noqa: E402
+from prompts import (  # noqa: E402
+    load_prompts,
+    load_answer_prompts,
+    build_user_prompt,
+    build_answer_prompt,
+)
+
+
+def _is_no_answer(answers: List[str]) -> bool:
+    """True when the entry is an MS MARCO unanswerable query.
+
+    MS MARCO v2.1 marks unanswerable queries with the placeholder answer
+    ``"No Answer Present."``.
+    """
+    for a in answers:
+        if str(a).strip().lower() == "no answer present.":
+            return True
+    return False
 
 
 def _read_json(path: str) -> Dict[str, Any]:
@@ -123,6 +140,16 @@ def main() -> int:
     )
     prompts = load_prompts(system_file, user_file)
 
+    answer_system_file = resolve_path(
+        base_dir,
+        prompt_cfg.get("answer_system_prompt_file", "prompts_answer_system.txt"),
+    )
+    answer_user_file = resolve_path(
+        base_dir,
+        prompt_cfg.get("answer_user_prompt_file", "prompts_answer_user.txt"),
+    )
+    answer_prompts = load_answer_prompts(answer_system_file, answer_user_file)
+
     retry_cfg = config.get("retry", {})
 
     # --- load dataset ---
@@ -193,28 +220,55 @@ def main() -> int:
             continue
 
         correct_answer = ", ".join(entry["answers"])
-        user_prompt = build_user_prompt(
-            prompts["user"], entry["query"], correct_answer, safe_passages, n
-        )
+        needs_answer_gen = _is_no_answer(entry["answers"])
 
         job = {
             "entry": entry,
             "safe_passages": safe_passages,
-            "user_prompt": user_prompt,
+            "needs_answer_gen": needs_answer_gen,
+            "correct_answer": correct_answer,
         }
         jobs.append(job)
+
+    def process_job(job: Dict[str, Any]) -> Dict[str, Any]:
+        """Run answer generation (if needed) then contamination for one entry."""
+        entry = job["entry"]
+        safe_passages = job["safe_passages"]
+
+        if job["needs_answer_gen"]:
+            answer_user = build_answer_prompt(
+                answer_prompts["user"], entry["query"], safe_passages
+            )
+            answer_result = llm.generate_answer(
+                answer_prompts["system"],
+                answer_user,
+                retry_settings=retry_cfg,
+            )
+            effective_answers = [answer_result["answer"]]
+            correct_answer = answer_result["answer"]
+        else:
+            effective_answers = entry["answers"]
+            correct_answer = job["correct_answer"]
+
+        user_prompt = build_user_prompt(
+            prompts["user"], entry["query"], correct_answer, safe_passages, n
+        )
+        result = llm.generate(
+            prompts["system"], user_prompt, n, retry_settings=retry_cfg
+        )
+        return {
+            "query_id": entry["query_id"],
+            "query": entry["query"],
+            "answers": effective_answers,
+            "safe_passages": safe_passages,
+            "adv_passages": result["adv_passages"],
+        }
 
     # --- phase 2: parallel LLM contamination ---
     completed: Dict[int, Dict[str, Any]] = {}
     with ThreadPoolExecutor(max_workers=max_concurrent_calls) as executor:
         futures = {
-            executor.submit(
-                llm.generate,
-                prompts["system"],
-                job["user_prompt"],
-                n,
-                retry_settings=retry_cfg,
-            ): (i, job)
+            executor.submit(process_job, job): (i, job)
             for i, job in enumerate(jobs)
         }
 
@@ -222,20 +276,13 @@ def main() -> int:
             for future in as_completed(futures):
                 i, job = futures[future]
                 try:
-                    result = future.result()
+                    entry_out = future.result()
                 except LLMGenerationError:
                     stats["llm_failed"] += 1
                 except Exception as exc:
                     print(f"[WARN] Unexpected LLM error for query_id={job['entry']['query_id']}: {exc}")
                     stats["llm_failed"] += 1
                 else:
-                    entry_out = {
-                        "query_id": job["entry"]["query_id"],
-                        "query": job["entry"]["query"],
-                        "answers": job["entry"]["answers"],
-                        "safe_passages": job["safe_passages"],
-                        "adv_passages": result["adv_passages"],
-                    }
                     if len(entry_out["safe_passages"]) != n or len(entry_out["adv_passages"]) != n:
                         stats["skipped_malformed"] += 1
                     else:

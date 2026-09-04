@@ -16,7 +16,9 @@
     "llm_settings_file": "llm_settings.json",
     "prompts": {
         "system_prompt_file": "prompts_system.txt",
-        "user_prompt_file": "prompts_user.txt"
+        "user_prompt_file": "prompts_user.txt",
+        "answer_system_prompt_file": "prompts_answer_system.txt",
+        "answer_user_prompt_file": "prompts_answer_user.txt"
     },
     "retry": {
         "max_llm_attempts": 3,

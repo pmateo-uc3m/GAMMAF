@@ -1,9 +1,11 @@
 """Prompt template loading for the contamination LLM.
 
 Prompts are stored as plain-text files in this directory so they are easy to
-edit without touching code (see ``prompts_system.txt`` and
-``prompts_user.txt``).  The user prompt supports ``str.format`` placeholders:
-``{query}``, ``{correct_answer}``, ``{n}``, ``{source_passages}``.
+edit without touching code (see ``prompts_system.txt``, ``prompts_user.txt``,
+``prompts_answer_system.txt`` and ``prompts_answer_user.txt``).  The
+contamination user prompt supports ``str.format`` placeholders: ``{query}``,
+``{correct_answer}``, ``{n}``, ``{source_passages}``.  The answer-generation
+user prompt supports ``{query}`` and ``{source_passages}``.
 """
 
 from __future__ import annotations
@@ -28,6 +30,26 @@ def load_prompts(system_file: str, user_file: str) -> Dict[str, str]:
         "system": _read(system_file),
         "user": _read(user_file),
     }
+
+
+def load_answer_prompts(system_file: str, user_file: str) -> Dict[str, str]:
+    """Load the system and user answer-generation prompt templates."""
+    return {
+        "system": _read(system_file),
+        "user": _read(user_file),
+    }
+
+
+def build_answer_prompt(
+    template: str,
+    query: str,
+    source_passages: List[str],
+) -> str:
+    """Render the answer-generation user prompt with the given values."""
+    numbered = "\n".join(
+        f"[{i}] {p}" for i, p in enumerate(source_passages)
+    )
+    return template.format(query=query, source_passages=numbered)
 
 
 def build_user_prompt(

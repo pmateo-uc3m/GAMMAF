@@ -108,6 +108,23 @@ def validate_contamination(
     }
 
 
+def validate_answer(payload: Any) -> Dict[str, Any]:
+    """Validate an LLM answer-generation payload.
+
+    Returns ``{"answer": str}`` or raises :class:`JSONValidationError`.
+    """
+    if not isinstance(payload, dict):
+        raise JSONValidationError("answer payload is not a JSON object")
+
+    answer = payload.get("answer")
+    if answer is None or not isinstance(answer, str):
+        raise JSONValidationError("'answer' missing or not a string")
+    if not answer.strip():
+        raise JSONValidationError("'answer' is empty")
+
+    return {"answer": answer.strip()}
+
+
 class ContaminationLLM:
     """Thin wrapper around the OpenAI-compatible client with JSON handling."""
 
@@ -154,17 +171,16 @@ class ContaminationLLM:
             return "".join(parts)
         return str(content)
 
-    def generate(
+    def _request_json(
         self,
         system_prompt: str,
         user_prompt: str,
-        n: int,
-        retry_settings: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Generate and validate contaminated passages with bounded retries.
+        retry_settings: Optional[Dict[str, Any]],
+        what: str,
+    ) -> str:
+        """Send one prompt pair, retrying on failure, return raw content.
 
-        ``retry_settings`` may contain ``max_llm_attempts``,
-        ``retry_delay_seconds``, and ``backoff_factor``.
+        Raises :class:`LLMGenerationError` after all attempts fail.
         """
         rs = retry_settings or {}
         max_attempts = int(
@@ -194,9 +210,7 @@ class ContaminationLLM:
         for attempt in range(1, max_attempts + 1):
             try:
                 completion = self.client.chat.completions.create(**kwargs)
-                content = self._extract_content(completion)
-                payload = _extract_json_object(content)
-                return validate_contamination(payload, n)
+                return self._extract_content(completion)
             except JSONValidationError as exc:
                 last_error = exc
             except Exception as exc:  # connection/API errors
@@ -207,6 +221,42 @@ class ContaminationLLM:
                 current_delay *= backoff
 
         raise LLMGenerationError(
-            f"contamination generation failed after {max_attempts} attempts: "
-            f"{last_error}"
+            f"{what} failed after {max_attempts} attempts: {last_error}"
         )
+
+    def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        n: int,
+        retry_settings: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Generate and validate contaminated passages with bounded retries.
+
+        ``retry_settings`` may contain ``max_llm_attempts``,
+        ``retry_delay_seconds``, and ``backoff_factor``.
+        """
+        content = self._request_json(
+            system_prompt, user_prompt, retry_settings,
+            "contamination generation",
+        )
+        payload = _extract_json_object(content)
+        return validate_contamination(payload, n)
+
+    def generate_answer(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        retry_settings: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Generate and validate an answer from safe passages.
+
+        Returns ``{"answer": str}``.  Retries (bounded) on failure, raising
+        :class:`LLMGenerationError` if all attempts fail.
+        """
+        content = self._request_json(
+            system_prompt, user_prompt, retry_settings,
+            "answer generation",
+        )
+        payload = _extract_json_object(content)
+        return validate_answer(payload)

@@ -16,8 +16,10 @@ a detection system can be trained/tested on the difference.
 MA/Task_generation/
 ├── config.json              # generation configuration
 ├── llm_settings.json        # LLM connection + sampling parameters
-├── prompts_system.txt       # system prompt (editable)
-├── prompts_user.txt         # user prompt template (editable)
+├── prompts_system.txt       # contamination system prompt (editable)
+├── prompts_user.txt         # contamination user prompt template (editable)
+├── prompts_answer_system.txt  # answer-generation system prompt (editable)
+├── prompts_answer_user.txt  # answer-generation user prompt template (editable)
 ├── dataset_utils.py         # dataset loading + field validation
 ├── passage_selection.py     # deterministic passage selection
 ├── contamination_llm.py     # OpenAI-compatible client + JSON validation/retry
@@ -50,7 +52,8 @@ No files outside `MA/Task_generation` are created or modified.
 | `passage_selection_seed` | Seed for selecting passages within each entry. |
 | `output.dir` / `output.file_name` | Where the final benchmark JSON is written. |
 | `llm_settings_file` | Path to the LLM settings JSON. |
-| `prompts.system_prompt_file` / `prompts.user_prompt_file` | Prompt template files. |
+| `prompts.system_prompt_file` / `prompts.user_prompt_file` | Contamination prompt template files. |
+| `prompts.answer_system_prompt_file` / `prompts.answer_user_prompt_file` | Answer-generation prompt template files. |
 | `retry.max_llm_attempts`, `retry.retry_delay_seconds`, `retry.backoff_factor` | LLM retry policy. |
 
 ## Configuration: `llm_settings.json`
@@ -100,14 +103,28 @@ The final benchmark JSON is a list of entries with **only** the required fields:
 
 * `query_id` — directly from MS MARCO.
 * `query` — the original query.
-* `answers` — the original correct answer(s); **never** replaced by the
-  generated incorrect answer.
+* `answers` — the correct answer(s). For ordinary queries this is the original
+  MS MARCO answer; see below for unanswerable ("No Answer Present.") queries.
+  It is **never** replaced by the generated incorrect answer.
 * `safe_passages` — the original selected passages (byte-for-byte unchanged).
 * `adv_passages` — the LLM-generated contaminated passages, in the same order
   as `safe_passages`.
 
 The generated incorrect answer is *not* stored in the output; it is reflected
 only through the contaminated evidence. (Internally it is kept for debugging.)
+
+### Unanswerable queries ("No Answer Present.")
+
+MS MARCO v2.1 marks unanswerable queries with the placeholder answer
+`"No Answer Present."`. For such entries the generator:
+
+1. Asks the LLM to produce a single answer **from the safe (non-contaminated)
+   passages** (using the answer-generation prompts).
+2. Stores that generated answer in the output `answers` field.
+3. Uses that generated answer as the ground truth the contamination must
+   contradict.
+
+Ordinary entries keep their original MS MARCO `answers` unchanged.
 
 ## Passage selection
 
@@ -136,13 +153,15 @@ selection. LLM generation may vary with the model/sampling parameters
 ## LLM failures and retries
 
 For each entry the LLM is asked to produce a JSON object containing a single
-`incorrect_answer` and exactly `n` `adv_passages`. The response is parsed and
-validated:
+`incorrect_answer` and exactly `n` `adv_passages`. For unanswerable entries it
+is also asked to produce a single `answer` from the safe passages. Responses
+are parsed and validated:
 
 * invalid JSON / no JSON object → fail,
 * wrong number of passages → fail,
 * missing/empty target answer → fail,
-* non-string or empty passages → fail.
+* non-string or empty passages → fail,
+* missing/empty generated `answer` → fail.
 
 On failure the request is retried up to `retry.max_llm_attempts` times with
 exponential backoff. If all attempts fail, the entry is skipped and counted in

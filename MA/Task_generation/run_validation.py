@@ -32,9 +32,11 @@ from dataset_utils import load_msmarco, extract_entry  # noqa: E402
 from passage_selection import select_passages  # noqa: E402
 from contamination_llm import (  # noqa: E402
     validate_contamination,
+    validate_answer,
     _extract_json_object,
     JSONValidationError,
 )
+from main import _is_no_answer  # noqa: E402
 
 PASS = "  [PASS]"
 FAIL = "  [FAIL]"
@@ -179,6 +181,39 @@ def test_json_parsing() -> bool:
     return ok
 
 
+def test_answer_generation() -> bool:
+    print("\n--- 4b. No-Answer handling + answer validation ---")
+    ok = True
+
+    ok &= check("detects 'No Answer Present.'",
+                _is_no_answer(["No Answer Present."]))
+    ok &= check("case/space insensitive",
+                _is_no_answer(["  no ANSWER present. "]))
+    ok &= check("does not flag normal answers",
+                not _is_no_answer(["A corporation is a company."]))
+    ok &= check("ignores non-matching entries in list",
+                not _is_no_answer(["something", "else"]))
+
+    try:
+        v = validate_answer({"answer": "February 2"})
+        ok &= check("valid answer accepted", v["answer"] == "February 2")
+    except JSONValidationError:
+        ok &= check("valid answer accepted", False)
+
+    try:
+        validate_answer({"answer": "  "})
+        ok &= check("empty answer rejected", False)
+    except JSONValidationError:
+        ok &= check("empty answer rejected", True)
+
+    try:
+        validate_answer({"adv_passages": ["x"]})
+        ok &= check("missing answer field rejected", False)
+    except JSONValidationError:
+        ok &= check("missing answer field rejected", True)
+    return ok
+
+
 def test_output_schema() -> bool:
     print("\n--- 5. Output entry schema ---")
     ok = True
@@ -209,6 +244,7 @@ def main() -> int:
     all_ok &= test_entry_extraction()
     all_ok &= test_passage_selection()
     all_ok &= test_json_parsing()
+    all_ok &= test_answer_generation()
     all_ok &= test_output_schema()
 
     print("\n" + "=" * 72)
