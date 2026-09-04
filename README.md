@@ -405,10 +405,8 @@ LLM-contaminated ("adversarial") passages:
 * malicious agents receive the contaminated passages via `{adv_texts}`.
 
 The dataset path is resolved from (in order): the `ma_dataset_path`
-configuration key, the `MA_DATASET_PATH` environment variable, the legacy
-`MA/msmarco.json` file, or the new benchmark default
-`MA/Task_generation/output/msmarco_contaminated_benchmark.json`. Both the
-legacy JSON-object format and the new JSON-array format are supported.
+configuration key, the `MA_DATASET_PATH` environment variable, or the default
+`MA/Task_generation/output/msmarco_contaminated_benchmark.json`.
 
 ## Citations
 

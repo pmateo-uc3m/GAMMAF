@@ -330,10 +330,8 @@ class MSMARCOLoader(MMLULoader):
     TAG = "MA"
     PROMPTS_FILE = "prompts/prompts_msmarco.json"
 
-    # Old-format dataset produced by the legacy generator (dict keyed by id).
-    DEFAULT_DATASET_PATH = "MA/msmarco.json"
-    # New-format benchmark produced by MA/Task_generation/main.py (JSON array).
-    NEW_DATASET_PATH = "MA/Task_generation/output/msmarco_contaminated_benchmark.json"
+    # Benchmark produced by MA/Task_generation/main.py (JSON array).
+    DEFAULT_DATASET_PATH = "MA/Task_generation/output/msmarco_contaminated_benchmark.json"
 
     def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = [], dataset_path: str | None = None):
         from Utils import AnomalyJudgeLLM
@@ -357,87 +355,63 @@ class MSMARCOLoader(MMLULoader):
         """Resolve the dataset JSON path.
 
         Precedence: explicit ``dataset_path`` argument, ``MA_DATASET_PATH``
-        environment variable, then the legacy/new default paths (the first one
-        that exists wins, so both formats keep working).
+        environment variable, then the default Task_generation output.
         """
         if dataset_path:
             return dataset_path
         env_path = os.getenv("MA_DATASET_PATH")
         if env_path:
             return env_path
-        for candidate in (self.DEFAULT_DATASET_PATH, self.NEW_DATASET_PATH):
-            if os.path.exists(candidate):
-                return candidate
         return self.DEFAULT_DATASET_PATH
 
     def _load_json(self):
         import json
         with open(self.dataset_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict):
-            return data
-        if isinstance(data, list):
-            return data
-        raise ValueError("Expected MSMARCO dataset to be a JSON object or an array")
+        if not isinstance(data, list):
+            raise ValueError(
+                "Expected MSMARCO dataset to be a JSON array "
+                "(the output of MA/Task_generation/main.py)"
+            )
+        return data
 
-    def _normalize_entry(self, key, item):
-        """Normalize one raw dataset entry to the internal question schema.
+    def _normalize_entry(self, item):
+        """Normalize one Task_generation entry to the internal question schema.
 
-        Supports the legacy format (dict keyed by query id with ``question`` /
-        ``correct answer`` / ``incorrect answer`` / ``adv_texts``) and the new
-        Task_generation format (``query`` / ``answers`` / ``safe_passages`` /
-        ``adv_passages``).  Returns ``None`` for malformed entries.
+        Expected fields: ``query`` / ``answers`` / ``safe_passages`` /
+        ``adv_passages``.  Returns ``None`` for malformed entries.
         """
         if not isinstance(item, dict):
             return None
+        if "query" not in item:
+            return None
 
-        if "question" in item:
-            question_text = item.get("question")
-            correct_answer = item.get("correct answer")
-            incorrect_answer = item.get("incorrect answer")
-            adv_texts = item.get("adv_texts")
-            if question_text is None or correct_answer is None:
-                return None
-            return {
-                "query_id": item.get("id", key),
-                "question": question_text,
-                "correct_answer": correct_answer,
-                "incorrect_answer": incorrect_answer,
-                "adv_texts": adv_texts if isinstance(adv_texts, list) else [],
-                "safe_texts": [],
-            }
+        query_text = item.get("query")
+        answers = item.get("answers")
+        adv_passages = item.get("adv_passages")
+        if query_text is None or answers is None:
+            return None
 
-        if "query" in item:
-            query_text = item.get("query")
-            answers = item.get("answers")
-            adv_passages = item.get("adv_passages")
-            if query_text is None or answers is None:
-                return None
-            if isinstance(answers, list) and answers:
-                correct_answer = ", ".join(str(a) for a in answers)
-            else:
-                correct_answer = str(answers)
-            if not correct_answer.strip():
-                return None
-            return {
-                "query_id": item.get("query_id", key),
-                "question": query_text,
-                "correct_answer": correct_answer,
-                "incorrect_answer": "",
-                "adv_texts": adv_passages if isinstance(adv_passages, list) else [],
-                "safe_texts": item.get("safe_passages") if isinstance(item.get("safe_passages"), list) else [],
-            }
+        if isinstance(answers, list) and answers:
+            correct_answer = ", ".join(str(a) for a in answers)
+        else:
+            correct_answer = str(answers)
+        if not correct_answer.strip():
+            return None
 
-        return None
+        safe_passages = item.get("safe_passages")
+        return {
+            "query_id": item.get("query_id"),
+            "question": query_text,
+            "correct_answer": correct_answer,
+            "adv_texts": adv_passages if isinstance(adv_passages, list) else [],
+            "safe_texts": safe_passages if isinstance(safe_passages, list) else [],
+        }
 
     def load_questions(self):
         questions = []
-        if isinstance(self.dataset, dict):
-            raw_items = self.dataset.items()
-        else:
-            raw_items = ((str(i), item) for i, item in enumerate(self.dataset))
-        for key, item in raw_items:
-            entry = self._normalize_entry(key, item)
+        for item in self.dataset:
+            entry = self._normalize_entry(item)
             if entry is None:
                 continue
             questions.append(entry)
@@ -461,7 +435,6 @@ class MSMARCOLoader(MMLULoader):
                 "adv_texts": q["adv_texts"],
                 "safe_texts": q["safe_texts"],
                 "correct_answer": q["correct_answer"],
-                "incorrect_answer": q["incorrect_answer"],
                 "query_id": q.get("query_id"),
             })
         return formatted
