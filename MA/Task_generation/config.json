@@ -4,8 +4,8 @@
         "config": "v2.1",
         "split": "train"
     },
-    "num_entries": 100,
-    "max_concurrent_calls": 200,
+    "num_entries": 3000,
+    "max_concurrent_calls": 400,
     "entry_selection_seed": 42,
     "output": {
         "dir": "output",
