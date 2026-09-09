@@ -1,0 +1,45 @@
+num_entries: 20
+random_seed: 42
+
+# Input dataset configuration.
+# `path` may point to a single file or to a directory. If a directory, the
+# loader auto-discovers InjecAgent test-case JSON files inside it.
+# If `explicit_files` is non-empty it takes precedence over auto-discovery.
+input:
+  path: "./InjecAgent/data"
+  explicit_files: []
+
+# Output dataset configuration.
+output:
+  path: "./output"
+  filename: "enriched_dataset.json"
+
+# LLM configuration. The vLLM endpoint/model live in the separate
+# llm_settings.yaml file so they can be shared and tuned independently.
+llm:
+  settings_file: "llm_settings.yaml"
+  # structured extraction strategy: "json_mode" (response_format json_object)
+  # or "prompt" (ask for JSON in the prompt and parse it).
+  structured_output_method: "json_mode"
+
+# Generation behavior.
+generation:
+  max_retries: 3
+  request_timeout: 120
+  concurrency: 1
+
+# Validation behavior.
+validation:
+  # If true, the run aborts when any entry fails. If false, failures are
+  # logged and reported at the end, and only complete entries are written.
+  require_all_entries_success: false
+
+# Small test-run configuration (enabled via --test).
+test:
+  enabled: false
+  num_entries: 2
+  output_filename: "enriched_dataset_test.json"
+
+logging:
+  level: "INFO"
+  log_file: "generation.log"

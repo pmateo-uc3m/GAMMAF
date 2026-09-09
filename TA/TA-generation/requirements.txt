@@ -1,0 +1,2 @@
+PyYAML>=6.0
+langchain-openai>=0.1.0

@@ -1,0 +1,18 @@
+# vLLM / OpenAI-compatible endpoint settings.
+# Point base_url at your vLLM OpenAI-compatible server, e.g.:
+#   vllm serve <model> --api-key token-abc123
+# then set base_url to http://<host>:<port>/v1
+base_url: "http://localhost:8000/v1"
+api_key: "EMPTY"
+model: "meta-llama/Meta-Llama-3-8B-Instruct"
+
+# Generation parameters.
+temperature: 0.0
+top_p: 0.95
+max_tokens: 2048
+timeout: 120
+
+# Extra keyword arguments passed through to the model as model_kwargs.
+# Example (older vLLM without built-in JSON mode support):
+#   model_kwargs: {}
+model_kwargs: {}
