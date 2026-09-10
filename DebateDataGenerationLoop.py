@@ -1,8 +1,7 @@
-from DebateAgent import DebateAgent
 from DebateConfigLoader import DebateConfig
 from typing import List
 from langchain_openai import ChatOpenAI
-from DebateAgent import ResponseFormat, DebateAgent
+from DebateAgent import DebateAgent
 from dotenv import load_dotenv
 from pydantic import SecretStr
 import random
@@ -16,11 +15,9 @@ from tqdm import tqdm
 import json
 import numpy as np
 
-import re
 from langchain_core.runnables import RunnableLambda
-from langchain_core.messages import AIMessage
 import DatasetManager
-from DatasetManager import make_loader_kwargs
+from DatasetManager import make_loader_kwargs, default_parse_model_output
 import inspect
 from LoggingUtils import log_info, log_warn, log_error
 
@@ -59,37 +56,6 @@ def generate_random_topologies(num_agents: int, density: float, rng):
 
     return adj.tolist()
 
-# Just an auxiliary function to deal with GSM8K answers containing non-numeric text
-def extract_number(response_str):
-    # print(f"[DEBUG] Extracting number from response: {response_str}")
-    match = re.search(r'-?\d+\.?\d*', str(response_str))
-    cleaned = match.group(0) if match else response_str
-    # print(f"[DEBUG] Extracted number: {cleaned}")
-    return cleaned
-
-def parse_model_output(message: AIMessage) -> ResponseFormat:
-    text = message.content
-    if not text:
-         # Log this case?
-        #  print(f"\n[DEBUG] Received empty content from model. Full message: {message}")
-         # Return empty ResponseFormat or raise to retry. 
-         # Raising matches existing behavior of erroring out but now with clear message.
-         raise ValueError("Empty response from model")
-         
-    # Regex for XML-like format requested in prompts
-    reason_match = re.search(r'<reason>:\s*(.*?)(?=\n<answer>:|<answer>:|\Z)', text, re.DOTALL | re.IGNORECASE)
-    answer_match = re.search(r'<answer>:\s*(.*)', text, re.DOTALL | re.IGNORECASE)
-    
-    reason = reason_match.group(1).strip() if reason_match else text
-    answer = answer_match.group(1).strip() if answer_match else ""
-    
-    # Fallback: if answer is empty, maybe the model just outputted the answer letter?
-    if not answer and len(text) < 10 and text.strip().upper() in ['A', 'B', 'C', 'D', 'E']:
-         answer = text.strip().upper()
-         reason = "No reasoning provided."
-
-    return ResponseFormat(reason=reason, answer=answer)
-
 class DebateOrchestration:
     def __init__(self, config: DebateConfig):
         self.config = config
@@ -108,7 +74,7 @@ class DebateOrchestration:
             timeout = config.timeout,
             max_retries = config.llm_max_retries,
         )
-        self.llm = self.base_llm | RunnableLambda(parse_model_output)
+        self.llm = self.base_llm | RunnableLambda(default_parse_model_output)
         
     def generate_agents(self, question_index: int = None) -> List[DebateAgent]:
         agents : List[DebateAgent] = []
@@ -176,9 +142,6 @@ class DebateOrchestration:
                 format_data['wrong_answer'] = str(mal_answer)
 
             response = agent.first_round_generate(format_data=format_data)
-            
-            if self.dataset_name == "GSM8K":
-                response.answer = extract_number(response.answer)
             
             return {
                 "agent_id" : agent.agent_id,
@@ -249,9 +212,7 @@ class DebateOrchestration:
             if not isinstance(response.answer, str):
                 log_warn(f"Agent {agent.agent_id} Round {round} - Response is not a string: type={type(response.answer)}, value={response.answer}")
                 response.answer = str(response.answer)
-                
-            if self.dataset_name == "GSM8K":
-                response.answer = extract_number(response.answer)    
+
             return {
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,

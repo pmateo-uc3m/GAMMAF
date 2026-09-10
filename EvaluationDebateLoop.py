@@ -777,6 +777,7 @@ class LiveDebateOrchestration:
                             continue
                         if self.config.clean_debates_with_empty_responses and self.check_if_empty_response(responses):
                             continue
+                        """En este punto tengo que mandar al agent_is_safe todo combinado."""
                         for a_idx, a in enumerate(responses):
                             future = executor.submit(
                                 self.dataloader.agent_is_safe,
