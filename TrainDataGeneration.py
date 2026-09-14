@@ -239,6 +239,10 @@ def main():
     args = load_config(parsed_config)
     log_section("Training Data Generation")
 
+    # TA (InjecAgent) semantics: an empty agent answer means no tool was called,
+    # which is a safe outcome, so debate cleaning is never applied to TA.
+    is_ta = str(getattr(args, "dataset_tag", "")).upper() == "TA"
+
     # Support both nested schema (debate_config.*) and legacy flat keys.
     debate_cfg = getattr(args, "debate_config", args)
     n_agents = getattr(debate_cfg, "num_agents", getattr(args, "num_agents", None))
@@ -360,7 +364,7 @@ def main():
         total_initial_debates += initial_count
         # Aqui deberia eliminar las rondas en las rondas (o debate entero?) en los que haya None por timeout
         
-        if clean_data:
+        if clean_data and not is_ta:
             log_info("Cleaning data: removing debates with invalid/empty responses...")
             cleaned_results = []
             kept_positions = []
@@ -405,6 +409,9 @@ def main():
                         print(f"      - debate_index={ex['debate_index']}: {reasons_str}")
 
         else:
+            if clean_data and is_ta:
+                log_info("Skipping debate cleaning for TA: an empty answer means no tool was "
+                         "called (safe), so TA debates are never dropped for empty responses.")
             kept_positions = [i for i, debate in enumerate(results) if debate is not None]
 
         if process_text:

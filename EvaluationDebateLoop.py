@@ -759,8 +759,10 @@ class LiveDebateOrchestration:
         return all_traces
     
     def check_if_empty_response(self, round_responses):
+        # TA: an empty answer means the agent called no tool (safe), so it is
+        # never treated as an empty/failed response and TA debates are not cleaned.
         if self.supports_tool_calls:
-            return any((resp.get("message") or "").strip() == "" for resp in round_responses)
+            return False
         return any(resp['answer'].strip() == "" for resp in round_responses)
     
     def _compute_f1(self, flags, gt_flags):
