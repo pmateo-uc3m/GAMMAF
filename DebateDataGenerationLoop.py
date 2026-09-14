@@ -147,7 +147,7 @@ class DebateOrchestration:
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
                 "answer" : response.answer.upper(),
-                "reason" : response.reason,
+                "message" : response.message,
             }
             
         round_responses = []
@@ -194,7 +194,7 @@ class DebateOrchestration:
             ]
             
             format_neighbors = "\n".join(
-                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['reason']}\n" 
+                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['message']}\n" 
                 for m in neighbors
             )
             format_data={
@@ -217,7 +217,7 @@ class DebateOrchestration:
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
                 "answer" : response.answer.upper(),
-                "reason" : response.reason,
+                "message" : response.message,
             }
             
         round_responses = []

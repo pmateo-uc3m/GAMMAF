@@ -54,9 +54,9 @@ def analyze_results(pkl_file):
                 # round_responses is a list of agent response dicts
                 for agent_resp in round_responses:
                     ans = agent_resp.get('answer')
-                    reason = agent_resp.get('reason')
+                    message = agent_resp.get('message')
                     
-                    # If process-text was used, 'reason' is replaced by 'st_embedding'
+                    # If process-text was used, 'message' is replaced by 'st_embedding'
                     has_embeddings = 'st_embedding' in agent_resp
                     
                     if ans is None:
@@ -67,13 +67,13 @@ def analyze_results(pkl_file):
                         round_has_issue = True
                         break
                         
-                    # If neither reason nor embeddings are present, it's an issue
-                    if reason is None and not has_embeddings:
+                    # If neither message nor embeddings are present, it's an issue
+                    if message is None and not has_embeddings:
                         round_has_issue = True
                         break
 
-                    # If reason IS present but empty string
-                    if reason is not None and isinstance(reason, str) and not reason.strip():
+                    # If message IS present but empty string
+                    if message is not None and isinstance(message, str) and not message.strip():
                         round_has_issue = True
                         break
                 

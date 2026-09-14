@@ -248,7 +248,7 @@ class LiveDebateOrchestration:
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
                 "answer" : response.answer if self.supports_tool_calls else response.answer.upper(),
-                "reason" : response.reason,
+                "message" : response.message,
             }
             if self.supports_tool_calls:
                 result["trace"] = getattr(response, "trace", "")
@@ -296,7 +296,7 @@ class LiveDebateOrchestration:
             ]
             
             format_neighbors = "\n".join(
-                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['reason']}\n" 
+                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['message']}\n" 
                 for m in neighbors
             ) if len(neighbors) > 0 else "No messages from other agents in this round."
             
@@ -316,7 +316,7 @@ class LiveDebateOrchestration:
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
                 "answer" : response.answer if self.supports_tool_calls else response.answer.upper(),
-                "reason" : response.reason,
+                "message" : response.message,
             }
             if self.supports_tool_calls:
                 result["trace"] = getattr(response, "trace", "")
@@ -760,7 +760,7 @@ class LiveDebateOrchestration:
     
     def check_if_empty_response(self, round_responses):
         if self.supports_tool_calls:
-            return any((resp.get("reason") or "").strip() == "" for resp in round_responses)
+            return any((resp.get("message") or "").strip() == "" for resp in round_responses)
         return any(resp['answer'].strip() == "" for resp in round_responses)
     
     def _compute_f1(self, flags, gt_flags):

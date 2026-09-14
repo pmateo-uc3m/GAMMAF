@@ -12,7 +12,7 @@ class TAAgent:
     prompt as the predefined setup messages), then adds a tool-call round-trip:
     whenever the model returns a tool call with empty content, the tool-call
     message is retained, a synthetic successful ``ToolMessage`` is appended,
-    and the agent is re-invoked. The final content becomes ``reason`` (what is
+    and the agent is re-invoked. The final content becomes ``message`` (what is
     passed to neighbours and the defense model), the called tool becomes
     ``answer``/``called_tool``, and ``<tool_call>: ..., <message>: ...`` is the
     trace entry recorded in the debate trace.
@@ -97,7 +97,7 @@ class TAAgent:
                 else:
                     trace = f"<message>: {content}"
                 self.current_response = TAResponseFormat(
-                    reason=content,
+                    message=content,
                     answer=called_tool,
                     called_tool=called_tool,
                     trace=trace,

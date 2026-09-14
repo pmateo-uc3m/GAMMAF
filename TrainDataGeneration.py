@@ -47,16 +47,16 @@ def is_valid_debate(debate_data):
             if isinstance(ans, str) and not ans.strip():
                 return False
                 
-            # Check reason validity (or presence of embeddings)
-            reason = agent_resp.get("reason")
+            # Check message validity (or presence of embeddings)
+            message = agent_resp.get("message")
             has_embeddings = 'st_embedding' in agent_resp
             
-            # If we have embeddings, we assume reason was valid before processing
-            # If we don't have embeddings, reason must be valid
+            # If we have embeddings, we assume message was valid before processing
+            # If we don't have embeddings, message must be valid
             if not has_embeddings:
-                if reason is None:
+                if message is None:
                     return False
-                if isinstance(reason, str) and not reason.strip():
+                if isinstance(message, str) and not message.strip():
                     return False
                     
     return True
@@ -93,13 +93,13 @@ def get_debate_invalid_reasons(debate_data):
             elif isinstance(ans, str) and not ans.strip():
                 reasons.append(f"round_{round_idx}_agent_{agent_idx}_empty_answer")
 
-            reason = agent_resp.get("reason")
+            message = agent_resp.get("message")
             has_embeddings = "st_embedding" in agent_resp
             if not has_embeddings:
-                if reason is None:
-                    reasons.append(f"round_{round_idx}_agent_{agent_idx}_missing_reason")
-                elif isinstance(reason, str) and not reason.strip():
-                    reasons.append(f"round_{round_idx}_agent_{agent_idx}_empty_reason")
+                if message is None:
+                    reasons.append(f"round_{round_idx}_agent_{agent_idx}_missing_message")
+                elif isinstance(message, str) and not message.strip():
+                    reasons.append(f"round_{round_idx}_agent_{agent_idx}_empty_message")
 
     return reasons
 

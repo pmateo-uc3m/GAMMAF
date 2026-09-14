@@ -106,10 +106,10 @@ def main():
                 print(f"Agent ID: {agent_id} {'[MALICIOUS]' if is_mal else ''}")
                 print(f"Answer: {ans}")
                 
-                if 'reason' in agent_resp:
-                    print(f"Reason: {agent_resp['reason']}")
+                if 'message' in agent_resp:
+                    print(f"Message: {agent_resp['message']}")
                 elif 'st_embedding' in agent_resp:
-                    print(f"Reason: [Replaced by Embeddings]")
+                    print(f"Message: [Replaced by Embeddings]")
                     st = agent_resp['st_embedding']
                     st_len = len(st) if hasattr(st, '__len__') else 'Unknown'
                     print(f"   ST Embedding shape: {st_len}")
@@ -119,7 +119,7 @@ def main():
                     tk_dim = len(tk[0]) if tk_count != 'Unknown' and tk_count > 0 else 'Unknown'
                     print(f"   Token Embeddings: {tk_count} tokens x {tk_dim} dim")
                 else:
-                    print("Reason field missing and no embeddings found.")
+                    print("Message field missing and no embeddings found.")
                 
                 # Debug print other keys if needed
                 # print(f"Keys: {list(agent_resp.keys())}")

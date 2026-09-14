@@ -9,17 +9,17 @@ import os
 
 
 class ResponseFormat(BaseModel):
-    reason: str
+    message: str
     answer: str
 
     def to_message_content(self) -> str:
-        return f"<answer>: {self.answer} \n<reason>: {self.reason}"
+        return f"<answer>: {self.answer} \n<message>: {self.message}"
 
 
 class TAResponseFormat(ResponseFormat):
     """Tool-call aware response format for InjecAgent-style datasets.
 
-    ``reason`` carries the final message content (used for neighbour messages
+    ``message`` carries the final message content (used for neighbour messages
     and the defense model embedding); ``answer`` carries the name of the tool
     the agent called (empty when no tool was called); ``trace`` is the
     ``<tool_call>: ..., <message>: ...`` entry recorded in the debate trace.
@@ -29,17 +29,17 @@ class TAResponseFormat(ResponseFormat):
     trace: str = ""
 
     def to_message_content(self) -> str:
-        return self.trace or self.reason
+        return self.trace or self.message
 
 
-def extract_reason_answer(text: str):
+def extract_message_answer(text: str):
     # Allow both <tag>: value and <tag> value, and any order between tags.
-    reason_match = re.search(r'<reason>\s*:?\s*(.*?)(?=<answer>\s*:?\s*|\Z)', text, re.DOTALL | re.IGNORECASE)
-    answer_match = re.search(r'<answer>\s*:?\s*(.*?)(?=<reason>\s*:?\s*|\Z)', text, re.DOTALL | re.IGNORECASE)
+    message_match = re.search(r'<message>\s*:?\s*(.*?)(?=<answer>\s*:?\s*|\Z)', text, re.DOTALL | re.IGNORECASE)
+    answer_match = re.search(r'<answer>\s*:?\s*(.*?)(?=<message>\s*:?\s*|\Z)', text, re.DOTALL | re.IGNORECASE)
 
-    reason = reason_match.group(1).strip() if reason_match else text
+    message = message_match.group(1).strip() if message_match else text
     answer = answer_match.group(1).strip() if answer_match else ""
-    return reason, answer
+    return message, answer
 
 
 def default_parse_model_output(
@@ -55,14 +55,14 @@ def default_parse_model_output(
     if not text:
         raise ValueError("Empty response from model")
 
-    reason, answer = extract_reason_answer(text)
+    message_text, answer = extract_message_answer(text)
 
     # Fallback: if answer is empty, maybe the model just outputted the answer letter?
     if not answer and len(text) < 10 and text.strip().upper() in ['A', 'B', 'C', 'D', 'E']:
         answer = text.strip().upper()
-        reason = "No reasoning provided."
+        message_text = "No reasoning provided."
 
-    return response_format(reason=reason, answer=answer)
+    return response_format(message=message_text, answer=answer)
 
 
 def _select_evaluation_indexes(available_indexes, num_questions, rng):
@@ -453,8 +453,8 @@ class MSMARCOLoader(MMLULoader):
         text = message.content
         if not text:
             raise ValueError("Empty response from model")
-        reason, answer = extract_reason_answer(text)
-        return self.RESPONSE_FORMAT(reason=reason, answer=answer)
+        message_text, answer = extract_message_answer(text)
+        return self.RESPONSE_FORMAT(message=message_text, answer=answer)
 
     def is_answer_correct(self, round_responses: list, correct_answer) -> bool:
         try:
@@ -600,8 +600,8 @@ class InjecAgentLoader(MMLULoader):
         text = message.content
         if not text:
             raise ValueError("Empty response from model")
-        reason, answer = extract_reason_answer(text)
-        return self.RESPONSE_FORMAT(reason=reason, answer=answer)
+        message_text, answer = extract_message_answer(text)
+        return self.RESPONSE_FORMAT(message=message_text, answer=answer)
 
     def is_answer_correct(self, round_responses: list, correct_answer) -> bool:
         """De momento no considero que ninguna respuesta sea correcta 
