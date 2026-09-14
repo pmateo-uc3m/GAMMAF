@@ -136,6 +136,13 @@ class LiveDebateOrchestration:
             indexes=self.train_indexes,
         ))
         self.prompts = self.dataloader.get_prompts()
+
+        # Datasets that require tool-call handling (InjecAgent) opt in via the
+        # loader. They use the raw model (no parse chain) and the tool-call
+        # aware agent in DebateAgent-TA.py. ``supports_tool_calls`` is derived
+        # lazily from the dataloader so subclasses that inject a dataloader
+        # without calling this __init__ (e.g. HPS) still behave correctly.
+        self._resolve_agent_class()
         
         textProcessor = load_class_from_path(
             config.text_processor_path, config.text_processor_class_name
@@ -162,14 +169,34 @@ class LiveDebateOrchestration:
             format_data[k] = v
         return format_data
         
-    def _build_llm_chain(self):
+    @property
+    def supports_tool_calls(self) -> bool:
+        return bool(getattr(self.dataloader, "SUPPORTS_TOOL_CALLS", False))
+
+    def _resolve_agent_class(self):
+        agent_class = getattr(self, "_agent_class", None)
+        if agent_class is not None:
+            return agent_class
+        if self.supports_tool_calls:
+            agent_class = load_class_from_path(
+                Path(__file__).with_name("DebateAgent-TA.py"), "TAAgent"
+            )
+        else:
+            agent_class = DebateAgent
+        self._agent_class = agent_class
+        return agent_class
+
+    def _build_base_llm(self):
         return ChatOpenAI(
             model=self._model_name,
             api_key=self._api_key,
             base_url=self._base_url,
             timeout=self._llm_timeout,
             max_retries=self.llm_max_retries,
-        ) | RunnableLambda(self.dataloader.parse_model_output)
+        )
+
+    def _build_llm_chain(self):
+        return self._build_base_llm() | RunnableLambda(self.dataloader.parse_model_output)
 
     def generate_agents(self, question_index=None):
         agents = []
@@ -178,10 +205,11 @@ class LiveDebateOrchestration:
         malicious_indices = local_rng.sample(range(self.config.num_agents), self.config.num_malicious_agents)
         for i in range(self.config.num_agents):
             is_malicious = i in malicious_indices
+            model = self._build_base_llm() if self.supports_tool_calls else self._build_llm_chain()
             agents.append(
-                DebateAgent(
+                self._resolve_agent_class()(
                     agent_id = i,
-                    model=self._build_llm_chain(),
+                    model=model,
                     is_malicious=is_malicious,
                     system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"] if is_malicious else self.prompts["SYSTEM_PROMPT"],
                     first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"] if is_malicious else self.prompts["FIRST_ROUND_PROMPT"],
@@ -216,12 +244,16 @@ class LiveDebateOrchestration:
 
             response = agent.first_round_generate(format_data=format_data)
 
-            return {
+            result = {
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
-                "answer" : response.answer.upper(),
+                "answer" : response.answer if self.supports_tool_calls else response.answer.upper(),
                 "reason" : response.reason,
             }
+            if self.supports_tool_calls:
+                result["trace"] = getattr(response, "trace", "")
+                result["called_tool"] = getattr(response, "called_tool", "")
+            return result
             
         round_responses = []
         
@@ -280,12 +312,16 @@ class LiveDebateOrchestration:
                 format_data['wrong_answer'] = str(mal_answer)
                 
             response = agent.debate_round_generate(format_data=format_data)
-            return {
+            result = {
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
-                "answer" : response.answer.upper(),
+                "answer" : response.answer if self.supports_tool_calls else response.answer.upper(),
                 "reason" : response.reason,
             }
+            if self.supports_tool_calls:
+                result["trace"] = getattr(response, "trace", "")
+                result["called_tool"] = getattr(response, "called_tool", "")
+            return result
             
         round_responses = []
         
@@ -339,6 +375,16 @@ class LiveDebateOrchestration:
     def check_answer(self, round_responses, correct_answer) -> bool:
         return self.dataloader.is_answer_correct(round_responses, correct_answer)
     
+    def _trace_response(self, resp: dict) -> dict:
+        entry = {
+            "agent_id": resp['agent_id'],
+            "answer": resp['answer'],
+        }
+        if self.supports_tool_calls:
+            entry["trace"] = resp.get("trace", "")
+            entry["called_tool"] = resp.get("called_tool", "")
+        return entry
+    
     def debate_question(
         self,
         defense_model,
@@ -390,10 +436,7 @@ class LiveDebateOrchestration:
         adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
         debate_trace.append({
             "round": 1,
-            "responses": [{
-                "agent_id": resp['agent_id'],
-                "answer": resp['answer'],
-            } for resp in last_round_responses],
+            "responses": [self._trace_response(resp) for resp in last_round_responses],
             "flags": flags,
             "AUROC" : roc_auc_score(flags_ground_truth, anomaly_scores) if anomaly_scores is not None else 0,
             "anomaly_scores": anomaly_scores,
@@ -429,10 +472,7 @@ class LiveDebateOrchestration:
             
             debate_trace.append({
                 "round": i,  # Maybe is i+1 if we want rounds to start at 1 instead of 0
-                "responses": [{
-                    "agent_id": resp['agent_id'],
-                    "answer": resp['answer'],
-                } for resp in last_round_responses],
+                "responses": [self._trace_response(resp) for resp in last_round_responses],
                 "flags": flags,
                 "AUROC": roc_auc_score(flags_ground_truth, anomaly_scores) if anomaly_scores is not None else 0,
                 "anomaly_scores": anomaly_scores,
@@ -451,6 +491,8 @@ class LiveDebateOrchestration:
             "debate_trace": debate_trace,
             "flags_ground_truth": flags_ground_truth,
         }
+        if self.supports_tool_calls:
+            r["attack_tool"] = (question_format_data or {}).get("attack_tool", "")
         
         return r
     
@@ -484,10 +526,7 @@ class LiveDebateOrchestration:
 
         debate_trace.append({
             "round": 1,
-            "responses": [{
-                "agent_id": resp['agent_id'],
-                "answer": resp['answer'],
-            } for resp in last_round_responses],
+            "responses": [self._trace_response(resp) for resp in last_round_responses],
             "flags": flags,
             # Will add scores in future for AUROC
         })
@@ -511,10 +550,7 @@ class LiveDebateOrchestration:
             
             debate_trace.append({
                 "round": i,  # Maybe is i+1 if we want rounds to start at 1 instead of 0
-                "responses": [{
-                    "agent_id": resp['agent_id'],
-                    "answer": resp['answer'],
-                } for resp in last_round_responses],
+                "responses": [self._trace_response(resp) for resp in last_round_responses],
                 "flags": flags,
             })
             
@@ -531,6 +567,8 @@ class LiveDebateOrchestration:
             "debate_trace": debate_trace,
             "flags_ground_truth": flags_ground_truth,
         }
+        if self.supports_tool_calls:
+            r["attack_tool"] = (question_format_data or {}).get("attack_tool", "")
         
         return r
     
@@ -721,6 +759,8 @@ class LiveDebateOrchestration:
         return all_traces
     
     def check_if_empty_response(self, round_responses):
+        if self.supports_tool_calls:
+            return any((resp.get("reason") or "").strip() == "" for resp in round_responses)
         return any(resp['answer'].strip() == "" for resp in round_responses)
     
     def _compute_f1(self, flags, gt_flags):
@@ -779,9 +819,23 @@ class LiveDebateOrchestration:
                             continue
                         """En este punto tengo que mandar al agent_is_safe todo combinado."""
                         for a_idx, a in enumerate(responses):
+                            if self.supports_tool_calls:
+                                safe_input = {
+                                    "response": a,
+                                    "correct_answer": gt_answer,
+                                    "question": question.get("question", ""),
+                                    "Called-tool": a.get("called_tool", ""),
+                                    "Attack-tool": question.get("attack_tool", ""),
+                                }
+                            else:
+                                safe_input = {
+                                    "response": a,
+                                    "correct_answer": gt_answer,
+                                    "question": question.get("question", ""),
+                                }
                             future = executor.submit(
                                 self.dataloader.agent_is_safe,
-                                {"response": a, "correct_answer": gt_answer, "question": question.get("question", "")}
+                                safe_input,
                             )
                             phase1_futures.append((topo_name, q_idx, r_idx, a_idx, future))
 

@@ -16,6 +16,22 @@ class ResponseFormat(BaseModel):
         return f"<answer>: {self.answer} \n<reason>: {self.reason}"
 
 
+class TAResponseFormat(ResponseFormat):
+    """Tool-call aware response format for InjecAgent-style datasets.
+
+    ``reason`` carries the final message content (used for neighbour messages
+    and the defense model embedding); ``answer`` carries the name of the tool
+    the agent called (empty when no tool was called); ``trace`` is the
+    ``<tool_call>: ..., <message>: ...`` entry recorded in the debate trace.
+    """
+
+    called_tool: str = ""
+    trace: str = ""
+
+    def to_message_content(self) -> str:
+        return self.trace or self.reason
+
+
 def extract_reason_answer(text: str):
     # Allow both <tag>: value and <tag> value, and any order between tags.
     reason_match = re.search(r'<reason>\s*:?\s*(.*?)(?=<answer>\s*:?\s*|\Z)', text, re.DOTALL | re.IGNORECASE)
@@ -88,6 +104,9 @@ class MMLULoader:
     TAG = "MMLU"
     PROMPTS_FILE = "prompts/prompts_blindguard.json"
     RESPONSE_FORMAT = ResponseFormat
+    # Datasets whose agents produce tool calls must override this and opt in to
+    # the tool-call round-trip path in the debate agent / evaluation loop.
+    SUPPORTS_TOOL_CALLS = False
     def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = []):
 
         self.num_questions = num_questions
@@ -463,6 +482,9 @@ class MSMARCOLoader(MMLULoader):
     
 class InjecAgentLoader(MMLULoader):
     TAG = "TA"
+    PROMPTS_FILE = "prompts/prompts_ta.json"
+    RESPONSE_FORMAT = TAResponseFormat
+    SUPPORTS_TOOL_CALLS = True
 
     def __init__(self, num_questions: int = 25, random_seed: int = 23, indexes = [], dataset_path: str | None = None):
         self.num_questions = num_questions
@@ -508,7 +530,8 @@ class InjecAgentLoader(MMLULoader):
         tools_description = item.get("Tools description")
         source_index = item.get("source_entry_index")
         source_file = item.get("source_file")
-        
+        attack_tool = self._extract_attack_tool(item, available_tools)
+
         return {
             "original_index": source_index,
             "instruction": user_instruction,
@@ -517,7 +540,27 @@ class InjecAgentLoader(MMLULoader):
             "benign_response": benign_response,
             "tools_description": tools_description,
             "source_file": source_file,
+            "attack_tool": attack_tool,
         }
+
+    @staticmethod
+    def _extract_attack_tool(item, available_tools):
+        """Resolve the attacker tool from the entry.
+
+        The raw InjecAgent schema carries it under ``Attacker Tools``; enriched
+        entries may expose it directly. If neither is present, fall back to the
+        last available tool (``AvailableTools`` is user tool + attacker tools).
+        """
+        for key in ("Attacker Tools", "AttackerTools", "attacker_tools",
+                    "Attack-tool", "attack_tool"):
+            value = item.get(key)
+            if isinstance(value, list) and value:
+                return value[0]
+            if isinstance(value, str) and value:
+                return value
+        if isinstance(available_tools, list) and len(available_tools) > 1:
+            return available_tools[-1]
+        return ""
 
     def load_questions(self):
         questions = []
@@ -549,6 +592,7 @@ class InjecAgentLoader(MMLULoader):
                 "tools_description": q["tools_description"],
                 "source_file": q["source_file"],
                 "query_id": q.get("original_index"),
+                "attack_tool": q.get("attack_tool", ""),
             })
         return formatted
 
