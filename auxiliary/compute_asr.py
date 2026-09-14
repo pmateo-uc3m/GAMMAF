@@ -249,17 +249,35 @@ def accumulate(agg, info, per_round):
                 agg["final_air"].append(air)
 
 
-def mean(vals):
-    return sum(vals) / len(vals) if vals else None
+def mean_ci(values):
+    """Return (mean, 95% CI half-width) of per-debate values (None when n/a)."""
+    n = len(values)
+    if n == 0:
+        return None, None
+    m = sum(values) / n
+    if n < 2:
+        return m, None
+    try:
+        from scipy.stats import t as t_dist
+    except ImportError:
+        return m, None
+    variance = sum((v - m) ** 2 for v in values) / (n - 1)
+    sd = variance ** 0.5
+    se = sd / (n ** 0.5)
+    return m, t_dist.ppf(0.975, df=n - 1) * se
+
+
+def fmt_mean_ci(values):
+    m, ci = mean_ci(values)
+    if m is None:
+        return "  n/a "
+    if ci is None:
+        return f"{m:.2f}"
+    return f"{m:.2f} +- {ci:.2f}"
 
 
 def fmt_pct(v):
     return f"{v * 100:.2f}%" if v is not None else "  n/a "
-
-
-def fmt_pct_scaled(v):
-    """Format a value that is already a percentage."""
-    return f"{v:.2f}%" if v is not None else "  n/a "
 
 
 def print_topology(name, agg):
@@ -273,15 +291,13 @@ def print_topology(name, agg):
     rounds = sorted(set(agg["round_count"]) | set(agg["asr_by_round"]) | set(agg["air_by_round"]))
     if rounds:
         print()
-        print(f"    {'Round':>5}  {'ASR':>7}  {'AIR':>7}  {'Count':>6}")
-        print(f"    {'-' * 30}")
+        print(f"    {'Round':>5}  {'ASR (mean +- CI)':>17}  {'AIR (mean +- CI)':>17}  {'Count':>6}")
+        print(f"    {'-' * 50}")
         for idx in rounds:
-            asr = mean(agg["asr_by_round"].get(idx))
-            air = mean(agg["air_by_round"].get(idx))
+            asr_s = fmt_mean_ci(agg["asr_by_round"].get(idx))
+            air_s = fmt_mean_ci(agg["air_by_round"].get(idx))
             cnt = agg["round_count"].get(idx, 0)
-            asr_s = f"{asr:.2f}" if asr is not None else "  n/a "
-            air_s = f"{air:.2f}" if air is not None else "  n/a "
-            print(f"    {idx + 1:>5}  {asr_s:>7}  {air_s:>7}  {cnt:>6}")
+            print(f"    {idx + 1:>5}  {asr_s:>17}  {air_s:>17}  {cnt:>6}")
     print()
 
 
@@ -294,12 +310,12 @@ def print_overall(agg, label="OVERALL"):
     print(f"    Accuracy          : {fmt_pct(agg['correct']/n)}")
     print(f"    Consensus         : {agg['consensus']}/{agg['debates']} ({fmt_pct(agg['consensus']/n)})")
     print(f"    Infection         : {agg['debates'] - agg['correct']}/{agg['debates']} ({fmt_pct((agg['debates'] - agg['correct'])/n)})")
-    print(f"    Final ASR (all)   : {fmt_pct_scaled(mean(agg['final_asr']))}")
-    print(f"    Final AIR (benign): {fmt_pct_scaled(mean(agg['final_air']))}")
+    print(f"    Final ASR (all)   : {fmt_mean_ci(agg['final_asr'])}")
+    print(f"    Final AIR (benign): {fmt_mean_ci(agg['final_air'])}")
     all_asr = [v for lst in agg["asr_by_round"].values() for v in lst]
     all_air = [v for lst in agg["air_by_round"].values() for v in lst]
-    print(f"    Mean ASR (rounds) : {fmt_pct_scaled(mean(all_asr))}")
-    print(f"    Mean AIR (rounds) : {fmt_pct_scaled(mean(all_air))}")
+    print(f"    Mean ASR (rounds) : {fmt_mean_ci(all_asr)}")
+    print(f"    Mean AIR (rounds) : {fmt_mean_ci(all_air)}")
 
 
 def main():
