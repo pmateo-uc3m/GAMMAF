@@ -4,9 +4,7 @@ timeout: 120
 parallel_questions: 50 # Number of concurrent questions sent to inference API
 llm_max_retries: 3
 
-# Note: the actual prompt file used is the loader's PROMPTS_FILE
-# (InjecAgentLoader -> prompts/prompts_ta.json); this key is informational.
-prompts: prompts/prompts_ta.json
+# Note: the actual prompt file used is the loader's PROMPTS_FIL
 
 dataset_tag: TA # Dataset selection (must match a class TAG in DatasetManager.py)
 ma_dataset_path: TA/TA-generation/output/enriched_dataset.json # InjecAgent enriched dataset (JSON array)
