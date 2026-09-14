@@ -54,7 +54,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.getcwd())
 
 # Hardcoded concurrency for the (potentially LLM-backed) safety calls.
-MAX_CONCURRENT_CALLS = 50
+MAX_CONCURRENT_CALLS = 250
 
 
 def norm(s) -> str:
