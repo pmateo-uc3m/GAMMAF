@@ -37,6 +37,12 @@ import pickle
 import re
 import sys
 
+# Running ``python auxiliary/compute_asr.py`` puts ``auxiliary/`` on sys.path,
+# not the repo root, so make sure project modules (e.g. DatasetManager for the
+# judge path) are importable regardless of where the script is invoked from.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.getcwd())
+
 
 def norm(s) -> str:
     if s is None:
