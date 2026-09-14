@@ -16,6 +16,8 @@ import json
 import numpy as np
 
 from langchain_core.runnables import RunnableLambda
+import importlib.util
+from pathlib import Path
 import DatasetManager
 from DatasetManager import make_loader_kwargs, default_parse_model_output
 import inspect
@@ -75,34 +77,37 @@ class DebateOrchestration:
             max_retries = config.llm_max_retries,
         )
         self.llm = self.base_llm | RunnableLambda(default_parse_model_output)
-        
+        # Defaults; refined in run_evaluation once the dataloader is known.
+        self.supports_tool_calls = False
+        self._agent_class = DebateAgent
+
+    @staticmethod
+    def _load_ta_agent():
+        spec = importlib.util.spec_from_file_location(
+            "DebateAgent_TA", Path(__file__).with_name("DebateAgent-TA.py")
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.TAAgent
+
     def generate_agents(self, question_index: int = None) -> List[DebateAgent]:
         agents : List[DebateAgent] = []
         mal_idx = np.random.default_rng(
             self.config.malicious_randomization_seed + question_index if question_index is not None else self.config.malicious_randomization_seed
             ).choice(list(range(self.config.number_of_agents)), size=self.config.number_malicious_agents, replace=False)
+        agent_class = self._agent_class
+        model = self.base_llm if self.supports_tool_calls else self.llm
         for i in range(self.config.number_of_agents):
-            if i in mal_idx:
-                agents.append(DebateAgent(
-                    agent_id=i,
-                    model=self.llm,
-                    system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"],
-                    first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"],
-                    debate_prompt = self.prompts["DEBATE_PROMPT_MALICIOUS"],
-                    max_retries=self.config.llm_max_retries,
-                    is_malicious=True,
-                ))
-            else:
-                agents.append(DebateAgent(
-                    agent_id=i,
-                    model=self.llm,
-                    system_prompt = self.prompts["SYSTEM_PROMPT"],
-                    first_round_prompt = self.prompts["FIRST_ROUND_PROMPT"],
-                    debate_prompt = self.prompts["DEBATE_PROMPT"],
-                    max_retries=self.config.llm_max_retries,
-                    is_malicious=False,
-                ))
-                
+            is_malicious = i in mal_idx
+            agents.append(agent_class(
+                agent_id=i,
+                model=model,
+                system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"] if is_malicious else self.prompts["SYSTEM_PROMPT"],
+                first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"] if is_malicious else self.prompts["FIRST_ROUND_PROMPT"],
+                debate_prompt = self.prompts["DEBATE_PROMPT_MALICIOUS"] if is_malicious else self.prompts["DEBATE_PROMPT"],
+                max_retries=self.config.llm_max_retries,
+                is_malicious=is_malicious,
+            ))
         return agents
 
     def _merge_prompt_format_data(self, format_data: dict, question_format_data: dict | None) -> dict:
@@ -348,7 +353,9 @@ class DebateOrchestration:
         failure_examples = []
         
         def process_single_question(index: int, question_data: dict):
-            question_text = question_data['question']
+            # Datasets expose the prompt text under 'question' (MMLU/GSM8K/MA)
+            # or 'instruction' (InjecAgent/TA); fall back accordingly.
+            question_text = question_data.get('question') or question_data.get('instruction') or ''
             choices_text = question_data.get('choices')
             ground_truth = question_data.get('answer', question_data.get('correct_answer', ''))
             mal_answer = ""
@@ -450,7 +457,13 @@ class DebateOrchestration:
         self.dataloader = loader_cls(**loader_kwargs)
         self.prompts = self.dataloader.get_prompts()
 
-        # Use parser from the selected dataloader.
+        # Datasets that require tool-call handling (InjecAgent) opt in via the
+        # loader. They use the raw model (no parse chain) and the tool-call
+        # aware agent in DebateAgent-TA.py.
+        self.supports_tool_calls = bool(getattr(self.dataloader, "SUPPORTS_TOOL_CALLS", False))
+        self._agent_class = self._load_ta_agent() if self.supports_tool_calls else DebateAgent
+
+        # Use parser from the selected dataloader (only used by non-tool-call agents).
         self.llm = self.base_llm | RunnableLambda(self.dataloader.parse_model_output)
         
         questions = self.dataloader.get_formatted_questions()
