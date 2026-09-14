@@ -33,12 +33,19 @@ def parse_args(argv=None):
 
 
 def setup_logging(cfg):
-    level = getattr(logging, cfg["logging"].get("level", "INFO").upper(), logging.INFO)
+    level = getattr(logging, cfg["logging"].get("level", "WARNING").upper(), logging.WARNING)
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
+    # Silence chatty HTTP/client libraries so only the progress bar and the
+    # final summary reach the terminal.
+    for noisy in (
+        "httpx", "httpcore", "openai", "urllib3",
+        "langchain", "langchain_openai", "asyncio",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     return logging.getLogger("TA-generation")
 
 

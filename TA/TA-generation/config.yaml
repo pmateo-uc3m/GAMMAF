@@ -6,8 +6,8 @@ random_seed: 42
 # loader auto-discovers InjecAgent test-case JSON files inside it.
 # If `explicit_files` is non-empty it takes precedence over auto-discovery.
 input:
-  path: "./InjecAgent/data"
-  explicit_files: []
+  path: "./"
+  explicit_files: ["combined-injecAgent-entries.json"]
 
 # Output dataset configuration.
 output:
@@ -41,4 +41,4 @@ test:
   output_filename: "enriched_dataset_test.json"
 
 logging:
-  level: "INFO"
+  level: "WARNING"  # only the progress bar and the final summary are shown

@@ -81,7 +81,7 @@ class EnrichmentGenerator:
         last_error = None
         for attempt in range(self.max_retries + 1):
             if attempt > 0:
-                self.logger.info("retry attempt %d after: %s", attempt, last_error)
+                self.logger.debug("retry attempt %d after: %s", attempt, last_error)
                 prompt = build_user_prompt(
                     source_entry, available_tools, retry_note=last_error
                 )
@@ -163,7 +163,7 @@ class EnrichmentGenerator:
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(entries, f, indent=2, ensure_ascii=False)
-        self.logger.info("wrote %d complete entries to %s", len(entries), output_path)
+        self.logger.debug("wrote %d complete entries to %s", len(entries), output_path)
 
 
 def write_failures_report(failures, output_path):
