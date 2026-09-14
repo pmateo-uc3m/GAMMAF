@@ -99,20 +99,20 @@ class RoundProcessor:
 
         return st_embedding, token_embeddings
 
-def process_round(self, round_data):
-        """Transform each agent's message into pooled, non-truncated embeddings."""
-        st_model, hf_tokenizer, hf_model = self._get_local_resources()
-        embedded_round = []
-        for agent in round_data:
-            r = {
-                key: agent[key] for key in agent if key != 'message'
-            }
-            text = agent['message']
+    def process_round(self, round_data):
+            """Transform each agent's message into pooled, non-truncated embeddings."""
+            st_model, hf_tokenizer, hf_model = self._get_local_resources()
+            embedded_round = []
+            for agent in round_data:
+                r = {
+                    key: agent[key] for key in agent if key != 'message'
+                }
+                text = agent['message']
 
-            st_embed, token_embeddings = self._encode_text(text, st_model, hf_tokenizer, hf_model)
+                st_embed, token_embeddings = self._encode_text(text, st_model, hf_tokenizer, hf_model)
 
-            r['st_embedding'] = st_embed
-            r['tk_embedding'] = token_embeddings
+                r['st_embedding'] = st_embed
+                r['tk_embedding'] = token_embeddings
 
-            embedded_round.append(r)
-        return embedded_round
+                embedded_round.append(r)
+            return embedded_round
