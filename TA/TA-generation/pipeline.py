@@ -2,8 +2,10 @@ import json
 import logging
 import os
 import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
+from tqdm import tqdm
 
 from data_io import load_source_dataset
 from llm import build_llm, load_llm_settings
@@ -89,7 +91,7 @@ class EnrichmentGenerator:
                 last_error = "the model did not return valid JSON"
                 continue
             err = validate_llm_output(obj)
-            if err is None:
+            if not err:
                 return obj, available_tools, attempt
             last_error = err
         raise GenerationError(
@@ -97,44 +99,64 @@ class EnrichmentGenerator:
             f"attempts; last error: {last_error}"
         )
 
+    def _generate_one_task(self, source_entry, idx, source_file):
+        result, available_tools, attempts = self.generate_one(source_entry)
+        benign = result["benign_tool_response"]
+        tools_desc = result["tools_description"]
+        out_entry = build_output_entry(
+            source_index=idx,
+            source_file=source_file,
+            available_tools=available_tools,
+            user_instruction=source_entry.get("User Instruction", ""),
+            anomalous_response=source_entry.get("Tool Response", ""),
+            benign_response=benign,
+            tools_description=tools_desc,
+        )
+        entry_errors = validate_output_entry(out_entry)
+        if entry_errors:
+            raise GenerationError("; ".join(entry_errors))
+        return out_entry, idx
+
     def process(self, dataset, indices, source_file, output_path):
-        entries = []
         total = len(indices)
-        for position, idx in enumerate(indices, start=1):
-            source_entry = dataset[idx]
-            self.logger.info(
-                "processing entry %d/%d (source index %d)", position, total, idx
-            )
-            try:
-                result, available_tools, attempts = self.generate_one(source_entry)
-                benign = result["benign_tool_response"]
-                tools_desc = result["tools_description"]
-                out_entry = build_output_entry(
-                    source_index=idx,
-                    source_file=source_file,
-                    available_tools=available_tools,
-                    user_instruction=source_entry.get("User Instruction", ""),
-                    anomalous_response=source_entry.get("Tool Response", ""),
-                    benign_response=benign,
-                    tools_description=tools_desc,
-                )
-                entry_errors = validate_output_entry(out_entry)
-                if entry_errors:
-                    raise GenerationError("; ".join(entry_errors))
-                entries.append(out_entry)
-                self.logger.info(
-                    "succeeded entry %d/%d (source index %d) after %d attempt(s)",
-                    position, total, idx, attempts + 1,
-                )
-            except Exception as e:
-                self.failures.append({"source_index": idx, "error": str(e)})
-                self.logger.error(
-                    "failed entry %d/%d (source index %d): %s",
-                    position, total, idx, e,
-                )
-                if self.cfg["validation"].get("require_all_entries_success"):
-                    raise
+        concurrency = max(1, int(self.cfg["generation"].get("concurrency", 1)))
+        entries = []
+        failures = []
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = {
+                executor.submit(
+                    self._generate_one_task, dataset[idx], idx, source_file
+                ): idx
+                for idx in indices
+            }
+            with tqdm(total=total, desc="Enriching entries", unit="entry") as pbar:
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    try:
+                        out_entry, _ = future.result()
+                        entries.append(out_entry)
+                    except Exception as e:
+                        failures.append({"source_index": idx, "error": str(e)})
+                    pbar.update(1)
+
+        # Preserve deterministic input order in the output.
+        entries.sort(key=lambda e: e.get(F_SOURCE_INDEX, 0))
+        self.failures.extend(failures)
+
         self._write_output(output_path, entries)
+
+        if self.cfg["validation"].get("require_all_entries_success") and failures:
+            raise GenerationError(
+                f"{len(failures)} of {total} entries failed "
+                f"(require_all_entries_success is set); first error: "
+                f"{failures[0]['error']}"
+            )
+
+        print(
+            f"\nSummary: {len(entries)}/{total} entries enriched, "
+            f"{len(failures)} failed -> {output_path}"
+        )
         return entries
 
     def _write_output(self, output_path, entries):

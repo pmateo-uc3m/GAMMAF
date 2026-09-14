@@ -26,7 +26,7 @@ llm:
 generation:
   max_retries: 3
   request_timeout: 120
-  concurrency: 1
+  concurrency: 50  # concurrent LLM calls (thread pool; vLLM/OpenAI-compatible endpoint)
 
 # Validation behavior.
 validation:
@@ -42,4 +42,3 @@ test:
 
 logging:
   level: "INFO"
-  log_file: "generation.log"

@@ -34,14 +34,10 @@ def parse_args(argv=None):
 
 def setup_logging(cfg):
     level = getattr(logging, cfg["logging"].get("level", "INFO").upper(), logging.INFO)
-    handlers = [logging.StreamHandler(sys.stdout)]
-    log_file = cfg["logging"].get("log_file")
-    if log_file:
-        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s %(message)s",
-        handlers=handlers,
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
     return logging.getLogger("TA-generation")
 
