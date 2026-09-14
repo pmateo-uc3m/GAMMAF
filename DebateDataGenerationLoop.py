@@ -383,6 +383,7 @@ class DebateOrchestration:
                 "final_answer": self.get_answer(debate_result[-1]),
                 "correct_answer": ground_truth,
                 "is_correct": self.check_answer(debate_result[-1], ground_truth),
+                "attack_tool": question_data.get("attack_tool", ""),
             }
             
             num_rounds = len(debate_result)
