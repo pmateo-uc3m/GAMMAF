@@ -132,6 +132,8 @@ class DebateOrchestration:
         mal_answer: str = "",
         question_format_data: dict | None = None,
         round_num: int | None = 1,
+        topology: list[list[int]] | None = None,
+        malicious_indexes: list[int] | None = None
     ):
                 
         def single_agent_round_1(agent: DebateAgent):
@@ -139,6 +141,8 @@ class DebateOrchestration:
                 "agent_id" : agent.agent_id,
                 "question" : question,
                 "choices" : choices,
+                "topology" : topology,
+                "malicious_indexes" : malicious_indexes
             }
             if round_num is not None:
                 format_data["round_num"] = round_num
@@ -187,6 +191,7 @@ class DebateOrchestration:
         topology,
         mal_answer: str = "",
         question_format_data: dict | None = None,
+        malicious_indexes: list[int] | None = None
     ):
         
         def single_agent_round_debate(agent: DebateAgent, topology = topology):
@@ -208,6 +213,8 @@ class DebateOrchestration:
                 "choices" : choices,
                 "neighbors_messages" : format_neighbors,
                 "round_num" : round,
+                "topology" : topology,
+                "malicious_indexes" : malicious_indexes
             }
             format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
@@ -317,6 +324,8 @@ class DebateOrchestration:
             agents,
             mal_answer=mal_answer,
             question_format_data=question_format_data,
+            topology= topology,
+            malicious_indexes=malicious_indexes,
         )
         if pbar:
             pbar.update(1)
@@ -334,9 +343,9 @@ class DebateOrchestration:
                 agents,
                 round=i,
                 topology=topology,
-                mal_answer=mal_answer
-                ,
+                mal_answer=mal_answer,
                 question_format_data=question_format_data,
+                malicious_indexes=malicious_indexes
             )
             if pbar:
                 pbar.update(1)

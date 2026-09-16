@@ -227,6 +227,8 @@ class LiveDebateOrchestration:
         mal_answer: str = "",
         question_format_data: dict | None = None,
         round_num: int | None = 1,
+        topology: list[list[int]] | None = None,
+        malicious_indexes: list[int] | None = None
     ):
                 
         def single_agent_round_1(agent: DebateAgent):
@@ -234,6 +236,8 @@ class LiveDebateOrchestration:
                 "agent_id" : agent.agent_id,
                 "question" : question,
                 "choices" : choices,
+                "topology" : topology,
+                "malicious_indexes" : malicious_indexes,
             }
             if round_num is not None:
                 format_data["round_num"] = round_num
@@ -306,6 +310,8 @@ class LiveDebateOrchestration:
                 "choices" : choices,
                 "neighbors_messages" : format_neighbors,
                 "round_num" : round,
+                "topology" : adjacency_matrix,
+                "malicious_indexes" : [i for i, a in enumerate(agents) if a.is_malicious]
             }
             format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
@@ -424,6 +430,8 @@ class LiveDebateOrchestration:
             mal_answer=mal_answer,
             question_format_data=question_format_data,
             round_num=1,
+            topology=adjacency_matrix,
+            malicious_indexes= [i for i, agent in enumerate(agents) if agent.is_malicious]
         )
 
         static_adjacency = copy.deepcopy(adjacency_matrix)
@@ -522,6 +530,8 @@ class LiveDebateOrchestration:
             mal_answer=mal_answer,
             question_format_data=question_format_data,
             round_num=1,
+            topology=adjacency_matrix,
+            malicious_indexes= [i for i, agent in enumerate(agents) if agent.is_malicious]
         )
 
         debate_trace.append({
