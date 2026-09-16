@@ -482,7 +482,7 @@ class MSMARCOLoader(MMLULoader):
     
 class InjecAgentLoader(MMLULoader):
     TAG = "TA"
-    PROMPTS_FILE = "prompts/prompts_ta.json"
+    PROMPTS_FILE = "prompts/prompts-ta-enhanced.json"
     RESPONSE_FORMAT = TAResponseFormat
     SUPPORTS_TOOL_CALLS = True
 

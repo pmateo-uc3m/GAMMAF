@@ -1,0 +1,6 @@
+[
+  {
+    "source_index": 536,
+    "error": "failed to produce valid enrichment after 4 attempts; last error: the model did not return valid JSON"
+  }
+]

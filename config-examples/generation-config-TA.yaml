@@ -7,16 +7,16 @@ llm_max_retries: 3
 # Note: the actual prompt file used is the loader's PROMPTS_FIL
 
 dataset_tag: TA # Dataset selection (must match a class TAG in DatasetManager.py)
-ma_dataset_path: TA/TA-generation/output/enriched_dataset.json # InjecAgent enriched dataset (JSON array)
-questions_random_seed: 42 # Seed for question selection
+ma_dataset_path: TA/TA-generation/output/TA_dataset.json # InjecAgent enriched dataset (JSON array)
+questions_random_seed: 43522 # Seed for question selection
 verbose: false
 
 # Output
 save_data_dir: data # Directory to save generated data
-file_name: TA-data.pkl # Name of data file (must be .pkl)
+file_name: TA-att.pkl # Name of data file (must be .pkl)
 
 # Optional post-processing
-process_text: true          # Turn text output in embeddings with TextProcessingManager.RoundProcessor
+process_text: false          # Turn text output in embeddings with TextProcessingManager.RoundProcessor
 clean_data: false           # WARNING: the data-generation loop (DebateDataGenerationLoop) does not
                             # yet implement the TA tool-call round-trip, so agents emit plain text
                             # with an empty 'answer'; clean_data=true would drop every debate.
@@ -25,15 +25,15 @@ text_process_workers: 0     # 0 = auto; GPU processors will be forced to sequent
 
 # Debate parameters
 debate_config:
-  num_agents: 5
+  num_agents: 8
   num_malicious: 2          # Malicious agents receive the anomalous tool response
   max_rounds: 3
   consensus_threshold: 1.0
   malicious_randomization_seed: 32
 
   # Question counts per topology
-  n_questions: 50
-  n_questions_random_topo: 50
+  n_questions: 25
+  n_questions_random_topo: 25
 
   # Random topology generation
   random_topo_seed: 2446
