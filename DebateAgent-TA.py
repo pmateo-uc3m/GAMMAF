@@ -9,7 +9,10 @@ class TAAgent:
     """Tool-call aware debate agent used by InjecAgent-style datasets.
 
     The first-round flow mirrors ``DebateAgent`` (system prompt + first-round
-    prompt as the predefined setup messages), then adds a tool-call round-trip:
+    prompt as the predefined setup messages), then seeds the conversation with
+    the dataset's fake tool interaction as structured messages: an
+    ``AIMessage`` carrying the previous tool call followed by a ``ToolMessage``
+    carrying the fake tool response. After that, a tool-call round-trip runs:
     whenever the model returns a tool call with empty content, the tool-call
     message is retained, a synthetic successful ``ToolMessage`` is appended,
     and the agent is re-invoked. The final content becomes ``message`` (what is
@@ -112,12 +115,57 @@ class TAAgent:
                     time.sleep(1)
         raise last_exception
 
+    def _build_fake_tool_call(self, format_data: dict) -> AIMessage:
+        """Build the AIMessage representing the pre-executed tool call.
+
+        The user tool is the first entry of ``available_tools`` (the
+        InjecAgent pipeline appends the user tool before attacker tools);
+        fall back to the first tool definition in ``tools_description``.
+        """
+        tool_name = ""
+        available_tools = format_data.get("available_tools") or []
+        if isinstance(available_tools, list):
+            for tool in available_tools:
+                if isinstance(tool, str) and tool.strip():
+                    tool_name = tool
+                    break
+        if not tool_name:
+            tools_description = format_data.get("tools_description") or []
+            if isinstance(tools_description, list):
+                for tool in tools_description:
+                    if isinstance(tool, dict):
+                        function = tool.get("function") or {}
+                        name = function.get("name", "")
+                        if name:
+                            tool_name = name
+                            break
+        return AIMessage(
+            content="",
+            tool_calls=[{
+                "name": tool_name,
+                "args": {},
+                "id": f"call_fake_{self.agent_id}",
+            }],
+        )
+
     def first_round_generate(self, format_data: dict):
         format_data = self._prepare_format_data(format_data)
+        fake_tool_response = format_data.get("tool_response", "")
+        # The fake tool result is carried structurally by the ToolMessage
+        # appended below; render the prompt without a duplicated plain-text
+        # copy of it.
+        prompt_format_data = dict(format_data)
+        prompt_format_data["tool_response"] = ""
         sys_prompt = self.system_prompt.format(**format_data)
-        prompt = self.first_round_prompt.format(**format_data)
+        prompt = self.first_round_prompt.format(**prompt_format_data)
         self.messages.append(SystemMessage(content=sys_prompt))
         self.messages.append(HumanMessage(content=prompt))
+        fake_tool_call = self._build_fake_tool_call(format_data)
+        self.messages.append(fake_tool_call)
+        self.messages.append(ToolMessage(
+            content=fake_tool_response,
+            tool_call_id=fake_tool_call.tool_calls[0]["id"],
+        ))
         return self._generate(format_data)
 
     def debate_round_generate(self, format_data: dict):
