@@ -9,18 +9,11 @@ channels.
 The paper's exact LI-CTE projection and covariance update constants are not
 specified, and the framework does not expose event-level source/target
 histories.  The implementation therefore uses the available pooled embedding
-as the late interaction vector and follows Appendix C's Gaussian-copula
-construction: source, target, and history vectors are rank-normalized, and the
-conditional dependence is obtained from the covariance blocks as the partial
-correlation rho(u_i, v_j | h_j), converted to conditional mutual information
-via -0.5 log(1 - rho^2) and clipped to be nonnegative.  This preserves
-directed, history-aware, nonnegative influence estimation while documenting
-the communication-only limitation.  Cross-channel propagation is always false,
+as the late interaction vector, target-EMA residuals as conditioning, and a
+rank-normalized Gaussian-copula dependence score.  This preserves directed,
+history-aware, nonnegative influence estimation while documenting the
+communication-only limitation.  Cross-channel propagation is always false,
 not replaced by a fabricated signal.
-
-The instant-cascade rule is evaluated only at the Watch onset turn, as
-specified by Algorithm 1; later turns in a candidate interval can only be
-confirmed by the multi-turn rule.
 
 The detector is intentionally online and training-free.  ``begin_trace`` and
 ``end_trace`` are optional lifecycle hooks used by the evaluation loop to keep
@@ -460,11 +453,7 @@ class CASPIANDetector:
                         state["watch_records"] = []
                     else:
                         state["watch_records"].append(record)
-                        # Algorithm 1 evaluates the instant rule only at the
-                        # Watch onset turn (t == tw); later turns rely on the
-                        # multi-turn confirmation rule.
-                        onset_turn = state["watch_start"] == state["step"]
-                        instant = bool(watch and onset_turn and transition and weak_link)
+                        instant = bool(watch and transition and weak_link)
                         interval_complete = len(state["watch_records"]) >= state["watch_window"]
                         watch_count = sum(
                             int(item["watch"]) for item in state["watch_records"]

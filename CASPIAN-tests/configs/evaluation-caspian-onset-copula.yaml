@@ -1,0 +1,44 @@
+# EXP-01 baseline evaluation config: UNMODIFIED CASPIAN v0, MMLUPro, 8 agents, 0 malicious.
+# 50 questions per topology x 4 topologies (tree/chain/star/random) = 200 debates.
+
+models_directory: defense-models
+output_file: CASPIAN-tests/results/EXP-02-onset-copula.json
+train_pkl_path: CASPIAN-tests/data/MMLUPro-8a-0m-seed500.pkl
+
+defense_model_train_configs:
+  CASPIAN:
+    pkl_train: CASPIAN-tests/data/MMLUPro-8a-0m-seed500.pkl
+    # Baseline parameters exactly as shipped in config-examples/evaluation-config-caspian.yaml
+    epsilon: 1.0e-8
+    target_ema_decay: 0.8
+    influence_ema_decay: 0.8
+    max_persistence_window: 64
+    spine_top_k: 3
+    top_k: 2
+
+live_evaluation_config:
+  timeout: 120
+  prompts_file: prompts/prompts_blindguard.json
+  questions_path: DatasetManager.py
+  questions_dataset_tag: MMLUPro
+  questions_random_seed: 28
+  llm_max_retries: 3
+  num_agents: 8
+  num_malicious_agents: 0
+  malicious_seed: 123
+  max_rounds: 3
+  consensus_threshold: 1.0
+  no_consensus_check: false
+  check_consensus_only_unflagged: true
+  top_k_defense: 2
+  no_defense_baseline: false
+  max_concurrent_inference: 150
+  num_questions: 50
+  new_random_each_question: true
+  n_questions_on_random_topo: 50
+  topologies_seed: 24
+  density_range_for_random_topo: [0.3, 0.7]
+  text_processor_path: TextProcessingManager.py
+  text_processor_class_name: RoundProcessor
+  save_traces: false
+  clean_debates_with_empty_responses: true

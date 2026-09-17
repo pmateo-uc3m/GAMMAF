@@ -9,18 +9,11 @@ channels.
 The paper's exact LI-CTE projection and covariance update constants are not
 specified, and the framework does not expose event-level source/target
 histories.  The implementation therefore uses the available pooled embedding
-as the late interaction vector and follows Appendix C's Gaussian-copula
-construction: source, target, and history vectors are rank-normalized, and the
-conditional dependence is obtained from the covariance blocks as the partial
-correlation rho(u_i, v_j | h_j), converted to conditional mutual information
-via -0.5 log(1 - rho^2) and clipped to be nonnegative.  This preserves
-directed, history-aware, nonnegative influence estimation while documenting
-the communication-only limitation.  Cross-channel propagation is always false,
+as the late interaction vector, target-EMA residuals as conditioning, and a
+rank-normalized Gaussian-copula dependence score.  This preserves directed,
+history-aware, nonnegative influence estimation while documenting the
+communication-only limitation.  Cross-channel propagation is always false,
 not replaced by a fabricated signal.
-
-The instant-cascade rule is evaluated only at the Watch onset turn, as
-specified by Algorithm 1; later turns in a candidate interval can only be
-confirmed by the multi-turn rule.
 
 The detector is intentionally online and training-free.  ``begin_trace`` and
 ``end_trace`` are optional lifecycle hooks used by the evaluation loop to keep
@@ -128,6 +121,7 @@ class CASPIANDetector:
             "step": 0,
             "previous_energy": None,
             "previous_lambda1": None,
+            "previous_raw_lambda1": None,
             "previous_ratio": None,
             "previous_gap": None,
             "watch_start": None,
@@ -204,28 +198,18 @@ class CASPIANDetector:
         if history is None:
             history = np.zeros_like(current)
 
-        # Communication-only late-interaction CTE approximation.  Appendix C
-        # specifies a Gaussian-copula conditional dependence built from the
-        # covariance blocks of the (source, target, history) system.  With a
-        # per-turn vector adaptation this is the rank-domain partial
-        # correlation rho(u_i, v_j | h_j) = (rho_uv - rho_uh rho_vh) /
-        # sqrt((1-rho_uh^2)(1-rho_vh^2)), whose Gaussian conditional mutual
-        # information is -0.5 log(1 - rho^2) and is clipped to be nonnegative.
+        # This is the communication-only late-interaction CTE approximation:
+        # source activity is compared with target innovation beyond target EMA
+        # history using rank-normalised Gaussian-copula dependence.
+        residual = current - history
+        residual_norm = np.linalg.norm(residual, axis=1)
         source_copula = self._rank_normalise_rows(current, epsilon)
-        history_copula = self._rank_normalise_rows(history, epsilon)
-        rho_uv = source_copula @ source_copula.T
-        rho_uh = source_copula @ history_copula.T
-        rho_vh = np.einsum("jj->j", rho_uh)
-        denominator = np.sqrt(
-            np.maximum(1.0 - rho_uh * rho_uh, epsilon)
-            * np.maximum(1.0 - rho_vh[None, :] * rho_vh[None, :], epsilon)
-        )
-        partial = (rho_uv - rho_uh * rho_vh[None, :]) / denominator
-        partial = np.clip(partial, 0.0, 1.0)
+        residual_copula = self._rank_normalise_rows(residual, epsilon)
+        correlation = source_copula @ residual_copula.T
+        correlation = np.clip(correlation, -1.0, 1.0)
         conditional_mi = -0.5 * np.log(
-            np.maximum(1.0 - partial * partial, epsilon)
+            np.maximum(1.0 - correlation * correlation, epsilon)
         )
-        residual_norm = np.linalg.norm(current - history, axis=1)
         novelty = np.minimum(1.0, residual_norm)
         instantaneous = conditional_mi * novelty[None, :]
 
@@ -410,9 +394,18 @@ class CASPIANDetector:
 
             previous_energy = state["previous_energy"]
             previous_lambda1 = state["previous_lambda1"]
+            previous_raw_lambda1 = state["previous_raw_lambda1"]
             previous_ratio = state["previous_ratio"]
             previous_gap = state["previous_gap"]
             warm = previous_energy is not None
+            # The degree-aware normalisation pins lambda1(A~) at ~1, so the
+            # dominant-mode growth test is evaluated on the unnormalised
+            # influence matrix, where propagation intensity can actually grow
+            # (paper Sec. 3.2: "lambda1(t) reflects overall propagation
+            # intensity").
+            raw_lambda1 = (
+                float(np.linalg.svd(raw, compute_uv=False)[0]) if raw.size else 0.0
+            )
 
             amplification = (
                 energy / (previous_energy + self.epsilon) if warm else 0.0
@@ -428,7 +421,8 @@ class CASPIANDetector:
                 warm
                 and amplification > 1.0
                 and gap_contraction > 0.0
-                and lambda1 > previous_lambda1
+                and previous_raw_lambda1 is not None
+                and raw_lambda1 > previous_raw_lambda1
             )
             weak_link, bottleneck, energy_scale = self._weak_link(state, normalised)
             cross_channel = False
@@ -491,6 +485,7 @@ class CASPIANDetector:
             flags = self._flags_for_scores(scores, state)
             state["previous_energy"] = energy
             state["previous_lambda1"] = lambda1
+            state["previous_raw_lambda1"] = raw_lambda1
             state["previous_ratio"] = ratio
             state["previous_gap"] = gap
             state["influence"] = raw
