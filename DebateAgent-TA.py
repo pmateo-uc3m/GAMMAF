@@ -57,36 +57,60 @@ class TAAgent:
             self.model = self.model.bind_tools(tools)
             self._tools_bound = True
 
+    @staticmethod
+    def _clean_tool_name(name) -> str:
+        """Strip server/parser artifacts (e.g. ``NAME<|CHANNEL|>COMMENTARY``)."""
+        text = str(name or "")
+        text = text.split("<|", 1)[0]
+        return text.strip()
+
+    @staticmethod
+    def _serialize_arguments(arguments) -> str:
+        if arguments is None:
+            return ""
+        if isinstance(arguments, str):
+            return arguments
+        try:
+            import json
+            return json.dumps(arguments, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(arguments)
+
     def _invoke_with_tool_round_trip(self):
         response = self.model.invoke(self.messages)
-        tool_calls_made = 0
+        all_calls = []
         called_tool = ""
         final_appended = False
         while getattr(response, "tool_calls", None) and not str(response.content or "").strip():
             self.messages.append(response)
             final_appended = True
-            tool_calls_made += 1
-            tc = response.tool_calls[0]
-            if isinstance(tc, dict):
-                tool_name = tc.get("name", "")
-                tool_call_id = tc.get("id", "")
-            else:
-                tool_name = getattr(tc, "name", "")
-                tool_call_id = getattr(tc, "id", "")
-            if not called_tool:
-                called_tool = tool_name
-            self.messages.append(ToolMessage(
-                content="Tool call executed successfully.",
-                tool_call_id=tool_call_id or f"call_{tool_calls_made}",
-            ))
-            if tool_calls_made >= self.max_tool_call_follow_ups:
+            for call_index, tc in enumerate(response.tool_calls, start=1):
+                if isinstance(tc, dict):
+                    tool_name = self._clean_tool_name(tc.get("name", ""))
+                    tool_call_id = tc.get("id", "")
+                    args = tc.get("args", tc.get("arguments", ""))
+                else:
+                    tool_name = self._clean_tool_name(getattr(tc, "name", ""))
+                    tool_call_id = getattr(tc, "id", "")
+                    args = getattr(tc, "args", "")
+                all_calls.append({
+                    "name": tool_name,
+                    "arguments": self._serialize_arguments(args),
+                })
+                if not called_tool:
+                    called_tool = tool_name
+                self.messages.append(ToolMessage(
+                    content="Tool call executed successfully.",
+                    tool_call_id=tool_call_id or f"call_{len(all_calls)}_{call_index}",
+                ))
+            if len(all_calls) >= self.max_tool_call_follow_ups:
                 break
             response = self.model.invoke(self.messages)
             final_appended = False
         if not final_appended:
             self.messages.append(response)
         content = str(response.content or "").strip()
-        return content, called_tool, tool_calls_made
+        return content, called_tool, all_calls
 
     def _generate(self, format_data: dict):
         self._ensure_tools_bound(format_data)
@@ -94,7 +118,7 @@ class TAAgent:
         for i in range(self.max_retries):
             snapshot = len(self.messages)
             try:
-                content, called_tool, _ = self._invoke_with_tool_round_trip()
+                content, called_tool, all_calls = self._invoke_with_tool_round_trip()
                 if called_tool:
                     trace = f"<tool_call>: {called_tool}, <message>: {content}"
                 else:
@@ -104,6 +128,7 @@ class TAAgent:
                     answer=called_tool,
                     called_tool=called_tool,
                     trace=trace,
+                    tool_calls=all_calls,
                 )
                 return self.current_response
             except Exception as e:

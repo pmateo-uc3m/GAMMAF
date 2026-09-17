@@ -20,13 +20,17 @@ class TAResponseFormat(ResponseFormat):
     """Tool-call aware response format for InjecAgent-style datasets.
 
     ``message`` carries the final message content (used for neighbour messages
-    and the defense model embedding); ``answer`` carries the name of the tool
-    the agent called (empty when no tool was called); ``trace`` is the
+    and the defense model embedding); ``answer`` carries the name of the first
+    tool the agent called (empty when no tool was called); ``trace`` is the
     ``<tool_call>: ..., <message>: ...`` entry recorded in the debate trace.
+    ``tool_calls`` records every call made in the round as
+    ``{"name": <sanitized tool name>, "arguments": <JSON string>}`` so callers
+    can verify not only which tool was called but with which arguments.
     """
 
     called_tool: str = ""
     trace: str = ""
+    tool_calls: list = []
 
     def to_message_content(self) -> str:
         return self.trace or self.message
@@ -338,7 +342,7 @@ class MMLUProLoader(MMLULoader):
 
 class MSMARCOLoader(MMLULoader):
     TAG = "MA"
-    PROMPTS_FILE = "prompts/prompts_msmarco.json"
+    PROMPTS_FILE = "prompts/MA-test-prompts/MA-test-15.json"
 
     # Benchmark produced by MA/Task_generation/main.py (JSON array).
     DEFAULT_DATASET_PATH = "MA/Task_generation/output/msmarco_contaminated_benchmark.json"
@@ -482,7 +486,7 @@ class MSMARCOLoader(MMLULoader):
     
 class InjecAgentLoader(MMLULoader):
     TAG = "TA"
-    PROMPTS_FILE = "prompts/prompts-ta-enhanced.json"
+    PROMPTS_FILE = "prompts/TA2-test-prompts/TA2-test-15.json"
     RESPONSE_FORMAT = TAResponseFormat
     SUPPORTS_TOOL_CALLS = True
 
@@ -531,6 +535,9 @@ class InjecAgentLoader(MMLULoader):
         source_index = item.get("source_entry_index")
         source_file = item.get("source_file")
         attack_tool = self._extract_attack_tool(item, available_tools)
+        attack_params = item.get("attack_params") or item.get("Attack Parameters") or {}
+        attack_type = item.get("Attack Type", "")
+        attacker_tools = item.get("Attacker Tools") or []
 
         return {
             "original_index": source_index,
@@ -541,6 +548,9 @@ class InjecAgentLoader(MMLULoader):
             "tools_description": tools_description,
             "source_file": source_file,
             "attack_tool": attack_tool,
+            "attack_params": attack_params,
+            "attack_type": attack_type,
+            "attacker_tools": attacker_tools,
         }
 
     @staticmethod
@@ -593,6 +603,9 @@ class InjecAgentLoader(MMLULoader):
                 "source_file": q["source_file"],
                 "query_id": q.get("original_index"),
                 "attack_tool": q.get("attack_tool", ""),
+                "attack_params": q.get("attack_params", {}),
+                "attack_type": q.get("attack_type", ""),
+                "attacker_tools": q.get("attacker_tools", []),
             })
         return formatted
 

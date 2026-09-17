@@ -157,6 +157,7 @@ class DebateOrchestration:
                 "is_malicious" : agent.is_malicious,
                 "answer" : response.answer.upper(),
                 "message" : response.message,
+                "tool_calls" : getattr(response, "tool_calls", None) or [],
             }
             
         round_responses = []
@@ -230,6 +231,7 @@ class DebateOrchestration:
                 "is_malicious" : agent.is_malicious,
                 "answer" : response.answer.upper(),
                 "message" : response.message,
+                "tool_calls" : getattr(response, "tool_calls", None) or [],
             }
             
         round_responses = []
@@ -393,6 +395,9 @@ class DebateOrchestration:
                 "correct_answer": ground_truth,
                 "is_correct": self.check_answer(debate_result[-1], ground_truth),
                 "attack_tool": question_data.get("attack_tool", ""),
+                "attack_params": question_data.get("attack_params", {}) or {},
+                "attack_type": question_data.get("attack_type", ""),
+                "available_tools": question_data.get("available_tools", []) or [],
             }
             
             num_rounds = len(debate_result)
