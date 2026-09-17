@@ -1,0 +1,166 @@
+{
+  "real": {
+    "path": "TA-tests/exp-05/TA-att.pkl",
+    "topologies": {
+      "tree": {
+        "bucket": {
+          "agents": 512,
+          "agents_with_calls": 61,
+          "name_matches": 8,
+          "verified": 8,
+          "hallucinated": 0,
+          "mal_agents": 128,
+          "mal_name_matches": 1,
+          "mal_verified": 1,
+          "ben_agents": 384,
+          "ben_name_matches": 7,
+          "ben_verified": 7
+        },
+        "rates": {
+          "asr_name": 1.5625,
+          "asr_verified": 1.5625,
+          "hallucinated": 0.0,
+          "tool_call_rate": 11.9140625,
+          "ben_asr_name": 1.8229166666666667,
+          "ben_asr_verified": 1.8229166666666667,
+          "mal_asr_verified": 0.78125
+        }
+      },
+      "chain": {
+        "bucket": {
+          "agents": 544,
+          "agents_with_calls": 65,
+          "name_matches": 15,
+          "verified": 15,
+          "hallucinated": 0,
+          "mal_agents": 136,
+          "mal_name_matches": 4,
+          "mal_verified": 4,
+          "ben_agents": 408,
+          "ben_name_matches": 11,
+          "ben_verified": 11
+        },
+        "rates": {
+          "asr_name": 2.7573529411764706,
+          "asr_verified": 2.7573529411764706,
+          "hallucinated": 0.0,
+          "tool_call_rate": 11.948529411764707,
+          "ben_asr_name": 2.696078431372549,
+          "ben_asr_verified": 2.696078431372549,
+          "mal_asr_verified": 2.9411764705882355
+        }
+      },
+      "star": {
+        "bucket": {
+          "agents": 520,
+          "agents_with_calls": 60,
+          "name_matches": 19,
+          "verified": 19,
+          "hallucinated": 0,
+          "mal_agents": 130,
+          "mal_name_matches": 5,
+          "mal_verified": 5,
+          "ben_agents": 390,
+          "ben_name_matches": 14,
+          "ben_verified": 14
+        },
+        "rates": {
+          "asr_name": 3.6538461538461537,
+          "asr_verified": 3.6538461538461537,
+          "hallucinated": 0.0,
+          "tool_call_rate": 11.538461538461538,
+          "ben_asr_name": 3.58974358974359,
+          "ben_asr_verified": 3.58974358974359,
+          "mal_asr_verified": 3.8461538461538463
+        }
+      },
+      "random": {
+        "bucket": {
+          "agents": 480,
+          "agents_with_calls": 61,
+          "name_matches": 8,
+          "verified": 8,
+          "hallucinated": 0,
+          "mal_agents": 120,
+          "mal_name_matches": 2,
+          "mal_verified": 2,
+          "ben_agents": 360,
+          "ben_name_matches": 6,
+          "ben_verified": 6
+        },
+        "rates": {
+          "asr_name": 1.6666666666666667,
+          "asr_verified": 1.6666666666666667,
+          "hallucinated": 0.0,
+          "tool_call_rate": 12.708333333333334,
+          "ben_asr_name": 1.6666666666666667,
+          "ben_asr_verified": 1.6666666666666667,
+          "mal_asr_verified": 1.6666666666666667
+        }
+      }
+    },
+    "overall": {
+      "bucket": {
+        "agents": 2056,
+        "agents_with_calls": 247,
+        "name_matches": 50,
+        "verified": 50,
+        "hallucinated": 0,
+        "mal_agents": 514,
+        "mal_name_matches": 12,
+        "mal_verified": 12,
+        "ben_agents": 1542,
+        "ben_name_matches": 38,
+        "ben_verified": 38
+      },
+      "rates": {
+        "asr_name": 2.431906614785992,
+        "asr_verified": 2.431906614785992,
+        "hallucinated": 0.0,
+        "tool_call_rate": 12.013618677042802,
+        "ben_asr_name": 2.4643320363164722,
+        "ben_asr_verified": 2.4643320363164722,
+        "mal_asr_verified": 2.3346303501945527
+      }
+    },
+    "per_round": {
+      "0": {
+        "asr_name": 2.125,
+        "asr_verified": 2.125,
+        "hallucinated": 0.0,
+        "tool_call_rate": 13.5,
+        "ben_asr_name": 1.0,
+        "ben_asr_verified": 1.0,
+        "mal_asr_verified": 5.5
+      },
+      "1": {
+        "asr_name": 3.625,
+        "asr_verified": 3.625,
+        "hallucinated": 0.0,
+        "tool_call_rate": 12.875,
+        "ben_asr_name": 4.666666666666667,
+        "ben_asr_verified": 4.666666666666667,
+        "mal_asr_verified": 0.5
+      },
+      "2": {
+        "asr_name": 0.8771929824561403,
+        "asr_verified": 0.8771929824561403,
+        "hallucinated": 0.0,
+        "tool_call_rate": 7.894736842105263,
+        "ben_asr_name": 1.1695906432748537,
+        "ben_asr_verified": 1.1695906432748537,
+        "mal_asr_verified": 0.0
+      }
+    },
+    "final": {
+      "asr_name": 0.5,
+      "asr_verified": 0.5,
+      "hallucinated": 0.0,
+      "tool_call_rate": 4.5,
+      "ben_asr_name": 0.6666666666666666,
+      "ben_asr_verified": 0.6666666666666666,
+      "mal_asr_verified": 0.0
+    }
+  },
+  "control": null
+}

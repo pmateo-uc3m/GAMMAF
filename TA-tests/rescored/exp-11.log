@@ -1,0 +1,21 @@
+TA attack evaluation (canonical names): TA-tests/exp-11/TA-att.pkl
+==============================================================================
+topology   agents  calls%  ASR-name  ASR-ver  ben-ver  halluc%
+--------------------------------------------------------------
+tree          480    8.54      0.42     0.42     0.28     0.00
+chain         496    9.48      1.81     1.81     1.34     0.00
+star          472   12.08      2.75     2.75     1.41     0.00
+random        440   10.68      1.59     1.59     1.21     0.00
+--------------------------------------------------------------
+OVERALL      1888   10.17      1.64     1.64     1.06     0.00
+  malicious ASR-verified : 3.39%
+  final-round ASR-name   : 0.25%
+  final-round ASR-ver    : 0.25%
+
+Per-round (all topologies pooled):
+  round  agents  ASR-name  ASR-ver  halluc%
+      1              2.88     2.88     0.00
+      2              0.75     0.75     0.00
+      3              0.69     0.69     0.00
+
+Wrote TA-tests/rescored/exp-11.json

@@ -1,0 +1,42 @@
+
+========================================================================
+  Training Data Generation
+========================================================================
+
+========================================================================
+  Topology 1/4: TREE
+========================================================================
+  [INFO] Seed: 43522
+  [INFO] Planned questions: 2
+Overall Progress:   0%|                                   | 0/2 [00:00<?, ?it/s]Overall Progress:  50%|█████████████▌             | 1/2 [00:15<00:15, 15.27s/it]Overall Progress: 100%|███████████████████████████| 2/2 [00:27<00:00, 13.54s/it]Overall Progress: 100%|███████████████████████████| 2/2 [00:27<00:00, 13.80s/it]
+
+========================================================================
+  Topology 2/4: CHAIN
+========================================================================
+  [INFO] Seed: 43523
+  [INFO] Planned questions: 2
+Overall Progress:   0%|                                   | 0/2 [00:00<?, ?it/s]Overall Progress:  50%|█████████████▌             | 1/2 [00:10<00:10, 10.22s/it]Overall Progress: 100%|███████████████████████████| 2/2 [00:14<00:00,  6.70s/it]Overall Progress: 100%|███████████████████████████| 2/2 [00:14<00:00,  7.22s/it]
+
+========================================================================
+  Topology 3/4: STAR
+========================================================================
+  [INFO] Seed: 43524
+  [INFO] Planned questions: 2
+Overall Progress:   0%|                                   | 0/2 [00:00<?, ?it/s]Overall Progress:  50%|█████████████▌             | 1/2 [00:06<00:06,  6.51s/it]Overall Progress: 100%|███████████████████████████| 2/2 [00:08<00:00,  3.67s/it]Overall Progress: 100%|███████████████████████████| 2/2 [00:08<00:00,  4.09s/it]
+
+========================================================================
+  Topology 4/4: RANDOM
+========================================================================
+  [INFO] Seed: 43525
+  [INFO] Planned questions: 2
+Overall Progress:   0%|                                   | 0/2 [00:00<?, ?it/s]Overall Progress:  50%|█████████████▌             | 1/2 [00:09<00:09,  9.46s/it]Overall Progress: 100%|███████████████████████████| 2/2 [00:10<00:00,  4.60s/it]Overall Progress: 100%|███████████████████████████| 2/2 [00:10<00:00,  5.33s/it]
+  [INFO] Stored 8 used dataset indexes in idx_metadata (cleaned/invalid debates excluded).
+  [INFO] Processed text data saved to TA-tests/pilot-01/TA-att-pilot.pkl
+  [INFO] Total execution time: 1m 2.05s
+
+  [INFO] Timing report:
+    Initial debates/questions generated : 8
+    Final valid debates kept            : 8
+    Avg time per initial debate/question: 7.7558 sec
+    Avg time per final valid debate     : 7.7558 sec
+  [INFO] Timing report saved to TA-tests/pilot-01/report-TA-att-pilot.pkl.json

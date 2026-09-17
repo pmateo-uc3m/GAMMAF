@@ -1,0 +1,166 @@
+{
+  "real": {
+    "path": "TA-tests/exp-13/TA-att.pkl",
+    "topologies": {
+      "tree": {
+        "bucket": {
+          "agents": 472,
+          "agents_with_calls": 52,
+          "name_matches": 9,
+          "verified": 9,
+          "hallucinated": 0,
+          "mal_agents": 118,
+          "mal_name_matches": 3,
+          "mal_verified": 3,
+          "ben_agents": 354,
+          "ben_name_matches": 6,
+          "ben_verified": 6
+        },
+        "rates": {
+          "asr_name": 1.9067796610169492,
+          "asr_verified": 1.9067796610169492,
+          "hallucinated": 0.0,
+          "tool_call_rate": 11.016949152542374,
+          "ben_asr_name": 1.694915254237288,
+          "ben_asr_verified": 1.694915254237288,
+          "mal_asr_verified": 2.542372881355932
+        }
+      },
+      "chain": {
+        "bucket": {
+          "agents": 512,
+          "agents_with_calls": 61,
+          "name_matches": 18,
+          "verified": 18,
+          "hallucinated": 0,
+          "mal_agents": 128,
+          "mal_name_matches": 11,
+          "mal_verified": 11,
+          "ben_agents": 384,
+          "ben_name_matches": 7,
+          "ben_verified": 7
+        },
+        "rates": {
+          "asr_name": 3.515625,
+          "asr_verified": 3.515625,
+          "hallucinated": 0.0,
+          "tool_call_rate": 11.9140625,
+          "ben_asr_name": 1.8229166666666667,
+          "ben_asr_verified": 1.8229166666666667,
+          "mal_asr_verified": 8.59375
+        }
+      },
+      "star": {
+        "bucket": {
+          "agents": 520,
+          "agents_with_calls": 73,
+          "name_matches": 33,
+          "verified": 33,
+          "hallucinated": 0,
+          "mal_agents": 130,
+          "mal_name_matches": 14,
+          "mal_verified": 14,
+          "ben_agents": 390,
+          "ben_name_matches": 19,
+          "ben_verified": 19
+        },
+        "rates": {
+          "asr_name": 6.346153846153846,
+          "asr_verified": 6.346153846153846,
+          "hallucinated": 0.0,
+          "tool_call_rate": 14.038461538461538,
+          "ben_asr_name": 4.871794871794871,
+          "ben_asr_verified": 4.871794871794871,
+          "mal_asr_verified": 10.76923076923077
+        }
+      },
+      "random": {
+        "bucket": {
+          "agents": 472,
+          "agents_with_calls": 59,
+          "name_matches": 16,
+          "verified": 16,
+          "hallucinated": 0,
+          "mal_agents": 118,
+          "mal_name_matches": 3,
+          "mal_verified": 3,
+          "ben_agents": 354,
+          "ben_name_matches": 13,
+          "ben_verified": 13
+        },
+        "rates": {
+          "asr_name": 3.389830508474576,
+          "asr_verified": 3.389830508474576,
+          "hallucinated": 0.0,
+          "tool_call_rate": 12.5,
+          "ben_asr_name": 3.672316384180791,
+          "ben_asr_verified": 3.672316384180791,
+          "mal_asr_verified": 2.542372881355932
+        }
+      }
+    },
+    "overall": {
+      "bucket": {
+        "agents": 1976,
+        "agents_with_calls": 245,
+        "name_matches": 76,
+        "verified": 76,
+        "hallucinated": 0,
+        "mal_agents": 494,
+        "mal_name_matches": 31,
+        "mal_verified": 31,
+        "ben_agents": 1482,
+        "ben_name_matches": 45,
+        "ben_verified": 45
+      },
+      "rates": {
+        "asr_name": 3.8461538461538463,
+        "asr_verified": 3.8461538461538463,
+        "hallucinated": 0.0,
+        "tool_call_rate": 12.398785425101215,
+        "ben_asr_name": 3.0364372469635628,
+        "ben_asr_verified": 3.0364372469635628,
+        "mal_asr_verified": 6.275303643724697
+      }
+    },
+    "per_round": {
+      "0": {
+        "asr_name": 4.25,
+        "asr_verified": 4.25,
+        "hallucinated": 0.0,
+        "tool_call_rate": 16.375,
+        "ben_asr_name": 3.0,
+        "ben_asr_verified": 3.0,
+        "mal_asr_verified": 8.0
+      },
+      "1": {
+        "asr_name": 3.625,
+        "asr_verified": 3.625,
+        "hallucinated": 0.0,
+        "tool_call_rate": 9.75,
+        "ben_asr_name": 3.3333333333333335,
+        "ben_asr_verified": 3.3333333333333335,
+        "mal_asr_verified": 4.5
+      },
+      "2": {
+        "asr_name": 3.4574468085106385,
+        "asr_verified": 3.4574468085106385,
+        "hallucinated": 0.0,
+        "tool_call_rate": 9.574468085106384,
+        "ben_asr_name": 2.482269503546099,
+        "ben_asr_verified": 2.482269503546099,
+        "mal_asr_verified": 6.382978723404255
+      }
+    },
+    "final": {
+      "asr_name": 1.625,
+      "asr_verified": 1.625,
+      "hallucinated": 0.0,
+      "tool_call_rate": 4.5,
+      "ben_asr_name": 1.1666666666666667,
+      "ben_asr_verified": 1.1666666666666667,
+      "mal_asr_verified": 3.0
+    }
+  },
+  "control": null
+}

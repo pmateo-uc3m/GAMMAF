@@ -1,0 +1,30 @@
+[run ] arm B exp 01: prompts/TA2-test-prompts/TA2-test-01.json
+[done] arm B exp 01
+[run ] arm B exp 02: prompts/TA2-test-prompts/TA2-test-02.json
+[done] arm B exp 02
+[run ] arm B exp 03: prompts/TA2-test-prompts/TA2-test-03.json
+[done] arm B exp 03
+[run ] arm B exp 04: prompts/TA2-test-prompts/TA2-test-04.json
+[done] arm B exp 04
+[run ] arm B exp 05: prompts/TA2-test-prompts/TA2-test-05.json
+[done] arm B exp 05
+[run ] arm B exp 06: prompts/TA2-test-prompts/TA2-test-06.json
+[done] arm B exp 06
+[run ] arm B exp 07: prompts/TA2-test-prompts/TA2-test-07.json
+[done] arm B exp 07
+[run ] arm B exp 08: prompts/TA2-test-prompts/TA2-test-08.json
+[done] arm B exp 08
+[run ] arm B exp 09: prompts/TA2-test-prompts/TA2-test-09.json
+[done] arm B exp 09
+[run ] arm B exp 10: prompts/TA2-test-prompts/TA2-test-10.json
+[done] arm B exp 10
+[run ] arm B exp 11: prompts/TA2-test-prompts/TA2-test-11.json
+[done] arm B exp 11
+[run ] arm B exp 12: prompts/TA2-test-prompts/TA2-test-12.json
+[done] arm B exp 12
+[run ] arm B exp 13: prompts/TA2-test-prompts/TA2-test-13.json
+[done] arm B exp 13
+[run ] arm B exp 14: prompts/TA2-test-prompts/TA2-test-14.json
+[done] arm B exp 14
+[run ] arm B exp 15: prompts/TA2-test-prompts/TA2-test-15.json
+[done] arm B exp 15

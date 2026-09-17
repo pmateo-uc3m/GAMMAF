@@ -1,0 +1,15 @@
+{
+  "phase": "TA2",
+  "arm": "A",
+  "experiment": 15,
+  "prompt_file": "prompts/TA2-test-prompts/TA2-test-15.json",
+  "dataset_path": "TA/TA-generation/output/TA_dataset_operational.json",
+  "yaml_config": "config-examples/generation-config-TA2-A-test-15.yaml",
+  "pkl_path": "TA-tests2/arm-A/exp-15/TA-att.pkl",
+  "seeds": {
+    "questions_random_seed": 43522,
+    "malicious_randomization_seed": 3615,
+    "random_topo_seed": 5615
+  },
+  "started": "2026-09-17T11:27:37"
+}

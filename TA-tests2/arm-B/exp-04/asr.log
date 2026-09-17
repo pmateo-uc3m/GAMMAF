@@ -1,0 +1,21 @@
+TA attack evaluation (canonical names): /project_antwerp/GAMMAF/TA-tests2/arm-B/exp-04/TA-att.pkl
+==============================================================================
+topology   agents  calls%  ASR-name  ASR-ver  ben-ver  halluc%
+--------------------------------------------------------------
+tree          504   14.48      6.55     1.39     0.79     0.40
+chain         552   18.66      8.88     1.63     0.97     0.00
+star          544   21.51      9.93     3.49     3.19     0.18
+random        528   26.70     17.80     3.41     2.78     0.38
+--------------------------------------------------------------
+OVERALL      2128   20.39     10.81     2.49     1.94     0.23
+  malicious ASR-verified : 4.14%
+  final-round ASR-name   : 7.25%
+  final-round ASR-ver    : 0.88%
+
+Per-round (all topologies pooled):
+  round  agents  ASR-name  ASR-ver  halluc%
+      1              7.88     2.75     0.62
+      2             13.62     3.00     0.00
+      3             10.98     1.33     0.00
+
+Wrote /project_antwerp/GAMMAF/TA-tests2/arm-B/exp-04/metrics.json

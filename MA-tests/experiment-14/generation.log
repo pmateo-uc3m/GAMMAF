@@ -1,0 +1,86 @@
+
+========================================================================
+  Training Data Generation
+========================================================================
+
+========================================================================
+  Topology 1/4: TREE
+========================================================================
+  [INFO] Seed: 44022
+  [INFO] Planned questions: 35
+Overall Progress:   0%|                                  | 0/35 [00:00<?, ?it/s]Overall Progress:   3%|▋                         | 1/35 [00:38<21:47, 38.45s/it]Overall Progress:   6%|█▍                        | 2/35 [00:39<08:58, 16.33s/it]Overall Progress:   9%|██▏                       | 3/35 [00:40<04:55,  9.25s/it]Overall Progress:  11%|██▉                       | 4/35 [00:42<03:18,  6.42s/it]Overall Progress:  14%|███▋                      | 5/35 [00:45<02:39,  5.31s/it]Overall Progress:  17%|████▍                     | 6/35 [00:48<02:13,  4.61s/it]Overall Progress:  20%|█████▏                    | 7/35 [00:48<01:28,  3.17s/it]Overall Progress:  26%|██████▋                   | 9/35 [00:51<00:58,  2.26s/it]Overall Progress:  29%|███████▏                 | 10/35 [00:52<00:47,  1.90s/it]Overall Progress:  31%|███████▊                 | 11/35 [00:53<00:38,  1.59s/it]Overall Progress:  34%|████████▌                | 12/35 [00:53<00:29,  1.29s/it]Overall Progress:  37%|█████████▎               | 13/35 [00:54<00:25,  1.18s/it]Overall Progress:  40%|██████████               | 14/35 [00:55<00:22,  1.08s/it]Overall Progress:  43%|██████████▋              | 15/35 [00:55<00:17,  1.17it/s]Overall Progress:  46%|███████████▍             | 16/35 [00:55<00:12,  1.54it/s]Overall Progress:  49%|████████████▏            | 17/35 [00:56<00:09,  1.93it/s]Overall Progress:  51%|████████████▊            | 18/35 [00:57<00:13,  1.29it/s]Overall Progress:  57%|██████████████▎          | 20/35 [00:58<00:08,  1.69it/s]Overall Progress:  60%|███████████████          | 21/35 [00:58<00:06,  2.02it/s]Overall Progress:  63%|███████████████▋         | 22/35 [00:58<00:06,  2.07it/s]Overall Progress:  66%|████████████████▍        | 23/35 [00:59<00:06,  1.91it/s]Overall Progress:  71%|█████████████████▊       | 25/35 [01:00<00:04,  2.22it/s]Overall Progress:  74%|██████████████████▌      | 26/35 [01:00<00:03,  2.35it/s]Overall Progress:  77%|███████████████████▎     | 27/35 [01:01<00:03,  2.04it/s]Overall Progress:  80%|████████████████████     | 28/35 [01:01<00:03,  2.04it/s]Overall Progress:  83%|████████████████████▋    | 29/35 [01:02<00:02,  2.01it/s]Overall Progress:  86%|█████████████████████▍   | 30/35 [01:03<00:02,  1.73it/s]Overall Progress:  89%|██████████████████████▏  | 31/35 [01:04<00:03,  1.14it/s]Overall Progress:  91%|██████████████████████▊  | 32/35 [01:04<00:02,  1.44it/s]Overall Progress:  94%|███████████████████████▌ | 33/35 [01:05<00:01,  1.84it/s]Overall Progress:  97%|████████████████████████▎| 34/35 [01:05<00:00,  2.04it/s]Overall Progress: 100%|█████████████████████████| 35/35 [01:05<00:00,  2.32it/s]Overall Progress: 100%|█████████████████████████| 35/35 [01:05<00:00,  1.88s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 2 invalid/empty debates from topology tree
+  [INFO] Clean report for topology tree:
+    Total debates      : 35
+    Kept debates       : 33
+    Removed debates    : 2
+  [INFO] Reason counts:
+      - round_0_agent_3_empty_answer: 1
+      - round_1_agent_3_empty_answer: 1
+  [INFO] Example removed debates (first up to 5):
+      - debate_index=13: round_1_agent_3_empty_answer
+      - debate_index=27: round_0_agent_3_empty_answer
+
+========================================================================
+  Topology 2/4: CHAIN
+========================================================================
+  [INFO] Seed: 44023
+  [INFO] Planned questions: 35
+Overall Progress:   0%|                                  | 0/35 [00:00<?, ?it/s]Overall Progress:   3%|▋                         | 1/35 [00:42<23:52, 42.14s/it]Overall Progress:   6%|█▍                        | 2/35 [00:46<11:04, 20.14s/it]Overall Progress:   9%|██▏                       | 3/35 [00:47<05:52, 11.00s/it]Overall Progress:  11%|██▉                       | 4/35 [00:48<03:46,  7.30s/it]Overall Progress:  14%|███▋                      | 5/35 [00:50<02:37,  5.26s/it]Overall Progress:  17%|████▍                     | 6/35 [00:50<01:47,  3.69s/it]Overall Progress:  20%|█████▏                    | 7/35 [00:51<01:13,  2.63s/it]Overall Progress:  26%|██████▋                   | 9/35 [00:52<00:41,  1.61s/it]Overall Progress:  29%|███████▏                 | 10/35 [00:52<00:32,  1.30s/it]Overall Progress:  31%|███████▊                 | 11/35 [00:53<00:25,  1.05s/it]Overall Progress:  37%|█████████▎               | 13/35 [00:53<00:14,  1.56it/s]Overall Progress:  40%|██████████               | 14/35 [00:54<00:13,  1.52it/s]Overall Progress:  43%|██████████▋              | 15/35 [00:54<00:12,  1.60it/s]Overall Progress:  46%|███████████▍             | 16/35 [00:54<00:09,  1.99it/s]Overall Progress:  49%|████████████▏            | 17/35 [00:55<00:07,  2.34it/s]Overall Progress:  54%|█████████████▌           | 19/35 [00:55<00:04,  3.54it/s]Overall Progress:  60%|███████████████          | 21/35 [00:56<00:06,  2.25it/s]Overall Progress:  63%|███████████████▋         | 22/35 [00:57<00:07,  1.69it/s]Overall Progress:  66%|████████████████▍        | 23/35 [00:58<00:06,  1.96it/s]Overall Progress:  69%|█████████████████▏       | 24/35 [00:58<00:05,  2.09it/s]Overall Progress:  71%|█████████████████▊       | 25/35 [00:59<00:05,  1.79it/s]Overall Progress:  77%|███████████████████▎     | 27/35 [00:59<00:02,  2.73it/s]Overall Progress:  80%|████████████████████     | 28/35 [00:59<00:02,  3.15it/s]Overall Progress:  86%|█████████████████████▍   | 30/35 [00:59<00:01,  3.58it/s]Overall Progress:  89%|██████████████████████▏  | 31/35 [01:00<00:01,  2.65it/s]Overall Progress:  91%|██████████████████████▊  | 32/35 [01:01<00:01,  1.71it/s]Overall Progress:  94%|███████████████████████▌ | 33/35 [01:04<00:02,  1.03s/it]Overall Progress:  97%|████████████████████████▎| 34/35 [01:05<00:01,  1.15s/it]Overall Progress: 100%|█████████████████████████| 35/35 [01:07<00:00,  1.34s/it]Overall Progress: 100%|█████████████████████████| 35/35 [01:07<00:00,  1.93s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 2 invalid/empty debates from topology chain
+  [INFO] Clean report for topology chain:
+    Total debates      : 35
+    Kept debates       : 33
+    Removed debates    : 2
+  [INFO] Reason counts:
+      - round_0_agent_4_empty_answer: 1
+      - round_0_agent_5_empty_answer: 1
+  [INFO] Example removed debates (first up to 5):
+      - debate_index=2: round_0_agent_5_empty_answer
+      - debate_index=11: round_0_agent_4_empty_answer
+
+========================================================================
+  Topology 3/4: STAR
+========================================================================
+  [INFO] Seed: 44024
+  [INFO] Planned questions: 35
+Overall Progress:   0%|                                  | 0/35 [00:00<?, ?it/s]Overall Progress:   3%|▋                         | 1/35 [00:52<29:42, 52.44s/it]Overall Progress:   6%|█▍                        | 2/35 [01:01<14:49, 26.95s/it]Overall Progress:   9%|██▏                       | 3/35 [01:02<08:00, 15.01s/it]Overall Progress:  11%|██▉                       | 4/35 [01:03<04:53,  9.45s/it]Overall Progress:  14%|███▋                      | 5/35 [01:05<03:27,  6.90s/it]Overall Progress:  17%|████▍                     | 6/35 [01:05<02:14,  4.64s/it]Overall Progress:  20%|█████▏                    | 7/35 [01:06<01:29,  3.20s/it]Overall Progress:  23%|█████▉                    | 8/35 [01:07<01:09,  2.57s/it]Overall Progress:  26%|██████▋                   | 9/35 [01:07<00:47,  1.83s/it]Overall Progress:  29%|███████▏                 | 10/35 [01:08<00:36,  1.47s/it]Overall Progress:  31%|███████▊                 | 11/35 [01:08<00:25,  1.07s/it]Overall Progress:  34%|████████▌                | 12/35 [01:08<00:18,  1.27it/s]Overall Progress:  37%|█████████▎               | 13/35 [01:08<00:13,  1.64it/s]Overall Progress:  40%|██████████               | 14/35 [01:09<00:12,  1.72it/s]Overall Progress:  43%|██████████▋              | 15/35 [01:10<00:13,  1.44it/s]Overall Progress:  46%|███████████▍             | 16/35 [01:10<00:09,  1.92it/s]Overall Progress:  49%|████████████▏            | 17/35 [01:10<00:07,  2.41it/s]Overall Progress:  51%|████████████▊            | 18/35 [01:11<00:07,  2.22it/s]Overall Progress:  63%|███████████████▋         | 22/35 [01:11<00:03,  3.32it/s]Overall Progress:  71%|█████████████████▊       | 25/35 [01:12<00:02,  4.79it/s]Overall Progress:  74%|██████████████████▌      | 26/35 [01:13<00:03,  2.35it/s]Overall Progress:  77%|███████████████████▎     | 27/35 [01:14<00:03,  2.16it/s]Overall Progress:  80%|████████████████████     | 28/35 [01:14<00:03,  2.28it/s]Overall Progress:  83%|████████████████████▋    | 29/35 [01:15<00:02,  2.13it/s]Overall Progress:  86%|█████████████████████▍   | 30/35 [01:15<00:02,  2.12it/s]Overall Progress:  89%|██████████████████████▏  | 31/35 [01:15<00:01,  2.36it/s]Overall Progress:  91%|██████████████████████▊  | 32/35 [01:17<00:02,  1.20it/s]Overall Progress:  94%|███████████████████████▌ | 33/35 [01:22<00:03,  1.95s/it]Overall Progress:  97%|████████████████████████▎| 34/35 [01:23<00:01,  1.60s/it]Overall Progress: 100%|█████████████████████████| 35/35 [01:24<00:00,  1.33s/it]Overall Progress: 100%|█████████████████████████| 35/35 [01:24<00:00,  2.40s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 1 invalid/empty debates from topology star
+  [INFO] Clean report for topology star:
+    Total debates      : 35
+    Kept debates       : 34
+    Removed debates    : 1
+  [INFO] Reason counts:
+      - round_1_agent_1_empty_answer: 1
+  [INFO] Example removed debates (first up to 5):
+      - debate_index=4: round_1_agent_1_empty_answer
+
+========================================================================
+  Topology 4/4: RANDOM
+========================================================================
+  [INFO] Seed: 44025
+  [INFO] Planned questions: 35
+Overall Progress:   0%|                                  | 0/35 [00:00<?, ?it/s]Overall Progress:   3%|▋                         | 1/35 [00:58<33:07, 58.46s/it]Overall Progress:   6%|█▍                        | 2/35 [01:02<14:30, 26.38s/it]Overall Progress:   9%|██▏                       | 3/35 [01:04<08:06, 15.19s/it]Overall Progress:  11%|██▉                       | 4/35 [01:05<04:55,  9.55s/it]Overall Progress:  14%|███▋                      | 5/35 [01:08<03:43,  7.46s/it]Overall Progress:  17%|████▍                     | 6/35 [01:09<02:25,  5.00s/it]Overall Progress:  20%|█████▏                    | 7/35 [01:09<01:37,  3.49s/it]Overall Progress:  23%|█████▉                    | 8/35 [01:09<01:05,  2.41s/it]Overall Progress:  29%|███████▏                 | 10/35 [01:13<00:51,  2.08s/it]Overall Progress:  31%|███████▊                 | 11/35 [01:13<00:37,  1.58s/it]Overall Progress:  34%|████████▌                | 12/35 [01:13<00:28,  1.25s/it]Overall Progress:  37%|█████████▎               | 13/35 [01:14<00:26,  1.19s/it]Overall Progress:  43%|██████████▋              | 15/35 [01:15<00:15,  1.27it/s]Overall Progress:  46%|███████████▍             | 16/35 [01:15<00:15,  1.25it/s]Overall Progress:  49%|████████████▏            | 17/35 [01:16<00:12,  1.48it/s]Overall Progress:  54%|█████████████▌           | 19/35 [01:16<00:08,  1.97it/s]Overall Progress:  57%|██████████████▎          | 20/35 [01:18<00:10,  1.39it/s]Overall Progress:  63%|███████████████▋         | 22/35 [01:18<00:07,  1.75it/s]Overall Progress:  66%|████████████████▍        | 23/35 [01:19<00:08,  1.48it/s]Overall Progress:  69%|█████████████████▏       | 24/35 [01:20<00:06,  1.79it/s]Overall Progress:  71%|█████████████████▊       | 25/35 [01:20<00:04,  2.08it/s]Overall Progress:  74%|██████████████████▌      | 26/35 [01:21<00:06,  1.49it/s]Overall Progress:  77%|███████████████████▎     | 27/35 [01:22<00:06,  1.31it/s]Overall Progress:  80%|████████████████████     | 28/35 [01:23<00:04,  1.50it/s]Overall Progress:  86%|█████████████████████▍   | 30/35 [01:23<00:02,  2.38it/s]Overall Progress:  89%|██████████████████████▏  | 31/35 [01:25<00:03,  1.24it/s]Overall Progress:  91%|██████████████████████▊  | 32/35 [01:25<00:01,  1.50it/s]Overall Progress:  97%|████████████████████████▎| 34/35 [01:26<00:00,  1.45it/s]Overall Progress: 100%|█████████████████████████| 35/35 [01:28<00:00,  1.25it/s]Overall Progress: 100%|█████████████████████████| 35/35 [01:28<00:00,  2.52s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 1 invalid/empty debates from topology random
+  [INFO] Clean report for topology random:
+    Total debates      : 35
+    Kept debates       : 34
+    Removed debates    : 1
+  [INFO] Reason counts:
+      - round_0_agent_4_empty_answer: 1
+  [INFO] Example removed debates (first up to 5):
+      - debate_index=12: round_0_agent_4_empty_answer
+  [INFO] Stored 134 used dataset indexes in idx_metadata (cleaned/invalid debates excluded).
+  [INFO] Processed text data saved to MA-tests/experiment-14/MA-att.pkl
+  [INFO] Total execution time: 5m 6.16s
+
+  [INFO] Timing report:
+    Initial debates/questions generated : 140
+    Final valid debates kept            : 134
+    Avg time per initial debate/question: 2.1868 sec
+    Avg time per final valid debate     : 2.2848 sec
+  [INFO] Timing report saved to MA-tests/experiment-14/report-MA-att.pkl.json

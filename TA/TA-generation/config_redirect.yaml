@@ -1,0 +1,17 @@
+# Realistic TA dataset, arm B: parameter-redirection framing.
+arm: redirect
+
+input:
+  enriched_dataset: "TA/TA-generation/output/TA_dataset.json"
+  raw_dataset: "TA/TA-generation/combined-injecAgent-entries.json"
+
+output:
+  path: "TA/TA-generation/output/TA_dataset_redirect.json"
+
+llm:
+  settings_file: "TA/TA-generation/llm_settings_realistic.yaml"
+  structured_output_method: "json_mode"
+
+generation:
+  max_retries: 3
+  concurrency: 100

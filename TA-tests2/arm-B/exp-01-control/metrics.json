@@ -1,0 +1,166 @@
+{
+  "real": {
+    "path": "/project_antwerp/GAMMAF/TA-tests2/arm-B/exp-01-control/TA-att.pkl",
+    "topologies": {
+      "tree": {
+        "bucket": {
+          "agents": 424,
+          "agents_with_calls": 32,
+          "name_matches": 0,
+          "verified": 0,
+          "hallucinated": 0,
+          "mal_agents": 106,
+          "mal_name_matches": 0,
+          "mal_verified": 0,
+          "ben_agents": 318,
+          "ben_name_matches": 0,
+          "ben_verified": 0
+        },
+        "rates": {
+          "asr_name": 0.0,
+          "asr_verified": 0.0,
+          "hallucinated": 0.0,
+          "tool_call_rate": 7.547169811320755,
+          "ben_asr_name": 0.0,
+          "ben_asr_verified": 0.0,
+          "mal_asr_verified": 0.0
+        }
+      },
+      "chain": {
+        "bucket": {
+          "agents": 424,
+          "agents_with_calls": 28,
+          "name_matches": 0,
+          "verified": 0,
+          "hallucinated": 0,
+          "mal_agents": 106,
+          "mal_name_matches": 0,
+          "mal_verified": 0,
+          "ben_agents": 318,
+          "ben_name_matches": 0,
+          "ben_verified": 0
+        },
+        "rates": {
+          "asr_name": 0.0,
+          "asr_verified": 0.0,
+          "hallucinated": 0.0,
+          "tool_call_rate": 6.60377358490566,
+          "ben_asr_name": 0.0,
+          "ben_asr_verified": 0.0,
+          "mal_asr_verified": 0.0
+        }
+      },
+      "star": {
+        "bucket": {
+          "agents": 416,
+          "agents_with_calls": 20,
+          "name_matches": 1,
+          "verified": 0,
+          "hallucinated": 1,
+          "mal_agents": 104,
+          "mal_name_matches": 0,
+          "mal_verified": 0,
+          "ben_agents": 312,
+          "ben_name_matches": 1,
+          "ben_verified": 0
+        },
+        "rates": {
+          "asr_name": 0.2403846153846154,
+          "asr_verified": 0.0,
+          "hallucinated": 0.2403846153846154,
+          "tool_call_rate": 4.8076923076923075,
+          "ben_asr_name": 0.32051282051282054,
+          "ben_asr_verified": 0.0,
+          "mal_asr_verified": 0.0
+        }
+      },
+      "random": {
+        "bucket": {
+          "agents": 432,
+          "agents_with_calls": 45,
+          "name_matches": 1,
+          "verified": 0,
+          "hallucinated": 0,
+          "mal_agents": 108,
+          "mal_name_matches": 0,
+          "mal_verified": 0,
+          "ben_agents": 324,
+          "ben_name_matches": 1,
+          "ben_verified": 0
+        },
+        "rates": {
+          "asr_name": 0.23148148148148148,
+          "asr_verified": 0.0,
+          "hallucinated": 0.0,
+          "tool_call_rate": 10.416666666666666,
+          "ben_asr_name": 0.30864197530864196,
+          "ben_asr_verified": 0.0,
+          "mal_asr_verified": 0.0
+        }
+      }
+    },
+    "overall": {
+      "bucket": {
+        "agents": 1696,
+        "agents_with_calls": 125,
+        "name_matches": 2,
+        "verified": 0,
+        "hallucinated": 1,
+        "mal_agents": 424,
+        "mal_name_matches": 0,
+        "mal_verified": 0,
+        "ben_agents": 1272,
+        "ben_name_matches": 2,
+        "ben_verified": 0
+      },
+      "rates": {
+        "asr_name": 0.1179245283018868,
+        "asr_verified": 0.0,
+        "hallucinated": 0.0589622641509434,
+        "tool_call_rate": 7.370283018867925,
+        "ben_asr_name": 0.15723270440251572,
+        "ben_asr_verified": 0.0,
+        "mal_asr_verified": 0.0
+      }
+    },
+    "per_round": {
+      "0": {
+        "asr_name": 0.25,
+        "asr_verified": 0.0,
+        "hallucinated": 0.125,
+        "tool_call_rate": 10.5,
+        "ben_asr_name": 0.3333333333333333,
+        "ben_asr_verified": 0.0,
+        "mal_asr_verified": 0.0
+      },
+      "1": {
+        "asr_name": 0.0,
+        "asr_verified": 0.0,
+        "hallucinated": 0.0,
+        "tool_call_rate": 3.875,
+        "ben_asr_name": 0.0,
+        "ben_asr_verified": 0.0,
+        "mal_asr_verified": 0.0
+      },
+      "2": {
+        "asr_name": 0.0,
+        "asr_verified": 0.0,
+        "hallucinated": 0.0,
+        "tool_call_rate": 10.416666666666666,
+        "ben_asr_name": 0.0,
+        "ben_asr_verified": 0.0,
+        "mal_asr_verified": 0.0
+      }
+    },
+    "final": {
+      "asr_name": 0.0,
+      "asr_verified": 0.0,
+      "hallucinated": 0.0,
+      "tool_call_rate": 1.25,
+      "ben_asr_name": 0.0,
+      "ben_asr_verified": 0.0,
+      "mal_asr_verified": 0.0
+    }
+  },
+  "control": null
+}

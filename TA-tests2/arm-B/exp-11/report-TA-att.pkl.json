@@ -1,0 +1,9 @@
+{
+  "total_seconds": 230.85309672355652,
+  "total_minutes": 3,
+  "remaining_seconds": 50.85309672355652,
+  "initial_debates": 100,
+  "valid_debates": 100,
+  "avg_seconds_per_initial": 2.308530967235565,
+  "avg_seconds_per_valid": 2.308530967235565
+}

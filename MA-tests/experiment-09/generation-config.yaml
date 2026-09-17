@@ -1,0 +1,37 @@
+# Generation config - MA experiment 09 (prompt MA-test-09.json)
+# Based on config-examples/generation-config-MA.yaml; only seeds and output path differ.
+timeout: 120
+parallel_questions: 50 # Number of concurrent questions sent to inference API
+llm_max_retries: 3
+
+dataset_tag: MA # Dataset selection (must match a class TAG in DatasetManager.py)
+ma_dataset_path: MA/Task_generation/output/msmarco_contaminated_benchmark.json
+questions_random_seed: 44022 # Seed for question selection (fixed across experiments)
+verbose: false
+
+# Output
+save_data_dir: MA-tests/experiment-09
+file_name: MA-att.pkl
+
+# Optional post-processing
+process_text: false
+clean_data: true
+text_process_workers: 0
+
+# Debate parameters
+debate_config:
+  num_agents: 8
+  num_malicious: 2
+  max_rounds: 3
+  consensus_threshold: 1.0
+  malicious_randomization_seed: 4209
+
+  # Question counts per topology
+  n_questions: 35
+  n_questions_random_topo: 35
+
+  # Random topology generation
+  random_topo_seed: 7009
+  density:
+    min: 0.45
+    max: 0.9

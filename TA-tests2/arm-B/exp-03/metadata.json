@@ -1,0 +1,15 @@
+{
+  "phase": "TA2",
+  "arm": "B",
+  "experiment": 3,
+  "prompt_file": "prompts/TA2-test-prompts/TA2-test-03.json",
+  "dataset_path": "TA/TA-generation/output/TA_dataset_redirect.json",
+  "yaml_config": "config-examples/generation-config-TA2-B-test-03.yaml",
+  "pkl_path": "TA-tests2/arm-B/exp-03/TA-att.pkl",
+  "seeds": {
+    "questions_random_seed": 43522,
+    "malicious_randomization_seed": 3803,
+    "random_topo_seed": 5803
+  },
+  "started": "2026-09-17T11:53:30"
+}

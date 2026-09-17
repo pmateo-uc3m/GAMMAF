@@ -28,8 +28,8 @@ debate_config:
   malicious_randomization_seed: 32
 
   # Question counts per topology
-  n_questions: 50
-  n_questions_random_topo: 50
+  n_questions: 35
+  n_questions_random_topo: 35
 
   # Random topology generation
   random_topo_seed: 2446

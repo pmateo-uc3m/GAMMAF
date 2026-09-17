@@ -1,0 +1,35 @@
+# Generation config - TA2 arm A no-injection control for prompt TA2-test-01
+# Same seeds/questions as generation-config-TA2-A-test-01.yaml, control dataset.
+timeout: 120
+parallel_questions: 50
+llm_max_retries: 3
+
+dataset_tag: TA
+ma_dataset_path: TA/TA-generation/output/TA_dataset_operational_control.json
+questions_random_seed: 43522
+verbose: false
+
+# Output
+save_data_dir: TA-tests2/arm-A/exp-01-control
+file_name: TA-att.pkl
+
+# Optional post-processing
+process_text: false
+clean_data: false
+text_process_workers: 0
+
+# Debate parameters
+debate_config:
+  num_agents: 8
+  num_malicious: 2
+  max_rounds: 3
+  consensus_threshold: 1.0
+  malicious_randomization_seed: 3601
+
+  n_questions: 25
+  n_questions_random_topo: 25
+
+  random_topo_seed: 5601
+  density:
+    min: 0.45
+    max: 0.9

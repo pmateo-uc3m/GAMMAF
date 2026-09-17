@@ -1,0 +1,35 @@
+# Generation config - experiment 10 (prompt TA-test-10.json)
+# Based on generation-config-TA.yaml; only seeds and output path differ.
+timeout: 120
+parallel_questions: 50
+llm_max_retries: 3
+
+dataset_tag: TA
+ma_dataset_path: TA/TA-generation/output/TA_dataset.json
+questions_random_seed: 43522
+verbose: false
+
+# Output
+save_data_dir: TA-tests/exp-10
+file_name: TA-att.pkl
+
+# Optional post-processing
+process_text: false
+clean_data: false
+text_process_workers: 0
+
+# Debate parameters
+debate_config:
+  num_agents: 8
+  num_malicious: 2
+  max_rounds: 3
+  consensus_threshold: 1.0
+  malicious_randomization_seed: 3210
+
+  n_questions: 25
+  n_questions_random_topo: 25
+
+  random_topo_seed: 5010
+  density:
+    min: 0.45
+    max: 0.9
