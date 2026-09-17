@@ -1,5 +1,6 @@
 import os
 import copy
+import inspect
 import threading
 from DebateAgent import DebateAgent
 from typing import List
@@ -377,6 +378,30 @@ class LiveDebateOrchestration:
         
         sorted_responses = sorted(response_counts.items(), key=lambda x: x[1], reverse=True)
         return sorted_responses[0][0]
+
+    def _predict_defense_model(self, defense_model, debate_embeddings, adjacency_matrix, trace_id=None):
+        """Dispatch the legacy two-argument API or an optional trace-aware API."""
+        with self._model_predict_lock:
+            begin_trace = getattr(defense_model, "begin_trace", None)
+            if trace_id is not None and callable(begin_trace):
+                begin_trace(trace_id, adjacency_matrix)
+
+            predict = defense_model.predict
+            supports_trace_id = False
+            if trace_id is not None:
+                try:
+                    parameters = inspect.signature(predict).parameters.values()
+                    supports_trace_id = any(
+                        parameter.name == "trace_id"
+                        or parameter.kind == inspect.Parameter.VAR_KEYWORD
+                        for parameter in parameters
+                    )
+                except (TypeError, ValueError):
+                    supports_trace_id = False
+
+            if supports_trace_id:
+                return predict(debate_embeddings, adjacency_matrix, trace_id=trace_id)
+            return predict(debate_embeddings, adjacency_matrix)
     
     def check_answer(self, round_responses, correct_answer) -> bool:
         return self.dataloader.is_answer_correct(round_responses, correct_answer)
@@ -401,6 +426,7 @@ class LiveDebateOrchestration:
         mal_answer = "",
         question_index = None,
         question_format_data: dict | None = None,
+        trace_id = None,
     ):
         if not hasattr(defense_model, 'config'):
             defense_model.config = SimpleNamespace()
@@ -438,8 +464,12 @@ class LiveDebateOrchestration:
         static_mode = getattr(self.config, "static_adjacency_mode", False)
         
         debate_embeddings = self.text_processor.process_round(last_round_responses)
-        with self._model_predict_lock:
-            flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
+        flags, anomaly_scores = self._predict_defense_model(
+            defense_model,
+            debate_embeddings,
+            static_adjacency if static_mode else adjacency_matrix,
+            trace_id=trace_id,
+        )
         
         adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
         debate_trace.append({
@@ -474,8 +504,12 @@ class LiveDebateOrchestration:
             )
             
             debate_embeddings = self.text_processor.process_round(last_round_responses)
-            with self._model_predict_lock:
-                flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
+            flags, anomaly_scores = self._predict_defense_model(
+                defense_model,
+                debate_embeddings,
+                static_adjacency if static_mode else adjacency_matrix,
+                trace_id=trace_id,
+            )
             adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
             
             debate_trace.append({
@@ -611,17 +645,23 @@ class LiveDebateOrchestration:
             if choices is not None:
                 wrong_answer_idx = int(answer_rng.choice([i for i in range(0,4) if i!=ground_truth]))
                 mal_answer = chr(wrong_answer_idx + 65)
-            
-            r = self.debate_question(
-                defense_model,
-                question,
-                ground_truth,
-                choices,
-                adjacency_matrix,
-                mal_answer=mal_answer,
-                question_index=index,
-                question_format_data=question_data,
-            )
+            trace_id = (str(topo_name), int(index))
+            try:
+                r = self.debate_question(
+                    defense_model,
+                    question,
+                    ground_truth,
+                    choices,
+                    adjacency_matrix,
+                    mal_answer=mal_answer,
+                    question_index=index,
+                    question_format_data=question_data,
+                    trace_id=trace_id,
+                )
+            finally:
+                end_trace = getattr(defense_model, "end_trace", None)
+                if callable(end_trace):
+                    end_trace(trace_id)
             return index, topo_name, r
         
         max_workers = int(self.config.max_concurrent_inference // self.config.num_agents)
