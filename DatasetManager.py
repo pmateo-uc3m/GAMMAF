@@ -106,7 +106,7 @@ def make_loader_kwargs(loader_cls, config=None, **base):
 
 class MMLULoader:
     TAG = "MMLU"
-    PROMPTS_FILE = "prompts/prompts_blindguard.json"
+    PROMPTS_FILE = "MMLUPRO-prompt-tuning/prompts/run10-alignment-v4.json"
     RESPONSE_FORMAT = ResponseFormat
     # Datasets whose agents produce tool calls must override this and opt in to
     # the tool-call round-trip path in the debate agent / evaluation loop.

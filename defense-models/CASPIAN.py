@@ -9,11 +9,28 @@ channels.
 The paper's exact LI-CTE projection and covariance update constants are not
 specified, and the framework does not expose event-level source/target
 histories.  The implementation therefore uses the available pooled embedding
-as the late interaction vector, target-EMA residuals as conditioning, and a
-rank-normalized Gaussian-copula dependence score.  This preserves directed,
-history-aware, nonnegative influence estimation while documenting the
-communication-only limitation.  Cross-channel propagation is always false,
+as the late interaction vector and follows Appendix C's Gaussian-copula
+construction: source, target, and history vectors are rank-normalized, and the
+conditional dependence is obtained from the covariance blocks as the partial
+correlation rho(u_i, v_j | h_j), converted to conditional mutual information
+via -0.5 log(1 - rho^2) and clipped to be nonnegative.  This preserves
+directed, history-aware, nonnegative influence estimation while documenting
+the communication-only limitation.  Cross-channel propagation is always false,
 not replaced by a fabricated signal.
+
+The instant-cascade rule is evaluated only at the Watch onset turn, as
+specified by Algorithm 1; later turns in a candidate interval can only be
+confirmed by the multi-turn rule.
+
+GAMMAF integration: the paper reports a system-level cascade decision, while
+the framework consumes one flag per agent and one continuous anomaly score per
+agent at every round (used to compute AUROC).  The per-agent anomaly score is
+the attribution score built from the snapshot influence matrix (origin
+outgoing strength, amplifier ratio, and bridge product).  Flags select the
+top-k agents by that score on every round, so round 1 is covered even though
+the paper's delta-based Watch condition cannot fire before the second turn.
+When the spectral rules do confirm a cascade, the attributed origin, amplifier,
+and bridge agents are recorded and exposed through ``last_signals``.
 
 The detector is intentionally online and training-free.  ``begin_trace`` and
 ``end_trace`` are optional lifecycle hooks used by the evaluation loop to keep
@@ -197,18 +214,28 @@ class CASPIANDetector:
         if history is None:
             history = np.zeros_like(current)
 
-        # This is the communication-only late-interaction CTE approximation:
-        # source activity is compared with target innovation beyond target EMA
-        # history using rank-normalised Gaussian-copula dependence.
-        residual = current - history
-        residual_norm = np.linalg.norm(residual, axis=1)
+        # Communication-only late-interaction CTE approximation.  Appendix C
+        # specifies a Gaussian-copula conditional dependence built from the
+        # covariance blocks of the (source, target, history) system.  With a
+        # per-turn vector adaptation this is the rank-domain partial
+        # correlation rho(u_i, v_j | h_j) = (rho_uv - rho_uh rho_vh) /
+        # sqrt((1-rho_uh^2)(1-rho_vh^2)), whose Gaussian conditional mutual
+        # information is -0.5 log(1 - rho^2) and is clipped to be nonnegative.
         source_copula = self._rank_normalise_rows(current, epsilon)
-        residual_copula = self._rank_normalise_rows(residual, epsilon)
-        correlation = source_copula @ residual_copula.T
-        correlation = np.clip(correlation, -1.0, 1.0)
-        conditional_mi = -0.5 * np.log(
-            np.maximum(1.0 - correlation * correlation, epsilon)
+        history_copula = self._rank_normalise_rows(history, epsilon)
+        rho_uv = source_copula @ source_copula.T
+        rho_uh = source_copula @ history_copula.T
+        rho_vh = np.einsum("jj->j", rho_uh)
+        denominator = np.sqrt(
+            np.maximum(1.0 - rho_uh * rho_uh, epsilon)
+            * np.maximum(1.0 - rho_vh[None, :] * rho_vh[None, :], epsilon)
         )
+        partial = (rho_uv - rho_uh * rho_vh[None, :]) / denominator
+        partial = np.clip(partial, 0.0, 1.0)
+        conditional_mi = -0.5 * np.log(
+            np.maximum(1.0 - partial * partial, epsilon)
+        )
+        residual_norm = np.linalg.norm(current - history, axis=1)
         novelty = np.minimum(1.0, residual_norm)
         instantaneous = conditional_mi * novelty[None, :]
 
@@ -287,6 +314,12 @@ class CASPIANDetector:
         return feasible, bottleneck, energy_scale
 
     def _node_scores(self, raw, normalised):
+        # Per-agent snapshot attribution score: the paper's origin (outgoing
+        # influence), amplifier (outgoing/incoming ratio), and bridge
+        # (outgoing*incoming) criteria, max-normalised and averaged.  Constant
+        # components carry no per-agent information: on a symmetric
+        # communication matrix outgoing == incoming, so the amplifier is
+        # identically one for every agent and must not saturate the score.
         outgoing = normalised.sum(axis=1)
         incoming = normalised.sum(axis=0)
         amplifier = outgoing / (incoming + self.epsilon)
@@ -296,12 +329,13 @@ class CASPIANDetector:
 
         components = []
         for component in (outgoing, amplifier, bridge):
+            spread = float(np.max(component) - np.min(component)) if component.size else 0.0
             maximum = float(np.max(component)) if component.size else 0.0
-            if maximum > self.epsilon:
+            if spread > self.epsilon and maximum > self.epsilon:
                 components.append(component / maximum)
-            else:
-                components.append(np.zeros_like(component))
-        return np.maximum.reduce(components)
+        if not components:
+            return np.zeros_like(outgoing)
+        return np.sum(components, axis=0) / float(len(components))
 
     def _enumerate_paths(self, state, weights):
         structural = state["structural"] > 0
@@ -362,9 +396,17 @@ class CASPIANDetector:
         }
 
     def _flags_for_scores(self, scores, state):
+        # Round-1 usability: the paper's spectral cascade rules are delta-based
+        # and cannot fire on the first turn, but GAMMAF requires per-round
+        # flags.  The paper's attribution quantities (outgoing origin strength,
+        # amplifier ratio, bridge product) are defined on a single snapshot
+        # whenever the cascade onset coincides with the current turn, so the
+        # same snapshot scores are used here to flag the top-k agents on every
+        # turn, including turn 1.  ``cascade_emitted`` still records whether
+        # the spectral rules confirmed a cascade and is exposed for analysis.
         n = scores.size
         flags = np.zeros(n, dtype=int)
-        if not state["cascade_emitted"] or n < 2:
+        if n < 2:
             return flags
         configured_top_k = _as_int(getattr(self.config, "top_k", 1), 1)
         count = min(configured_top_k, n - 1)
@@ -443,7 +485,11 @@ class CASPIANDetector:
                         state["watch_records"] = []
                     else:
                         state["watch_records"].append(record)
-                        instant = bool(watch and transition and weak_link)
+                        # Algorithm 1 evaluates the instant rule only at the
+                        # Watch onset turn (t == tw); later turns rely on the
+                        # multi-turn confirmation rule.
+                        onset_turn = state["watch_start"] == state["step"]
+                        instant = bool(watch and onset_turn and transition and weak_link)
                         interval_complete = len(state["watch_records"]) >= state["watch_window"]
                         watch_count = sum(
                             int(item["watch"]) for item in state["watch_records"]

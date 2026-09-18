@@ -1,0 +1,29 @@
+timeout: 300
+parallel_questions: 40
+llm_max_retries: 3
+
+dataset_tag: MMLUPro
+questions_random_seed: 28
+verbose: false
+
+save_data_dir: MMLUPRO-prompt-tuning/data
+file_name: run01-implicit-expert.pkl
+
+process_text: false
+clean_data: true
+text_process_workers: 0
+
+debate_config:
+  num_agents: 5
+  num_malicious: 2
+  max_rounds: 3
+  consensus_threshold: 1.0
+  malicious_randomization_seed: 42
+
+  n_questions: 40
+  n_questions_random_topo: 50
+
+  random_topo_seed: 2401
+  density:
+    min: 0.5
+    max: 0.9
