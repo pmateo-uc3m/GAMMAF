@@ -1,0 +1,117 @@
+# Main evaluation of the adapted baseline (B0) and the five CASPIAN variants.
+# 50 questions per topology, 8 agents, 2 malicious agents, max_rounds 3,
+# MMLU-Pro, density [0.5, 0.9].
+models_directory: CASPIAN-tuning-run-2/models
+output_file: CASPIAN-tuning-run-2/results/variants-50.json
+train_pkl_path: CASPIAN-tuning-run-2/data/train-mmlupro-200.pkl
+
+defense_model_train_configs:
+  CASPIAN_B0:
+    pkl_train: CASPIAN-tuning-run-2/data/train-mmlupro-200.pkl
+    epsilon: 1.0e-8
+    target_ema_decay: 0.5
+    influence_ema_decay: 0.5
+    max_persistence_window: 64
+    spine_top_k: 3
+    top_k: 2
+
+  CASPIAN_V1:
+    pkl_train: CASPIAN-tuning-run-2/data/train-mmlupro-200.pkl
+    epsilon: 1.0e-8
+    target_ema_decay: 0.5
+    influence_ema_decay: 0.5
+    max_persistence_window: 64
+    spine_top_k: 3
+    top_k: 2
+    reciprocity_weight: 0.5
+
+  CASPIAN_V2:
+    pkl_train: CASPIAN-tuning-run-2/data/train-mmlupro-200.pkl
+    epsilon: 1.0e-8
+    target_ema_decay: 0.5
+    influence_ema_decay: 0.5
+    max_persistence_window: 64
+    spine_top_k: 3
+    top_k: 2
+    base_weight: 0.2
+    reciprocity_weight: 0.2
+    cluster_weight: 2.0
+
+  CASPIAN_V3:
+    pkl_train: CASPIAN-tuning-run-2/data/train-mmlupro-200.pkl
+    epsilon: 1.0e-8
+    target_ema_decay: 0.5
+    influence_ema_decay: 0.5
+    max_persistence_window: 64
+    spine_top_k: 3
+    top_k: 2
+    base_weight: 0.2
+    reciprocity_weight: 0.2
+    cluster_weight: 2.0
+    persistence_weight: 1.0
+    persistence_decay: 0.5
+
+  CASPIAN_V4:
+    pkl_train: CASPIAN-tuning-run-2/data/train-mmlupro-200.pkl
+    epsilon: 1.0e-8
+    target_ema_decay: 0.5
+    influence_ema_decay: 0.5
+    max_persistence_window: 64
+    spine_top_k: 3
+    top_k: 2
+    base_weight: 0.2
+    reciprocity_weight: 0.2
+    cluster_weight: 2.0
+    deviation_weight: 0.5
+    cascade_weight: 0.5
+
+  CASPIAN_V5:
+    pkl_train: CASPIAN-tuning-run-2/data/train-mmlupro-200.pkl
+    epsilon: 1.0e-8
+    target_ema_decay: 0.5
+    influence_ema_decay: 0.5
+    max_persistence_window: 64
+    spine_top_k: 3
+    top_k: 2
+    base_weight: 0.2
+    reciprocity_weight: 0.2
+    cluster_weight: 2.0
+    persistence_weight: 0.8
+    pair_weight: 1.5
+    deviation_weight: 0.3
+    persistence_decay: 0.5
+
+live_evaluation_config:
+  timeout: 60
+  prompts_file: prompts/prompts_blindguard.json
+
+  questions_path: DatasetManager.py
+  questions_dataset_tag: MMLUPro
+  questions_random_seed: 28
+
+  llm_max_retries: 3
+  num_agents: 8
+  num_malicious_agents: 2
+  malicious_seed: 123
+  max_rounds: 3
+  consensus_threshold: 1.0
+  no_consensus_check: false
+  check_consensus_only_unflagged: true
+
+  top_k_defense: 2
+  no_defense_baseline: false
+
+  max_concurrent_inference: 320
+
+  num_questions: 50
+  new_random_each_question: true
+  n_questions_on_random_topo: 50
+  topologies_seed: 24
+  density_range_for_random_topo: [0.5, 0.9]
+
+  text_processor_path: CASPIAN-tuning-run-2/fast_round_processor.py
+  text_processor_class_name: FastRoundProcessor
+
+  save_traces: false
+  clean_debates_with_empty_responses: true
+  debug_mode: false

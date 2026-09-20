@@ -1,0 +1,32 @@
+# Small debug generation config (fast pipeline validation).
+timeout: 60
+parallel_questions: 40
+llm_max_retries: 3
+
+prompts: prompts/prompts_blindguard.json
+
+dataset_tag: MMLUPRO
+questions_random_seed: 5
+verbose: false
+
+save_data_dir: CASPIAN-tuning-run-2/data
+file_name: debug-gen.pkl
+
+process_text: true
+clean_data: true
+text_process_workers: 0
+
+debate_config:
+  num_agents: 8
+  num_malicious: 2
+  max_rounds: 3
+  consensus_threshold: 1.0
+  malicious_randomization_seed: 3
+
+  n_questions: 8
+  n_questions_random_topo: 8
+
+  random_topo_seed: 77
+  density:
+    min: 0.5
+    max: 0.9

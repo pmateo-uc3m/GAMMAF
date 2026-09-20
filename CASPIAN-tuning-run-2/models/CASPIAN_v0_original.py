@@ -25,16 +25,6 @@ confirmed by the multi-turn rule.
 The detector is intentionally online and training-free.  ``begin_trace`` and
 ``end_trace`` are optional lifecycle hooks used by the evaluation loop to keep
 spectral histories isolated when questions are evaluated concurrently.
-
-GAMMAF requests per-agent flags at every round, including the first one, and a
-continuous anomaly score for AUROC.  The paper's cascade decision is undefined
-on the first turn because ``amplification`` and ``gap contraction`` require a
-previous turn, so the framework adapter reports the top-``top_k`` agents by the
-single-turn attribution score (origin/amplifier/bridge, Eqs. (11)-(13)) on the
-first turn and keeps reporting the same node-level score on later turns.  The
-continuous score is a standardised combination of the three attribution
-statistics, which avoids the saturation/ties produced by per-component maximum
-normalisation and therefore yields a well-defined AUROC.
 """
 
 import argparse
@@ -313,25 +303,7 @@ class CASPIANDetector:
         feasible = total > self.epsilon and bottleneck + self.epsilon >= energy_scale
         return feasible, bottleneck, energy_scale
 
-    @staticmethod
-    def _standardise(values, epsilon):
-        """Zero-mean/unit-variance scaling that keeps ties from saturating."""
-        values = np.asarray(values, dtype=np.float64)
-        if values.size == 0:
-            return values
-        spread = float(np.std(values))
-        if spread <= epsilon:
-            return np.zeros_like(values)
-        return (values - float(np.mean(values))) / spread
-
     def _node_scores(self, raw, normalised):
-        """Single-turn attribution score for each agent (Eqs. (11)-(13)).
-
-        The paper's attribution statistics are (i) the outgoing influence
-        (origin), (ii) the amplifier ratio outgoing/incoming, and (iii) the
-        bridge product outgoing*incoming.  A standardised sum keeps the score
-        continuous, which is required for a well-defined AUROC.
-        """
         outgoing = normalised.sum(axis=1)
         incoming = normalised.sum(axis=0)
         amplifier = outgoing / (incoming + self.epsilon)
@@ -339,27 +311,14 @@ class CASPIANDetector:
         raw_incoming = raw.sum(axis=0)
         bridge = raw_outgoing * raw_incoming
 
-        weights = getattr(self.config, "component_weights", None)
-        if not isinstance(weights, dict):
-            weights = {"outgoing": 1.0, "amplifier": 1.0, "bridge": 1.0}
-        score = (
-            float(weights.get("outgoing", 0.0))
-            * self._standardise(outgoing, self.epsilon)
-            + float(weights.get("amplifier", 0.0))
-            * self._standardise(amplifier, self.epsilon)
-            + float(weights.get("bridge", 0.0))
-            * self._standardise(bridge, self.epsilon)
-        )
-        return np.nan_to_num(score, nan=0.0, posinf=0.0, neginf=0.0)
-
-    def _score_agents(self, state, raw, normalised, embeddings, debate_round):
-        """Extension hook: per-agent anomaly score for the current turn.
-
-        The default implementation is the single-turn attribution score.  Model
-        variants override this to add further CASPIAN-faithful evidence without
-        touching the spectral detection or attribution code.
-        """
-        return self._node_scores(raw, normalised)
+        components = []
+        for component in (outgoing, amplifier, bridge):
+            maximum = float(np.max(component)) if component.size else 0.0
+            if maximum > self.epsilon:
+                components.append(component / maximum)
+            else:
+                components.append(np.zeros_like(component))
+        return np.maximum.reduce(components)
 
     def _enumerate_paths(self, state, weights):
         structural = state["structural"] > 0
@@ -420,17 +379,9 @@ class CASPIANDetector:
         }
 
     def _flags_for_scores(self, scores, state):
-        """Flag the top-``top_k`` attributed agents on every turn.
-
-        GAMMAF consumes flags each round to isolate agents.  The paper only
-        defines a flag set at cascade confirmation, which would leave the first
-        turn (and every turn with no confirmed cascade) unflagged.  Reporting
-        the current attribution ranking every turn gives the framework the
-        round-1 flagging it requires while keeping the score semantics.
-        """
         n = scores.size
         flags = np.zeros(n, dtype=int)
-        if n < 2:
+        if not state["cascade_emitted"] or n < 2:
             return flags
         configured_top_k = _as_int(getattr(self.config, "top_k", 1), 1)
         count = min(configured_top_k, n - 1)
@@ -536,7 +487,7 @@ class CASPIANDetector:
                                 for role in ("origin", "amplifier", "bridge"):
                                     state["cascade_agents"][attribution[role]] = 1
 
-            scores = self._score_agents(state, raw, normalised, embeddings, debate_round)
+            scores = self._node_scores(raw, normalised)
             flags = self._flags_for_scores(scores, state)
             state["previous_energy"] = energy
             state["previous_lambda1"] = lambda1

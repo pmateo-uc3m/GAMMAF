@@ -1,0 +1,41 @@
+
+========================================================================
+  Training Data Generation
+========================================================================
+
+========================================================================
+  Topology 1/4: TREE
+========================================================================
+  [INFO] Seed: 5
+  [INFO] Planned questions: 8
+Overall Progress:   0%|                                   | 0/8 [00:00<?, ?it/s]Overall Progress:  12%|███▍                       | 1/8 [00:45<05:19, 45.67s/it]Overall Progress:  25%|██████▊                    | 2/8 [00:59<02:41, 26.88s/it]Overall Progress:  38%|██████████▏                | 3/8 [01:01<01:17, 15.51s/it]Overall Progress:  50%|█████████████▌             | 4/8 [01:02<00:38,  9.70s/it]Overall Progress:  62%|████████████████▉          | 5/8 [01:10<00:27,  9.24s/it]Overall Progress:  75%|████████████████████▎      | 6/8 [02:43<01:15, 37.71s/it]Overall Progress:  88%|███████████████████████▋   | 7/8 [03:12<00:34, 34.79s/it]Overall Progress: 100%|███████████████████████████| 8/8 [04:58<00:00, 57.56s/it]Overall Progress: 100%|███████████████████████████| 8/8 [04:58<00:00, 37.33s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology tree
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [tree]:   0%|          | 0/8 [00:00<?, ?it/s]Text Processing [tree]:  12%|█▎        | 1/8 [00:07<00:55,  7.94s/it]Text Processing [tree]:  25%|██▌       | 2/8 [00:09<00:26,  4.45s/it]Text Processing [tree]:  38%|███▊      | 3/8 [00:11<00:15,  3.04s/it]Text Processing [tree]:  50%|█████     | 4/8 [00:13<00:10,  2.69s/it]Text Processing [tree]:  62%|██████▎   | 5/8 [00:15<00:07,  2.55s/it]Text Processing [tree]:  75%|███████▌  | 6/8 [00:17<00:04,  2.43s/it]Text Processing [tree]:  88%|████████▊ | 7/8 [00:19<00:02,  2.05s/it]Text Processing [tree]: 100%|██████████| 8/8 [00:22<00:00,  2.40s/it]                                                                     
+========================================================================
+  Topology 2/4: CHAIN
+========================================================================
+  [INFO] Seed: 6
+  [INFO] Planned questions: 8
+Overall Progress:   0%|                                   | 0/8 [00:00<?, ?it/s]Overall Progress:  12%|███▍                       | 1/8 [00:32<03:47, 32.53s/it]Overall Progress:  25%|██████▊                    | 2/8 [00:41<01:50, 18.50s/it]Overall Progress:  38%|██████████▏                | 3/8 [01:01<01:35, 19.19s/it]Overall Progress:  50%|█████████████▌             | 4/8 [01:40<01:48, 27.06s/it]Overall Progress:  62%|████████████████▉          | 5/8 [02:02<01:15, 25.11s/it]Overall Progress:  75%|████████████████████▎      | 6/8 [02:09<00:38, 19.24s/it]Overall Progress:  88%|███████████████████████▋   | 7/8 [03:47<00:44, 44.81s/it]Overall Progress: 100%|███████████████████████████| 8/8 [04:23<00:00, 42.14s/it]Overall Progress: 100%|███████████████████████████| 8/8 [04:23<00:00, 32.97s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 1 invalid/empty debates from topology chain
+  [INFO] Clean report for topology chain:
+    Total debates      : 8
+    Kept debates       : 7
+    Removed debates    : 1
+  [INFO] Reason counts:
+      - round_0_agent_5_empty_answer: 1
+  [INFO] Example removed debates (first up to 5):
+      - debate_index=4: round_0_agent_5_empty_answer
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [chain]:   0%|          | 0/7 [00:00<?, ?it/s]Text Processing [chain]:  14%|█▍        | 1/7 [00:02<00:15,  2.65s/it]Text Processing [chain]:  29%|██▊       | 2/7 [00:05<00:14,  2.88s/it]Text Processing [chain]:  43%|████▎     | 3/7 [00:06<00:08,  2.05s/it]Text Processing [chain]:  57%|█████▋    | 4/7 [00:10<00:08,  2.67s/it]Text Processing [chain]:  71%|███████▏  | 5/7 [00:11<00:04,  2.05s/it]Text Processing [chain]:  86%|████████▌ | 6/7 [00:14<00:02,  2.54s/it]Text Processing [chain]: 100%|██████████| 7/7 [00:16<00:00,  2.34s/it]                                                                      
+========================================================================
+  Topology 3/4: STAR
+========================================================================
+  [INFO] Seed: 7
+  [INFO] Planned questions: 8
+Overall Progress:   0%|                                   | 0/8 [00:00<?, ?it/s]Overall Progress:  12%|███▍                       | 1/8 [00:54<06:19, 54.16s/it]Overall Progress:  25%|██████▊                    | 2/8 [01:22<03:54, 39.15s/it]Overall Progress:  38%|██████████▏                | 3/8 [01:50<02:48, 33.74s/it]Overall Progress:  50%|█████████████▌             | 4/8 [02:01<01:38, 24.75s/it]Overall Progress:  62%|████████████████▉          | 5/8 [02:45<01:35, 31.85s/it]Overall Progress:  75%|████████████████████▎      | 6/8 [03:38<01:18, 39.11s/it]Overall Progress:  88%|███████████████████████▋   | 7/8 [03:59<00:33, 33.11s/it]
