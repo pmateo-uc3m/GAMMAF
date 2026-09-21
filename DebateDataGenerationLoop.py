@@ -1,9 +1,6 @@
-"""DebateDataGenerationLoop-complete.py -- placeholder-aware generation loop.
+"""DebateDataGenerationLoop.py -- placeholder-aware generation loop.
 
-Single consolidated ``-complete`` copy of ``DebateDataGenerationLoop.py`` (the
-original is left untouched, see the ``-complete`` convention).
-
-Purely additive change with respect to the original: the per-turn
+The per-turn
 ``format_data`` dictionaries built in ``generate_round_1_concurrent`` and
 ``generate_debate_round_concurrent`` now also carry the three optional
 placeholder keys

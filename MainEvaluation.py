@@ -1,12 +1,11 @@
 """
-MainEvaluation-complete.py -- multi-dataset defense benchmarking.
+MainEvaluation.py -- multi-dataset defense benchmarking.
 
-This is the multi-dataset extension of ``MainEvaluation.py`` (the original file
-is left untouched, see the ``-complete`` convention).  It keeps every behavior
-of the original while adding:
+Multi-dataset defense benchmarking for GAMMAF.  It keeps every behavior of the
+single-dataset pipeline while adding:
 
 * **Combined training**: every defense model is trained once on the combined
-  dataset pickle produced by ``TrainDataGeneration-complete.py`` (all datasets
+  dataset pickle produced by ``TrainDataGeneration.py`` (all datasets
   live in the same ``data`` list).
 * **Leakage-safe per-tag evaluation**: for each configured evaluation dataset
   tag the orchestrator excludes (a) the indexes used to *train on that same
@@ -16,7 +15,7 @@ of the original while adding:
   dataset tag (``<output_dir>/<tag>/<model>.json``); the configured
   ``output_file`` holds a small summary mapping tags/models to those files.
 * **Consolidated hyperparameter search** (``--hps``), which lives in this same
-  file and in ``EvaluationDebateLoop-complete.py`` (no separate ``-HPS`` file,
+  file and in ``EvaluationDebateLoop.py`` (no separate ``-HPS`` file,
   see R5).  The search saves the selected HPS indexes **per dataset tag**.
 
 Config schema (new keys)::
@@ -59,7 +58,6 @@ import itertools
 import json
 import os
 import pickle
-import sys
 import tempfile
 import traceback
 from pathlib import Path
@@ -83,28 +81,19 @@ from LoggingUtils import (
 
 
 # ---------------------------------------------------------------------------
-#  Consolidated evaluation-loop module (hyphenated filename -> load by path)
+#  Consolidated evaluation loop
 # ---------------------------------------------------------------------------
 
-def _load_edl_module():
-    here = Path(__file__).resolve().parent
-    mod_path = here / "EvaluationDebateLoop-complete.py"
-    spec = importlib.util.spec_from_file_location("EvaluationDebateLoop_complete", mod_path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["EvaluationDebateLoop_complete"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_EDL = _load_edl_module()
-LiveDebateOrchestration = _EDL.LiveDebateOrchestration
-build_hps_pool_loader = _EDL.build_hps_pool_loader
-draw_hps_run_subset = _EDL.draw_hps_run_subset
-resolve_loader_tag_from_path = _EDL.resolve_loader_tag_from_path
+from EvaluationDebateLoop import (
+    LiveDebateOrchestration,
+    build_hps_pool_loader,
+    draw_hps_run_subset,
+    resolve_loader_tag_from_path,
+)
 
 
 # ---------------------------------------------------------------------------
-#  Topology helpers (unchanged from MainEvaluation.py)
+#  Topology helpers
 # ---------------------------------------------------------------------------
 
 def adjacency_matrix_symmetric(n, topology):

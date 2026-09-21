@@ -16,29 +16,15 @@ from pathlib import Path
 from collections import defaultdict, Counter
 
 
-def _load_placeholder_generation_module():
-    """Load the placeholder-aware generation loop (hyphenated filename)."""
-    module_name = "DebateDataGenerationLoop_complete"
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-    mod_path = Path(__file__).resolve().with_name("DebateDataGenerationLoop-complete.py")
-    spec = importlib.util.spec_from_file_location(module_name, mod_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load module from {mod_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-# The complete generation module is the single source of truth for the
-# additive prompt placeholders (topology_string / malicious_agents_string /
-# flags_string); it also re-exports ``generate_random_topologies`` unchanged.
-_DGDL = _load_placeholder_generation_module()
-generate_random_topologies = _DGDL.generate_random_topologies
-build_topology_string = _DGDL.build_topology_string
-build_malicious_agents_string = _DGDL.build_malicious_agents_string
-build_flags_string = _DGDL.build_flags_string
+# The generation module is the single source of truth for the additive prompt
+# placeholders (topology_string / malicious_agents_string / flags_string); it
+# also provides ``generate_random_topologies``.
+from DebateDataGenerationLoop import (
+    generate_random_topologies,
+    build_topology_string,
+    build_malicious_agents_string,
+    build_flags_string,
+)
 
 from sklearn.metrics import roc_auc_score
 from scipy.stats import t as t_dist

@@ -1,11 +1,10 @@
 """
-TrainDataGeneration-complete.py -- multi-dataset training-data generation.
+TrainDataGeneration.py -- multi-dataset training-data generation.
 
-This is the multi-dataset extension of ``TrainDataGeneration.py`` (the original
-file is left untouched, see the ``-complete`` convention).  It generates debate
-data for **several datasets in a single run**, while recording, per dataset tag,
-the exact dataset indexes that were used ("used indexes") so that later stages
-(training, hyperparameter search, evaluation) can avoid train/eval leakage.
+Generates debate data for **several datasets in a single run**, while recording,
+per dataset tag, the exact dataset indexes that were used ("used indexes") so
+that later stages (training, hyperparameter search, evaluation) can avoid
+train/eval leakage.
 
 Config schema (new keys)::
 
@@ -43,33 +42,13 @@ import importlib.util
 import os
 import pickle
 import json
-import sys
-from pathlib import Path
 from typing import Any, cast
 from Utils import load_config
 from tqdm import tqdm
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, fmt_seconds, print_timing_report
 
 from TextProcessingManager import RoundProcessor
-
-
-def _load_placeholder_generation_module():
-    """Load the placeholder-aware generation loop (hyphenated filename)."""
-    module_name = "DebateDataGenerationLoop_complete"
-    if module_name in sys.modules:
-        return sys.modules[module_name]
-    mod_path = Path(__file__).resolve().with_name("DebateDataGenerationLoop-complete.py")
-    spec = importlib.util.spec_from_file_location(module_name, mod_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load module from {mod_path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_DGDL = _load_placeholder_generation_module()
-DebateOrchestration = _DGDL.DebateOrchestration
+from DebateDataGenerationLoop import DebateOrchestration
 
 
 # ---------------------------------------------------------------------------
