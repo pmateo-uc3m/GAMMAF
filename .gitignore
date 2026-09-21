@@ -1,13 +1,1 @@
-__pycache__
-checkpoints
-data
-results
-.env
-best_model.pt
-my-configs
-my-models
-.ipynb_checkpoints
-debug-logs
-paper-data
-defense-models/MyModel-v5.py
-hps
+__pycache__/
