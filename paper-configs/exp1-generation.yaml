@@ -1,0 +1,88 @@
+# Generation pipeline config (TrainDataGeneration.py)
+# Loaded and validated by GenerationConfigCheck.py.
+
+llm:
+  timeout: 120
+  llm_max_retries: 3
+  max_concurrent_inference: 200
+
+debate:
+  num_agents: 10
+  num_malicious_agents: 0
+  malicious_seed: 376127
+  max_rounds: 3
+  consensus_threshold: 1.0
+  random_topo_seed: 28196731
+  density_range_for_random_topo: [0.5, 0.9]
+
+datasets:
+  - tag: MMLU
+    loader_tag: null
+    num_questions: 40
+    num_questions_on_random_topo: 80
+    questions_random_seed: 11341
+    ma_dataset_path: null
+    prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+
+  - tag: MMLUPRO
+    loader_tag: null
+    num_questions: 40
+    num_questions_on_random_topo: 80
+    questions_random_seed: 11
+    ma_dataset_path: null
+    prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+
+  - tag: CSQA
+    loader_tag: null
+    num_questions: 40
+    num_questions_on_random_topo: 80
+    questions_random_seed: 1723691
+    ma_dataset_path: null
+    prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+
+  - tag: GSM8K
+    loader_tag: null
+    num_questions: 40
+    num_questions_on_random_topo: 80
+    questions_random_seed: 909098
+    ma_dataset_path: null
+    prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+
+  - tag: MA
+    loader_tag: null
+    num_questions: 40
+    num_questions_on_random_topo: 80
+    questions_random_seed: 1312
+    ma_dataset_path: MA/Task_generation/output/msmarco_contaminated_benchmark.json
+    prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+
+  - tag: TA
+    loader_tag: null
+    num_questions: 40
+    num_questions_on_random_topo: 80
+    questions_random_seed: 132
+    ma_dataset_path: TA/TA-generation/output/TA-complete.json
+    prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+
+  # The same loader can be run again with a different tag and config; both
+  # runs are generated and saved under their own tag:
+  # - tag: MMLU_alt
+  #   loader_tag: MMLU
+  #   num_questions: 10
+  #   num_questions_on_random_topo: 10
+  #   questions_random_seed: 7
+  #   prompts_file: prompts/prompts_MMLU_alt.json
+
+output_dir: major-experiments/exp1
+output_file: exp1-trainData.pkl
+
+# Optional post-processing
+process_text: true
+clean_debates: true
+text_process_workers: 0
+text_processor_path: TextProcessingManager.py
+text_processor_class_name: RoundProcessor
+text_processor_kwargs: {}
+text_processor_device: cuda
+
+verbose: false
