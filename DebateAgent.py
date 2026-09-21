@@ -1,12 +1,7 @@
 import time
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import Any, List, Optional
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from LoggingUtils import log_warn, log_error
-
-class ResponseFormat(BaseModel):
-    reason: str = Field(description="The logical argument or premise")
-    answer: str = Field(description="The detailed response or conclusion")
 
 class DebateAgent:
     def __init__(self, 
@@ -25,7 +20,7 @@ class DebateAgent:
         self.first_round_prompt = first_round_prompt
         self.debate_prompt = debate_prompt
         self.messages: List[BaseMessage] = []
-        self.current_response: Optional[ResponseFormat] = None
+        self.current_response: Optional[Any] = None
         self.max_retries = max_retries
         self.is_malicious = is_malicious
         
@@ -38,7 +33,7 @@ class DebateAgent:
         for i in range(self.max_retries):
             try:
                 self.current_response = self.model.invoke(self.messages)
-                formatted_response = f"<answer>: {self.current_response.answer} \n<reason>: {self.current_response.reason}"
+                formatted_response = self.current_response.to_message_content()
                 self.messages.append(AIMessage(content=formatted_response))
                 return self.current_response
             except Exception as e:
@@ -56,7 +51,7 @@ class DebateAgent:
         for i in range(self.max_retries):
             try:
                 self.current_response = self.model.invoke(self.messages)
-                formatted_response = f"<answer>: {self.current_response.answer} \n<reason>: {self.current_response.reason}"
+                formatted_response = self.current_response.to_message_content()
                 self.messages.append(AIMessage(content=formatted_response))
                 return self.current_response
             except Exception as e:
@@ -67,10 +62,10 @@ class DebateAgent:
                     time.sleep(1)
         raise last_exception
     
-    def get_current_response(self) -> Optional[ResponseFormat]:
+    def get_current_response(self) -> Optional[Any]:
         return self.current_response
     
     def get_formatted_response(self) -> Optional[str]:
         if self.current_response:
-            return f"Agent {self.agent_id} Response: \n<answer>: {self.current_response.answer} \n<reason>: {self.current_response.reason}"
+            return f"Agent {self.agent_id} Response: \n{self.current_response.to_message_content()}"
         return None

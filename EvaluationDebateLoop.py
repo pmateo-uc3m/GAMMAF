@@ -1,6 +1,8 @@
 import os
 import copy
+import inspect
 import threading
+import pickle
 from DebateAgent import DebateAgent
 from typing import List
 from langchain_openai import ChatOpenAI
@@ -12,7 +14,32 @@ import numpy as np
 import sys
 from pathlib import Path
 from collections import defaultdict, Counter
-from DebateDataGenerationLoop import generate_random_topologies
+
+
+def _load_placeholder_generation_module():
+    """Load the placeholder-aware generation loop (hyphenated filename)."""
+    module_name = "DebateDataGenerationLoop_complete"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    mod_path = Path(__file__).resolve().with_name("DebateDataGenerationLoop-complete.py")
+    spec = importlib.util.spec_from_file_location(module_name, mod_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module from {mod_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# The complete generation module is the single source of truth for the
+# additive prompt placeholders (topology_string / malicious_agents_string /
+# flags_string); it also re-exports ``generate_random_topologies`` unchanged.
+_DGDL = _load_placeholder_generation_module()
+generate_random_topologies = _DGDL.generate_random_topologies
+build_topology_string = _DGDL.build_topology_string
+build_malicious_agents_string = _DGDL.build_malicious_agents_string
+build_flags_string = _DGDL.build_flags_string
+
 from sklearn.metrics import roc_auc_score
 from scipy.stats import t as t_dist
 
@@ -21,7 +48,9 @@ from tqdm import tqdm
 import json
 from types import SimpleNamespace
 from langchain_core.runnables import RunnableLambda
+from DatasetManager import make_loader_kwargs
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done
+from ConfigCheck import OPTIONAL_BOOLEAN_DEFAULTS
 import time
 from datetime import datetime
 
@@ -55,6 +84,19 @@ def _normalize_tag(tag: str) -> str:
     return "".join(ch for ch in str(tag).upper() if ch.isalnum())
 
 
+# Config tags (human friendly, e.g. "InjecAgent", "MsMarco", "gsm8k") are
+# resolved to the canonical loader TAG declared on the loader classes
+# (e.g. "TA", "MA", "GSM8K").
+_DATASET_TAG_ALIASES = {
+    "INJECAGENT": "TA",
+    "INJECAGENTTA": "TA",
+    "MSMARCO": "MA",
+    "MSMARCOCONTAMINATED": "MA",
+    "MMLUPRO": "MMLUPRO",
+    "GSM8K": "GSM8K",
+}
+
+
 def load_class_by_tag_from_path(file_path, dataset_tag: str):
     file_path = Path(file_path).resolve()
     module_name = file_path.stem
@@ -80,6 +122,89 @@ def load_class_by_tag_from_path(file_path, dataset_tag: str):
     raise ValueError(
         f"No questions loader class with TAG='{dataset_tag}' found in {file_path}"
     )
+
+
+def get_available_dataset_tags(file_path):
+    """Return ``{loader TAG: loader class}`` declared in *file_path*."""
+    file_path = Path(file_path).resolve()
+    module_name = file_path.stem
+
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load module from {file_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    return {
+        obj.TAG: obj
+        for _, obj in vars(module).items()
+        if isinstance(obj, type) and getattr(obj, "TAG", None)
+    }
+
+
+def resolve_loader_tag_from_path(file_path, dataset_tag: str, explicit_loader_tag: str | None = None):
+    """Resolve a config tag (or explicit loader TAG) to a loader class."""
+    classes = get_available_dataset_tags(file_path)
+
+    if explicit_loader_tag:
+        for tag, cls in classes.items():
+            if tag == explicit_loader_tag or _normalize_tag(tag) == _normalize_tag(explicit_loader_tag):
+                return cls
+        raise ValueError(
+            f"Unknown loader_tag '{explicit_loader_tag}' for dataset tag '{dataset_tag}'. "
+            f"Available loader TAGs: {sorted(classes)}"
+        )
+
+    if dataset_tag in classes:
+        return classes[dataset_tag]
+
+    normalized = _normalize_tag(dataset_tag)
+    for tag, cls in classes.items():
+        if _normalize_tag(tag) == normalized:
+            return cls
+
+    alias = _DATASET_TAG_ALIASES.get(normalized)
+    if alias and alias in classes:
+        return classes[alias]
+
+    raise ValueError(
+        f"Could not resolve dataset tag '{dataset_tag}' to a questions loader "
+        f"in {file_path}. Available loader TAGs: {sorted(classes)}"
+    )
+
+
+def resolve_questions_loader_class(config, dataset_tag=None, loader_tag=None):
+    """Resolve the questions loader class for a live-evaluation config.
+
+    Resolution follows: explicit ``loader_tag`` -> config ``dataset_tag``
+    (alias/normalized aware) -> explicit ``questions_class_name``.
+    """
+    if dataset_tag is None and loader_tag is None:
+        dataset_tag = getattr(
+            config,
+            "questions_dataset_tag",
+            getattr(config, "dataset_tag", None),
+        )
+
+    if dataset_tag is not None or loader_tag is not None:
+        selector = loader_tag or dataset_tag
+        loader_cls = resolve_loader_tag_from_path(
+            config.questions_path, selector, explicit_loader_tag=loader_tag
+        )
+        log_info(
+            f"Selected questions loader by dataset tag '{selector}': {loader_cls.__name__}"
+        )
+        return loader_cls
+
+    questions_loader = load_class_from_path(
+        config.questions_path,
+        config.questions_class_name,
+    )
+    log_info(f"Selected questions loader by class name: {questions_loader.__name__}")
+    return questions_loader
+
     
 def modify_adjacency(flags, adjacency_matrix):
     modified_matrix = [row[:] for row in adjacency_matrix]  # Deep copy of the original matrix
@@ -91,8 +216,23 @@ def modify_adjacency(flags, adjacency_matrix):
     return modified_matrix
 
 class LiveDebateOrchestration:
-    def __init__(self, config, train_indexes = []):
+    def __init__(
+        self,
+        config,
+        train_indexes=None,
+        excluded_indexes=None,
+        dataloader=None,
+        text_processor=None,
+        dataset_tag=None,
+        loader_tag=None,
+    ):
         self.config = config
+        # Non-essential optional booleans default to False instead of crashing
+        # the whole evaluation when they are absent from the config.
+        for _key, _default in OPTIONAL_BOOLEAN_DEFAULTS.items():
+            if not hasattr(config, _key):
+                log_warn(f"Optional live-evaluation config '{_key}' missing; using default {_default}.")
+                config[_key] = _default
         self.python_seed = getattr(config, "python_seed", getattr(config, "questions_random_seed", 0))
         self.numpy_seed = getattr(config, "numpy_seed", self.python_seed)
         self.answer_seed = getattr(config, "answer_seed", self.python_seed)
@@ -101,37 +241,51 @@ class LiveDebateOrchestration:
         self.timestamp = datetime.fromtimestamp(time.time()).strftime("%Y%m%d%H%M%S")
         self._current_threshold = None
         self._model_predict_lock = threading.Lock()
-        self.train_indexes = train_indexes
 
-        dataset_tag = getattr(
-            config,
-            "questions_dataset_tag",
-            getattr(config, "dataset_tag", None),
-        )
-        if dataset_tag:
-            questions_loader = load_class_by_tag_from_path(
-                config.questions_path,
-                dataset_tag,
-            )
-            log_info(f"Selected questions loader by dataset tag '{dataset_tag}': {questions_loader.__name__}")
+        # Leakage-safe exclusion set: training indexes (per dataset tag) plus
+        # any HPS indexes selected for the same tag.  The loader never samples
+        # from these positions.
+        combined_excluded = set()
+        for _source in (train_indexes, excluded_indexes):
+            if _source:
+                combined_excluded.update(int(i) for i in _source)
+        self.train_indexes = sorted(combined_excluded)
+        self.excluded_indexes = self.train_indexes
+        self.dataset_tag = dataset_tag
+        self.loader_tag = loader_tag
+
+        if dataloader is not None:
+            # Injected dataloader (e.g. the fixed HPS pool); the dataset is not
+            # reloaded and the exclusion is already applied by the caller.
+            self.dataloader = dataloader
         else:
-            questions_loader = load_class_from_path(
-                config.questions_path,
-                config.questions_class_name,
+            questions_loader = resolve_questions_loader_class(
+                config, dataset_tag=dataset_tag, loader_tag=loader_tag
             )
-
-        self.dataloader = questions_loader(
-            num_questions = max(config.num_questions, config.n_questions_on_random_topo),
-            random_seed = config.questions_random_seed,
-            indexes = self.train_indexes
-        )
+            self.dataloader = questions_loader(**make_loader_kwargs(
+                questions_loader,
+                config,
+                num_questions=max(config.num_questions, config.n_questions_on_random_topo),
+                random_seed=config.questions_random_seed,
+                indexes=self.train_indexes,
+            ))
         self.prompts = self.dataloader.get_prompts()
-        
-        textProcessor = load_class_from_path(
-            config.text_processor_path, config.text_processor_class_name
-        )
-        self.text_processor = textProcessor(device='cpu')  # we need CPU because cant manage concurrent GPU calls
-            
+
+        # Datasets that require tool-call handling (InjecAgent) opt in via the
+        # loader. They use the raw model (no parse chain) and the tool-call
+        # aware agent in DebateAgent-TA.py. ``supports_tool_calls`` is derived
+        # lazily from the dataloader so subclasses that inject a dataloader
+        # without calling this __init__ (e.g. HPS) still behave correctly.
+        self._resolve_agent_class()
+
+        if text_processor is not None:
+            self.text_processor = text_processor
+        else:
+            textProcessor = load_class_from_path(
+                config.text_processor_path, config.text_processor_class_name
+            )
+            self.text_processor = textProcessor(device='cpu')  # we need CPU because cant manage concurrent GPU calls
+
         self._model_name = _require_env("MODEL_NAME")
         self._base_url = _require_env("BASE_URL")
         self._api_key = SecretStr(_require_env("API_KEY"))
@@ -152,14 +306,34 @@ class LiveDebateOrchestration:
             format_data[k] = v
         return format_data
         
-    def _build_llm_chain(self):
+    @property
+    def supports_tool_calls(self) -> bool:
+        return bool(getattr(self.dataloader, "SUPPORTS_TOOL_CALLS", False))
+
+    def _resolve_agent_class(self):
+        agent_class = getattr(self, "_agent_class", None)
+        if agent_class is not None:
+            return agent_class
+        if self.supports_tool_calls:
+            agent_class = load_class_from_path(
+                Path(__file__).with_name("DebateAgent-TA.py"), "TAAgent"
+            )
+        else:
+            agent_class = DebateAgent
+        self._agent_class = agent_class
+        return agent_class
+
+    def _build_base_llm(self):
         return ChatOpenAI(
             model=self._model_name,
             api_key=self._api_key,
             base_url=self._base_url,
             timeout=self._llm_timeout,
             max_retries=self.llm_max_retries,
-        ) | RunnableLambda(self.dataloader.parse_model_output)
+        )
+
+    def _build_llm_chain(self):
+        return self._build_base_llm() | RunnableLambda(self.dataloader.parse_model_output)
 
     def generate_agents(self, question_index=None):
         agents = []
@@ -168,10 +342,11 @@ class LiveDebateOrchestration:
         malicious_indices = local_rng.sample(range(self.config.num_agents), self.config.num_malicious_agents)
         for i in range(self.config.num_agents):
             is_malicious = i in malicious_indices
+            model = self._build_base_llm() if self.supports_tool_calls else self._build_llm_chain()
             agents.append(
-                DebateAgent(
+                self._resolve_agent_class()(
                     agent_id = i,
-                    model=self._build_llm_chain(),
+                    model=model,
                     is_malicious=is_malicious,
                     system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"] if is_malicious else self.prompts["SYSTEM_PROMPT"],
                     first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"] if is_malicious else self.prompts["FIRST_ROUND_PROMPT"],
@@ -189,6 +364,8 @@ class LiveDebateOrchestration:
         mal_answer: str = "",
         question_format_data: dict | None = None,
         round_num: int | None = 1,
+        topology: list[list[int]] | None = None,
+        malicious_indexes: list[int] | None = None
     ):
                 
         def single_agent_round_1(agent: DebateAgent):
@@ -196,6 +373,11 @@ class LiveDebateOrchestration:
                 "agent_id" : agent.agent_id,
                 "question" : question,
                 "choices" : choices,
+                "topology" : topology,
+                "malicious_indexes" : malicious_indexes,
+                "topology_string" : build_topology_string(topology),
+                "malicious_agents_string" : build_malicious_agents_string(malicious_indexes),
+                "flags_string" : build_flags_string(None),
             }
             if round_num is not None:
                 format_data["round_num"] = round_num
@@ -206,12 +388,17 @@ class LiveDebateOrchestration:
 
             response = agent.first_round_generate(format_data=format_data)
 
-            return {
+            result = {
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
-                "answer" : response.answer.upper(),
-                "reason" : response.reason,
+                "answer" : response.answer if self.supports_tool_calls else response.answer.upper(),
+                "message" : response.message,
             }
+            if self.supports_tool_calls:
+                result["trace"] = getattr(response, "trace", "")
+                result["called_tool"] = getattr(response, "called_tool", "")
+                result["called_tools"] = getattr(response, "called_tools", [])
+            return result
             
         round_responses = []
         
@@ -247,6 +434,7 @@ class LiveDebateOrchestration:
         round,
         mal_answer = "",
         question_format_data: dict | None = None,
+        flags: list[int] | None = None,
     ):
         def single_agent_debate_round(agent: DebateAgent):
             neighbors =[
@@ -254,28 +442,39 @@ class LiveDebateOrchestration:
             ]
             
             format_neighbors = "\n".join(
-                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['reason']}\n" 
+                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['message']}\n" 
                 for m in neighbors
             ) if len(neighbors) > 0 else "No messages from other agents in this round."
             
+            malicious_indexes = [i for i, a in enumerate(agents) if a.is_malicious]
             format_data={
                 "agent_id" : agent.agent_id,
                 "question" : question,
                 "choices" : choices,
                 "neighbors_messages" : format_neighbors,
                 "round_num" : round,
+                "topology" : adjacency_matrix,
+                "malicious_indexes" : malicious_indexes,
+                "topology_string" : build_topology_string(adjacency_matrix),
+                "malicious_agents_string" : build_malicious_agents_string(malicious_indexes),
+                "flags_string" : build_flags_string(flags),
             }
             format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
                 format_data['wrong_answer'] = str(mal_answer)
                 
             response = agent.debate_round_generate(format_data=format_data)
-            return {
+            result = {
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
-                "answer" : response.answer.upper(),
-                "reason" : response.reason,
+                "answer" : response.answer if self.supports_tool_calls else response.answer.upper(),
+                "message" : response.message,
             }
+            if self.supports_tool_calls:
+                result["trace"] = getattr(response, "trace", "")
+                result["called_tool"] = getattr(response, "called_tool", "")
+                result["called_tools"] = getattr(response, "called_tools", [])
+            return result
             
         round_responses = []
         
@@ -325,9 +524,44 @@ class LiveDebateOrchestration:
         
         sorted_responses = sorted(response_counts.items(), key=lambda x: x[1], reverse=True)
         return sorted_responses[0][0]
+
+    def _predict_defense_model(self, defense_model, debate_embeddings, adjacency_matrix, trace_id=None):
+        """Dispatch the legacy two-argument API or an optional trace-aware API."""
+        with self._model_predict_lock:
+            begin_trace = getattr(defense_model, "begin_trace", None)
+            if trace_id is not None and callable(begin_trace):
+                begin_trace(trace_id, adjacency_matrix)
+
+            predict = defense_model.predict
+            supports_trace_id = False
+            if trace_id is not None:
+                try:
+                    parameters = inspect.signature(predict).parameters.values()
+                    supports_trace_id = any(
+                        parameter.name == "trace_id"
+                        or parameter.kind == inspect.Parameter.VAR_KEYWORD
+                        for parameter in parameters
+                    )
+                except (TypeError, ValueError):
+                    supports_trace_id = False
+
+            if supports_trace_id:
+                return predict(debate_embeddings, adjacency_matrix, trace_id=trace_id)
+            return predict(debate_embeddings, adjacency_matrix)
     
     def check_answer(self, round_responses, correct_answer) -> bool:
         return self.dataloader.is_answer_correct(round_responses, correct_answer)
+    
+    def _trace_response(self, resp: dict) -> dict:
+        entry = {
+            "agent_id": resp['agent_id'],
+            "answer": resp['answer'],
+        }
+        if self.supports_tool_calls:
+            entry["trace"] = resp.get("trace", "")
+            entry["called_tool"] = resp.get("called_tool", "")
+            entry["called_tools"] = resp.get("called_tools", [])
+        return entry
     
     def debate_question(
         self,
@@ -339,6 +573,7 @@ class LiveDebateOrchestration:
         mal_answer = "",
         question_index = None,
         question_format_data: dict | None = None,
+        trace_id = None,
     ):
         if not hasattr(defense_model, 'config'):
             defense_model.config = SimpleNamespace()
@@ -368,22 +603,25 @@ class LiveDebateOrchestration:
             mal_answer=mal_answer,
             question_format_data=question_format_data,
             round_num=1,
+            topology=adjacency_matrix,
+            malicious_indexes= [i for i, agent in enumerate(agents) if agent.is_malicious]
         )
 
         static_adjacency = copy.deepcopy(adjacency_matrix)
         static_mode = getattr(self.config, "static_adjacency_mode", False)
         
         debate_embeddings = self.text_processor.process_round(last_round_responses)
-        with self._model_predict_lock:
-            flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
+        flags, anomaly_scores = self._predict_defense_model(
+            defense_model,
+            debate_embeddings,
+            static_adjacency if static_mode else adjacency_matrix,
+            trace_id=trace_id,
+        )
         
         adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
         debate_trace.append({
             "round": 1,
-            "responses": [{
-                "agent_id": resp['agent_id'],
-                "answer": resp['answer'],
-            } for resp in last_round_responses],
+            "responses": [self._trace_response(resp) for resp in last_round_responses],
             "flags": flags,
             "AUROC" : roc_auc_score(flags_ground_truth, anomaly_scores) if anomaly_scores is not None else 0,
             "anomaly_scores": anomaly_scores,
@@ -410,19 +648,21 @@ class LiveDebateOrchestration:
                 round=i,
                 mal_answer=mal_answer,
                 question_format_data=question_format_data,
+                flags=flags,
             )
             
             debate_embeddings = self.text_processor.process_round(last_round_responses)
-            with self._model_predict_lock:
-                flags, anomaly_scores = defense_model.predict(debate_embeddings, static_adjacency if static_mode else adjacency_matrix)
+            flags, anomaly_scores = self._predict_defense_model(
+                defense_model,
+                debate_embeddings,
+                static_adjacency if static_mode else adjacency_matrix,
+                trace_id=trace_id,
+            )
             adjacency_matrix = modify_adjacency(flags, adjacency_matrix)
             
             debate_trace.append({
                 "round": i,  # Maybe is i+1 if we want rounds to start at 1 instead of 0
-                "responses": [{
-                    "agent_id": resp['agent_id'],
-                    "answer": resp['answer'],
-                } for resp in last_round_responses],
+                "responses": [self._trace_response(resp) for resp in last_round_responses],
                 "flags": flags,
                 "AUROC": roc_auc_score(flags_ground_truth, anomaly_scores) if anomaly_scores is not None else 0,
                 "anomaly_scores": anomaly_scores,
@@ -441,6 +681,8 @@ class LiveDebateOrchestration:
             "debate_trace": debate_trace,
             "flags_ground_truth": flags_ground_truth,
         }
+        if self.supports_tool_calls:
+            r["attack_tool"] = (question_format_data or {}).get("attack_tool", "")
         
         return r
     
@@ -470,14 +712,13 @@ class LiveDebateOrchestration:
             mal_answer=mal_answer,
             question_format_data=question_format_data,
             round_num=1,
+            topology=adjacency_matrix,
+            malicious_indexes= [i for i, agent in enumerate(agents) if agent.is_malicious]
         )
 
         debate_trace.append({
             "round": 1,
-            "responses": [{
-                "agent_id": resp['agent_id'],
-                "answer": resp['answer'],
-            } for resp in last_round_responses],
+            "responses": [self._trace_response(resp) for resp in last_round_responses],
             "flags": flags,
             # Will add scores in future for AUROC
         })
@@ -501,10 +742,7 @@ class LiveDebateOrchestration:
             
             debate_trace.append({
                 "round": i,  # Maybe is i+1 if we want rounds to start at 1 instead of 0
-                "responses": [{
-                    "agent_id": resp['agent_id'],
-                    "answer": resp['answer'],
-                } for resp in last_round_responses],
+                "responses": [self._trace_response(resp) for resp in last_round_responses],
                 "flags": flags,
             })
             
@@ -521,6 +759,8 @@ class LiveDebateOrchestration:
             "debate_trace": debate_trace,
             "flags_ground_truth": flags_ground_truth,
         }
+        if self.supports_tool_calls:
+            r["attack_tool"] = (question_format_data or {}).get("attack_tool", "")
         
         return r
     
@@ -539,7 +779,9 @@ class LiveDebateOrchestration:
 
         log_info(f"Starting defense run: topologies={len(topologies_dict)}, total_tasks={total_tasks}")
         def process_single_question(index, question_data, topo_name):
-            question = question_data['question']
+            # Datasets expose the prompt text under 'question' (MMLU/GSM8K/MA)
+            # or 'instruction' (InjecAgent/TA); fall back accordingly.
+            question = question_data.get('question') or question_data.get('instruction') or ''
             choices = question_data.get('choices')
             ground_truth = question_data.get('answer', question_data.get('correct_answer', ''))
             answer_rng = np.random.default_rng(self.answer_seed + 100000 + index)
@@ -553,17 +795,23 @@ class LiveDebateOrchestration:
             if choices is not None:
                 wrong_answer_idx = int(answer_rng.choice([i for i in range(0,4) if i!=ground_truth]))
                 mal_answer = chr(wrong_answer_idx + 65)
-            
-            r = self.debate_question(
-                defense_model,
-                question,
-                ground_truth,
-                choices,
-                adjacency_matrix,
-                mal_answer=mal_answer,
-                question_index=index,
-                question_format_data=question_data,
-            )
+            trace_id = (str(topo_name), int(index))
+            try:
+                r = self.debate_question(
+                    defense_model,
+                    question,
+                    ground_truth,
+                    choices,
+                    adjacency_matrix,
+                    mal_answer=mal_answer,
+                    question_index=index,
+                    question_format_data=question_data,
+                    trace_id=trace_id,
+                )
+            finally:
+                end_trace = getattr(defense_model, "end_trace", None)
+                if callable(end_trace):
+                    end_trace(trace_id)
             return index, topo_name, r
         
         max_workers = int(self.config.max_concurrent_inference // self.config.num_agents)
@@ -623,7 +871,9 @@ class LiveDebateOrchestration:
 
         log_info(f"Starting no-defense run: topologies={len(topologies_dict)}, total_tasks={total_tasks}")
         def process_single_question(index, question_data, topo_name):
-            question = question_data['question']
+            # Datasets expose the prompt text under 'question' (MMLU/GSM8K/MA)
+            # or 'instruction' (InjecAgent/TA); fall back accordingly.
+            question = question_data.get('question') or question_data.get('instruction') or ''
             choices = question_data.get('choices')
             answer_rng = np.random.default_rng(self.answer_seed + 200000 + index)
             if topo_name == "random" and self.config.new_random_each_question:
@@ -711,6 +961,10 @@ class LiveDebateOrchestration:
         return all_traces
     
     def check_if_empty_response(self, round_responses):
+        # TA: an empty answer means the agent called no tool (safe), so it is
+        # never treated as an empty/failed response and TA debates are not cleaned.
+        if self.supports_tool_calls:
+            return False
         return any(resp['answer'].strip() == "" for resp in round_responses)
     
     def _compute_f1(self, flags, gt_flags):
@@ -767,10 +1021,26 @@ class LiveDebateOrchestration:
                             continue
                         if self.config.clean_debates_with_empty_responses and self.check_if_empty_response(responses):
                             continue
+                        """En este punto tengo que mandar al agent_is_safe todo combinado."""
                         for a_idx, a in enumerate(responses):
+                            if self.supports_tool_calls:
+                                safe_input = {
+                                    "response": a,
+                                    "correct_answer": gt_answer,
+                                    "question": question.get("question", ""),
+                                    "Called-tool": a.get("called_tool", ""),
+                                    "Called-tools": a.get("called_tools", []),
+                                    "Attack-tool": question.get("attack_tool", ""),
+                                }
+                            else:
+                                safe_input = {
+                                    "response": a,
+                                    "correct_answer": gt_answer,
+                                    "question": question.get("question", ""),
+                                }
                             future = executor.submit(
                                 self.dataloader.agent_is_safe,
-                                {"response": a, "correct_answer": gt_answer, "question": question.get("question", "")}
+                                safe_input,
                             )
                             phase1_futures.append((topo_name, q_idx, r_idx, a_idx, future))
 
@@ -972,3 +1242,204 @@ class LiveDebateOrchestration:
                 json.dump(traces, f, indent=4, default=lambda o: o.tolist() if isinstance(o, np.ndarray) else o)
         all_stats = self.parse_all_stats(traces)
         return all_stats
+
+
+# ---------------------------------------------------------------------------
+#  Hyperparameter-search support (consolidated, R5)
+#
+#  This single file handles both the standard evaluation case and the HPS
+#  case.  HPS needs:
+#    * a fixed evaluation pool per dataset tag, excluding that tag's training
+#      indexes, persisted to disk so it is reused across runs/configs;
+#    * an orchestration object that reuses an externally built dataloader and
+#      an already-loaded text processor across configurations.
+#  Both are provided here; there is no separate ``-HPS`` module.
+# ---------------------------------------------------------------------------
+
+class _IdentityRNG:
+    """Mimics ``np.random.default_rng`` but returns the population untouched."""
+
+    def choice(self, a, size=None, replace=False, axis=None, **kwargs):
+        arr = np.asarray(list(a))
+        if size is None:
+            return arr[0] if len(arr) else arr
+        n = int(size)
+        if n <= len(arr):
+            return arr[:n]
+        return arr
+
+    def __getattr__(self, _name):
+        def _noop(*args, **kwargs):
+            return None
+        return _noop
+
+
+def _build_full_question_list(loader_cls, live_cfg=None):
+    """Instantiate *loader_cls* returning the full question list (no sampling).
+
+    Both ``np.random.default_rng`` and the module-level
+    ``_select_evaluation_indexes`` (which raises when fewer tasks are available
+    than requested) are patched only for the duration of the loader
+    construction, so that previously-stored pool indices can be mapped back to
+    their exact questions.  The original functions are always restored.
+    """
+    _orig_rng = np.random.default_rng
+    _globals = getattr(getattr(loader_cls, "load_questions", None), "__globals__", None)
+    _orig_select = _globals.get("_select_evaluation_indexes") if _globals else None
+
+    np.random.default_rng = lambda seed=None: _IdentityRNG()
+    if _globals is not None and _orig_select is not None:
+        _globals["_select_evaluation_indexes"] = (
+            lambda available_indexes, num_questions, rng: np.asarray(available_indexes)
+        )
+    try:
+        loader = loader_cls(**make_loader_kwargs(
+            loader_cls,
+            live_cfg,
+            num_questions=10**12,
+            random_seed=0,
+            indexes=[],
+        ))
+    finally:
+        np.random.default_rng = _orig_rng
+        if _globals is not None and _orig_select is not None:
+            _globals["_select_evaluation_indexes"] = _orig_select
+    return loader
+
+
+def build_hps_pool_loader(
+    live_cfg,
+    train_indexes,
+    hps_total_samples,
+    hps_split_seed,
+    index_pkl,
+    dataset_tag=None,
+    loader_tag=None,
+):
+    """Build (or reload) the fixed HPS pool dataloader for one dataset tag.
+
+    Parameters
+    ----------
+    live_cfg : object
+        Live-evaluation config namespace for this dataset tag (must expose
+        ``questions_path`` and, for MA/TA, ``ma_dataset_path``).
+    train_indexes : list[int]
+        Dataset indexes used for training on this same tag; never selected.
+    hps_total_samples : int
+        Size of the fixed HPS evaluation pool.
+    hps_split_seed : int
+        Seed controlling the one-time pool selection.
+    index_pkl : str | Path
+        Pickle file used to persist / reuse the selected pool indices.
+    dataset_tag / loader_tag : str | None
+        Config tag and/or explicit loader TAG used to resolve the loader.
+
+    Returns
+    -------
+    (pool_loader, pool_indices)
+    """
+    loader_cls = resolve_questions_loader_class(
+        live_cfg, dataset_tag=dataset_tag, loader_tag=loader_tag
+    )
+    index_pkl_path = Path(index_pkl)
+    train_set = set(int(i) for i in (train_indexes or []))
+
+    if index_pkl_path.exists():
+        with open(index_pkl_path, "rb") as f:
+            stored = pickle.load(f)
+        stored_indices = [int(i) for i in list(stored.get("indices", []))]
+        stored_params = stored.get("params", {})
+        log_info(
+            f"Reusing stored HPS pool indices from {index_pkl_path} "
+            f"({len(stored_indices)} indices)"
+        )
+        if stored_params:
+            log_info(f"Stored pool params: {stored_params}")
+
+        if len(stored_indices) != hps_total_samples:
+            raise ValueError(
+                f"index_pkl contains {len(stored_indices)} indices but "
+                f"hps_total_samples={hps_total_samples}. Delete {index_pkl_path} "
+                f"or align the configuration."
+            )
+
+        full_loader = _build_full_question_list(loader_cls, live_cfg)
+        if stored_indices and max(stored_indices) >= len(full_loader.questions):
+            raise ValueError(
+                f"Stored HPS pool index {max(stored_indices)} is out of range for "
+                f"the current dataset ({len(full_loader.questions)} questions). "
+                f"Delete {index_pkl_path} and regenerate the pool."
+            )
+        pool_raw = [full_loader.questions[i] for i in stored_indices]
+        full_loader.questions = pool_raw
+        full_loader.indexes = list(stored_indices)
+        full_loader.formatted_questions = full_loader.format_questions()
+
+        leaked = train_set.intersection(stored_indices)
+        if leaked:
+            log_warn(
+                f"Stored pool contains {len(leaked)} training indices -- "
+                f"they will still be excluded from evaluation by the caller."
+            )
+        return full_loader, list(stored_indices)
+
+    log_info(
+        f"Selecting HPS pool of {hps_total_samples} questions "
+        f"(seed={hps_split_seed}, excluding {len(train_set)} training indices)"
+    )
+    pool_loader = loader_cls(**make_loader_kwargs(
+        loader_cls,
+        live_cfg,
+        num_questions=hps_total_samples,
+        random_seed=hps_split_seed,
+        indexes=list(train_set),
+    ))
+    pool_indices = [int(i) for i in list(pool_loader.indexes)]
+
+    leaked = train_set.intersection(pool_indices)
+    if leaked:
+        raise RuntimeError(
+            f"Pool selection leaked {len(leaked)} training indices. Aborting."
+        )
+
+    index_pkl_path.parent.mkdir(parents=True, exist_ok=True)
+    params = {
+        "hps_total_samples": hps_total_samples,
+        "hps_split_seed": hps_split_seed,
+        "train_indexes_count": len(train_set),
+        "dataset_tag": dataset_tag,
+        "loader_tag": loader_tag,
+    }
+    with open(index_pkl_path, "wb") as f:
+        pickle.dump(
+            {
+                "indices": pool_indices,
+                "params": params,
+                "tag": dataset_tag,
+                "loader_tag": loader_tag,
+            },
+            f,
+        )
+    log_info(f"Persisted pool indices to {index_pkl_path}")
+    return pool_loader, pool_indices
+
+
+def draw_hps_run_subset(pool_questions, hps_run_samples, seed, run_identity):
+    """Draw a reproducible per-run subset from a fixed HPS pool.
+
+    The seed is derived from the run's stable identity (model + effective
+    hyperparameter configuration) so every run draws a different subset while
+    the same seed reproduces the exact subset across executions.
+    """
+    import hashlib
+    import json as _json
+
+    pool_size = len(pool_questions)
+    if hps_run_samples is None or hps_run_samples >= pool_size:
+        return list(pool_questions)
+    payload = _json.dumps({"seed": seed, "run": run_identity}, sort_keys=True, default=str)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    rng = np.random.default_rng(int(digest[:16], 16))
+    chosen = rng.choice(pool_size, size=hps_run_samples, replace=False)
+    chosen.sort()
+    return [pool_questions[int(i)] for i in chosen]

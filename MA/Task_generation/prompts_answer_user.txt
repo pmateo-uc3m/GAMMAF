@@ -1,0 +1,14 @@
+QUESTION:
+{query}
+
+PASSAGES:
+{source_passages}
+
+Based ONLY on the passages above, what is the answer to the question?
+
+Return ONLY valid JSON with this exact schema:
+{{
+  "answer": "..."
+}}
+
+The "answer" field must contain a single concise answer derived from the passages.

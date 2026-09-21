@@ -1,14 +1,33 @@
-from DebateAgent import DebateAgent
+"""DebateDataGenerationLoop-complete.py -- placeholder-aware generation loop.
+
+Single consolidated ``-complete`` copy of ``DebateDataGenerationLoop.py`` (the
+original is left untouched, see the ``-complete`` convention).
+
+Purely additive change with respect to the original: the per-turn
+``format_data`` dictionaries built in ``generate_round_1_concurrent`` and
+``generate_debate_round_concurrent`` now also carry the three optional
+placeholder keys
+
+    ``topology_string``          -- descriptive adjacency of the step's topology
+    ``malicious_agents_string``  -- indexes of the malicious agents
+    ``flags_string``             -- indexes flagged by the defense model (always
+                                    empty during generation; no defense runs here)
+
+Prompts that do not reference these keys format exactly as before
+(``str.format`` ignores unused keys).
+"""
+
 from DebateConfigLoader import DebateConfig
 from typing import List
 from langchain_openai import ChatOpenAI
-from DebateAgent import ResponseFormat, DebateAgent
+from DebateAgent import DebateAgent
 from dotenv import load_dotenv
 from pydantic import SecretStr
 import random
 import os
 import datetime
 from collections import Counter
+from functools import lru_cache
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -16,10 +35,11 @@ from tqdm import tqdm
 import json
 import numpy as np
 
-import re
 from langchain_core.runnables import RunnableLambda
-from langchain_core.messages import AIMessage
+import importlib.util
+from pathlib import Path
 import DatasetManager
+from DatasetManager import make_loader_kwargs, default_parse_model_output
 import inspect
 from LoggingUtils import log_info, log_warn, log_error
 
@@ -58,36 +78,137 @@ def generate_random_topologies(num_agents: int, density: float, rng):
 
     return adj.tolist()
 
-# Just an auxiliary function to deal with GSM8K answers containing non-numeric text
-def extract_number(response_str):
-    # print(f"[DEBUG] Extracting number from response: {response_str}")
-    match = re.search(r'-?\d+\.?\d*', str(response_str))
-    cleaned = match.group(0) if match else response_str
-    # print(f"[DEBUG] Extracted number: {cleaned}")
-    return cleaned
 
-def parse_model_output(message: AIMessage) -> ResponseFormat:
-    text = message.content
-    if not text:
-         # Log this case?
-        #  print(f"\n[DEBUG] Received empty content from model. Full message: {message}")
-         # Return empty ResponseFormat or raise to retry. 
-         # Raising matches existing behavior of erroring out but now with clear message.
-         raise ValueError("Empty response from model")
-         
-    # Regex for XML-like format requested in prompts
-    reason_match = re.search(r'<reason>:\s*(.*?)(?=\n<answer>:|<answer>:|\Z)', text, re.DOTALL | re.IGNORECASE)
-    answer_match = re.search(r'<answer>:\s*(.*)', text, re.DOTALL | re.IGNORECASE)
-    
-    reason = reason_match.group(1).strip() if reason_match else text
-    answer = answer_match.group(1).strip() if answer_match else ""
-    
-    # Fallback: if answer is empty, maybe the model just outputted the answer letter?
-    if not answer and len(text) < 10 and text.strip().upper() in ['A', 'B', 'C', 'D', 'E']:
-         answer = text.strip().upper()
-         reason = "No reasoning provided."
+# ---------------------------------------------------------------------------
+# Prompt placeholder helpers (additive)
+#
+# These helpers derive the optional prompt placeholders from the live
+# topology / agent state at each debate step.  They contain no instructions
+# or guidance, only a description of the adjacency plus simple index lists.
+# ---------------------------------------------------------------------------
 
-    return ResponseFormat(reason=reason, answer=answer)
+
+def _index_list_to_string(indexes) -> str:
+    """Render an iterable of agent indexes as a simple sorted list string."""
+    if indexes is None:
+        return "[]"
+    normalized = set()
+    for index in indexes:
+        try:
+            normalized.add(int(index))
+        except (TypeError, ValueError):
+            continue
+    return "[" + ", ".join(str(index) for index in sorted(normalized)) + "]"
+
+
+def build_malicious_agents_string(malicious_indexes) -> str:
+    """``{malicious_agents_string}``: e.g. ``[0, 3]`` (``[]`` when none)."""
+    return _index_list_to_string(malicious_indexes)
+
+
+def build_flags_string(flags) -> str:
+    """``{flags_string}``: agent indexes currently flagged at this step.
+
+    ``flags`` may be ``None`` or an all-zero sequence before any flagging has
+    happened (e.g. round 1), which renders as ``[]``.
+    """
+    if flags is None:
+        return "[]"
+    flagged = []
+    for index, flag in enumerate(flags):
+        try:
+            is_flagged = int(flag) != 0
+        except (TypeError, ValueError):
+            is_flagged = bool(flag)
+        if is_flagged:
+            flagged.append(index)
+    return _index_list_to_string(flagged)
+
+
+def _adjacency_key(adjacency):
+    """Convert an adjacency matrix (list/numpy) into a hashable square tuple."""
+    if adjacency is None:
+        return None
+    try:
+        rows = [tuple(int(value) for value in row) for row in adjacency]
+    except (TypeError, ValueError):
+        return None
+    if not rows or any(len(row) != len(rows) for row in rows):
+        return None
+    return tuple(rows)
+
+
+def _weakly_connected_components(adjacency_key):
+    size = len(adjacency_key)
+    neighbours = [set() for _ in range(size)]
+    for i in range(size):
+        for j in range(size):
+            if i != j and (adjacency_key[i][j] == 1 or adjacency_key[j][i] == 1):
+                neighbours[i].add(j)
+                neighbours[j].add(i)
+    seen = [False] * size
+    components = []
+    for start in range(size):
+        if seen[start]:
+            continue
+        stack = [start]
+        seen[start] = True
+        component = []
+        while stack:
+            node = stack.pop()
+            component.append(node)
+            for neighbour in neighbours[node]:
+                if not seen[neighbour]:
+                    seen[neighbour] = True
+                    stack.append(neighbour)
+        components.append(sorted(component))
+    components.sort(key=lambda component: component[0])
+    return components
+
+
+@lru_cache(maxsize=256)
+def _build_topology_string_cached(adjacency_key) -> str:
+    size = len(adjacency_key)
+    if size == 0:
+        return "Network topology for this step: no agents."
+
+    receives_from = []
+    sends_to = []
+    edges = []
+    for i in range(size):
+        incoming = [j for j in range(size) if j != i and adjacency_key[i][j] == 1]
+        outgoing = [j for j in range(size) if j != i and adjacency_key[j][i] == 1]
+        receives_from.append(incoming)
+        sends_to.append(outgoing)
+        for sender in incoming:
+            edges.append(f"{sender} -> {i}")
+
+    lines = [
+        f"Network topology for this step: {size} agents (indexes 0-{size - 1}), directed adjacency.",
+        'A directed edge "sender -> receiver" means the sender\'s messages reach the receiver.',
+        "Edges (sender -> receiver): " + ("; ".join(edges) if edges else "none"),
+    ]
+    for i in range(size):
+        lines.append(
+            f"Agent {i}: receives messages from {receives_from[i]}; "
+            f"sends messages to {sends_to[i]}"
+        )
+    components = _weakly_connected_components(adjacency_key)
+    if len(components) > 1:
+        lines.append(
+            "Weakly connected components: "
+            + "; ".join(str(component) for component in components)
+        )
+    return "\n".join(lines)
+
+
+def build_topology_string(adjacency) -> str:
+    """``{topology_string}``: purely descriptive adjacency description of a step."""
+    adjacency_key = _adjacency_key(adjacency)
+    if adjacency_key is None:
+        return "Network topology for this step: topology information is not available."
+    return _build_topology_string_cached(adjacency_key)
+
 
 class DebateOrchestration:
     def __init__(self, config: DebateConfig):
@@ -107,35 +228,38 @@ class DebateOrchestration:
             timeout = config.timeout,
             max_retries = config.llm_max_retries,
         )
-        self.llm = self.base_llm | RunnableLambda(parse_model_output)
-        
+        self.llm = self.base_llm | RunnableLambda(default_parse_model_output)
+        # Defaults; refined in run_evaluation once the dataloader is known.
+        self.supports_tool_calls = False
+        self._agent_class = DebateAgent
+
+    @staticmethod
+    def _load_ta_agent():
+        spec = importlib.util.spec_from_file_location(
+            "DebateAgent_TA", Path(__file__).with_name("DebateAgent-TA.py")
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.TAAgent
+
     def generate_agents(self, question_index: int = None) -> List[DebateAgent]:
         agents : List[DebateAgent] = []
         mal_idx = np.random.default_rng(
             self.config.malicious_randomization_seed + question_index if question_index is not None else self.config.malicious_randomization_seed
             ).choice(list(range(self.config.number_of_agents)), size=self.config.number_malicious_agents, replace=False)
+        agent_class = self._agent_class
+        model = self.base_llm if self.supports_tool_calls else self.llm
         for i in range(self.config.number_of_agents):
-            if i in mal_idx:
-                agents.append(DebateAgent(
-                    agent_id=i,
-                    model=self.llm,
-                    system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"],
-                    first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"],
-                    debate_prompt = self.prompts["DEBATE_PROMPT_MALICIOUS"],
-                    max_retries=self.config.llm_max_retries,
-                    is_malicious=True,
-                ))
-            else:
-                agents.append(DebateAgent(
-                    agent_id=i,
-                    model=self.llm,
-                    system_prompt = self.prompts["SYSTEM_PROMPT"],
-                    first_round_prompt = self.prompts["FIRST_ROUND_PROMPT"],
-                    debate_prompt = self.prompts["DEBATE_PROMPT"],
-                    max_retries=self.config.llm_max_retries,
-                    is_malicious=False,
-                ))
-                
+            is_malicious = i in mal_idx
+            agents.append(agent_class(
+                agent_id=i,
+                model=model,
+                system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"] if is_malicious else self.prompts["SYSTEM_PROMPT"],
+                first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"] if is_malicious else self.prompts["FIRST_ROUND_PROMPT"],
+                debate_prompt = self.prompts["DEBATE_PROMPT_MALICIOUS"] if is_malicious else self.prompts["DEBATE_PROMPT"],
+                max_retries=self.config.llm_max_retries,
+                is_malicious=is_malicious,
+            ))
         return agents
 
     def _merge_prompt_format_data(self, format_data: dict, question_format_data: dict | None) -> dict:
@@ -160,6 +284,8 @@ class DebateOrchestration:
         mal_answer: str = "",
         question_format_data: dict | None = None,
         round_num: int | None = 1,
+        topology: list[list[int]] | None = None,
+        malicious_indexes: list[int] | None = None
     ):
                 
         def single_agent_round_1(agent: DebateAgent):
@@ -167,6 +293,11 @@ class DebateOrchestration:
                 "agent_id" : agent.agent_id,
                 "question" : question,
                 "choices" : choices,
+                "topology" : topology,
+                "malicious_indexes" : malicious_indexes,
+                "topology_string" : build_topology_string(topology),
+                "malicious_agents_string" : build_malicious_agents_string(malicious_indexes),
+                "flags_string" : build_flags_string(None),
             }
             if round_num is not None:
                 format_data["round_num"] = round_num
@@ -176,14 +307,12 @@ class DebateOrchestration:
 
             response = agent.first_round_generate(format_data=format_data)
             
-            if self.dataset_name == "GSM8K":
-                response.answer = extract_number(response.answer)
-            
             return {
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
                 "answer" : response.answer.upper(),
-                "reason" : response.reason,
+                "message" : response.message,
+                "tool_calls" : getattr(response, "tool_calls", None) or [],
             }
             
         round_responses = []
@@ -218,6 +347,7 @@ class DebateOrchestration:
         topology,
         mal_answer: str = "",
         question_format_data: dict | None = None,
+        malicious_indexes: list[int] | None = None
     ):
         
         def single_agent_round_debate(agent: DebateAgent, topology = topology):
@@ -230,8 +360,13 @@ class DebateOrchestration:
             ]
             
             format_neighbors = "\n".join(
-                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['reason']}\n" 
+                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['message']}\n" 
                 for m in neighbors
+            )
+            resolved_malicious_indexes = (
+                malicious_indexes
+                if malicious_indexes is not None
+                else [a.agent_id for a in agents if getattr(a, "is_malicious", False)]
             )
             format_data={
                 "agent_id" : agent.agent_id,
@@ -239,6 +374,11 @@ class DebateOrchestration:
                 "choices" : choices,
                 "neighbors_messages" : format_neighbors,
                 "round_num" : round,
+                "topology" : topology,
+                "malicious_indexes" : malicious_indexes,
+                "topology_string" : build_topology_string(topology),
+                "malicious_agents_string" : build_malicious_agents_string(resolved_malicious_indexes),
+                "flags_string" : build_flags_string(None),
             }
             format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
@@ -248,14 +388,13 @@ class DebateOrchestration:
             if not isinstance(response.answer, str):
                 log_warn(f"Agent {agent.agent_id} Round {round} - Response is not a string: type={type(response.answer)}, value={response.answer}")
                 response.answer = str(response.answer)
-                
-            if self.dataset_name == "GSM8K":
-                response.answer = extract_number(response.answer)    
+
             return {
                 "agent_id" : agent.agent_id,
                 "is_malicious" : agent.is_malicious,
                 "answer" : response.answer.upper(),
-                "reason" : response.reason,
+                "message" : response.message,
+                "tool_calls" : getattr(response, "tool_calls", None) or [],
             }
             
         round_responses = []
@@ -350,6 +489,8 @@ class DebateOrchestration:
             agents,
             mal_answer=mal_answer,
             question_format_data=question_format_data,
+            topology= topology,
+            malicious_indexes=malicious_indexes,
         )
         if pbar:
             pbar.update(1)
@@ -367,9 +508,9 @@ class DebateOrchestration:
                 agents,
                 round=i,
                 topology=topology,
-                mal_answer=mal_answer
-                ,
+                mal_answer=mal_answer,
                 question_format_data=question_format_data,
+                malicious_indexes=malicious_indexes
             )
             if pbar:
                 pbar.update(1)
@@ -386,7 +527,9 @@ class DebateOrchestration:
         failure_examples = []
         
         def process_single_question(index: int, question_data: dict):
-            question_text = question_data['question']
+            # Datasets expose the prompt text under 'question' (MMLU/GSM8K/MA)
+            # or 'instruction' (InjecAgent/TA); fall back accordingly.
+            question_text = question_data.get('question') or question_data.get('instruction') or ''
             choices_text = question_data.get('choices')
             ground_truth = question_data.get('answer', question_data.get('correct_answer', ''))
             mal_answer = ""
@@ -414,6 +557,10 @@ class DebateOrchestration:
                 "final_answer": self.get_answer(debate_result[-1]),
                 "correct_answer": ground_truth,
                 "is_correct": self.check_answer(debate_result[-1], ground_truth),
+                "attack_tool": question_data.get("attack_tool", ""),
+                "attack_params": question_data.get("attack_params", {}) or {},
+                "attack_type": question_data.get("attack_type", ""),
+                "available_tools": question_data.get("available_tools", []) or [],
             }
             
             num_rounds = len(debate_result)
@@ -479,16 +626,22 @@ class DebateOrchestration:
             raise ValueError(f"Unsupported dataset: {dataset_name}")
         loader_cls = dataset_classes[dataset_name]
 
-        
-        loader_kwargs = {
-            "num_questions": getattr(self.config, "num_questions", None),
-            "random_seed": getattr(self.config, "questions_random_seed", None),
-        }
-            
+        loader_kwargs = make_loader_kwargs(
+            loader_cls,
+            self.config,
+            num_questions=getattr(self.config, "num_questions", None),
+            random_seed=getattr(self.config, "questions_random_seed", None),
+        )
         self.dataloader = loader_cls(**loader_kwargs)
         self.prompts = self.dataloader.get_prompts()
 
-        # Use parser from the selected dataloader.
+        # Datasets that require tool-call handling (InjecAgent) opt in via the
+        # loader. They use the raw model (no parse chain) and the tool-call
+        # aware agent in DebateAgent-TA.py.
+        self.supports_tool_calls = bool(getattr(self.dataloader, "SUPPORTS_TOOL_CALLS", False))
+        self._agent_class = self._load_ta_agent() if self.supports_tool_calls else DebateAgent
+
+        # Use parser from the selected dataloader (only used by non-tool-call agents).
         self.llm = self.base_llm | RunnableLambda(self.dataloader.parse_model_output)
         
         questions = self.dataloader.get_formatted_questions()

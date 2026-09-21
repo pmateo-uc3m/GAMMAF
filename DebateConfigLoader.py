@@ -48,6 +48,7 @@ class DebateConfig:
     num_questions: int = 500
     questions_random_seed: int = 28
     dataset_tag: str = "MMLU"
+    ma_dataset_path: str = ""  # Optional path to the MA dataset JSON (new format)
     
     def __post_init__(self):
         if self.number_malicious_agents > self.number_of_agents:
