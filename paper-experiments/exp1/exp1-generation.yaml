@@ -73,8 +73,8 @@ datasets:
   #   questions_random_seed: 7
   #   prompts_file: prompts/prompts_MMLU_alt.json
 
-output_dir: major-experiments/exp1
-output_file: exp1-trainData.pkl
+output_dir: paper-experiments/exp1/
+output_file: exp1-train-data.pkl
 
 # Optional post-processing
 process_text: true
