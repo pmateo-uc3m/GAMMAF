@@ -1,0 +1,223 @@
+
+========================================================================
+  Training Data Generation (multi-dataset)
+========================================================================
+  [INFO] Datasets to generate: MMLUPRO->MMLUPro, InjecAgent->TA, MsMarco->MA, gsm8k->GSM8K
+
+========================================================================
+  Dataset MMLUPRO (loader TAG=MMLUPro)
+========================================================================
+  [INFO] Planned questions: fixed=1, random=1, seed=11
+
+========================================================================
+  [MMLUPRO] Topology 1/4: TREE
+========================================================================
+  [INFO] Seed: 11
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:24<00:00, 24.41s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:24<00:00, 24.41s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology tree
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [MMLUPRO/tree]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [MMLUPRO/tree]: 100%|██████████| 1/1 [00:05<00:00,  5.17s/it]                                                                             
+========================================================================
+  [MMLUPRO] Topology 2/4: CHAIN
+========================================================================
+  [INFO] Seed: 12
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:13<00:00, 13.88s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:13<00:00, 13.88s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology chain
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [MMLUPRO/chain]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [MMLUPRO/chain]: 100%|██████████| 1/1 [00:01<00:00,  1.79s/it]                                                                              
+========================================================================
+  [MMLUPRO] Topology 3/4: STAR
+========================================================================
+  [INFO] Seed: 13
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:07<00:00,  8.00s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:07<00:00,  8.00s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology star
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [MMLUPRO/star]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [MMLUPRO/star]: 100%|██████████| 1/1 [00:00<00:00,  1.29it/s]                                                                             
+========================================================================
+  [MMLUPRO] Topology 4/4: RANDOM
+========================================================================
+  [INFO] Seed: 14
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:47<00:00, 47.87s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:47<00:00, 47.88s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology random
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [MMLUPRO/random]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [MMLUPRO/random]: 100%|██████████| 1/1 [00:01<00:00,  1.83s/it]                                                                                 [INFO] Dataset 'MMLUPRO': 4 valid debates, 4 used indexes recorded.
+
+========================================================================
+  Dataset InjecAgent (loader TAG=TA)
+========================================================================
+  [INFO] Planned questions: fixed=1, random=1, seed=21
+
+========================================================================
+  [InjecAgent] Topology 1/4: TREE
+========================================================================
+  [INFO] Seed: 21
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:05<00:00,  5.85s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:05<00:00,  5.85s/it]
+  [INFO] Skipping debate cleaning for TA: an empty answer means no tool was called (safe), so TA debates are never dropped for empty responses.
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [InjecAgent/tree]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [InjecAgent/tree]: 100%|██████████| 1/1 [00:01<00:00,  1.31s/it]                                                                                
+========================================================================
+  [InjecAgent] Topology 2/4: CHAIN
+========================================================================
+  [INFO] Seed: 22
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:04<00:00,  4.59s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:04<00:00,  4.59s/it]
+  [INFO] Skipping debate cleaning for TA: an empty answer means no tool was called (safe), so TA debates are never dropped for empty responses.
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [InjecAgent/chain]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [InjecAgent/chain]: 100%|██████████| 1/1 [00:00<00:00,  1.20it/s]                                                                                 
+========================================================================
+  [InjecAgent] Topology 3/4: STAR
+========================================================================
+  [INFO] Seed: 23
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:05<00:00,  5.37s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:05<00:00,  5.37s/it]
+  [INFO] Skipping debate cleaning for TA: an empty answer means no tool was called (safe), so TA debates are never dropped for empty responses.
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [InjecAgent/star]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [InjecAgent/star]: 100%|██████████| 1/1 [00:01<00:00,  1.41s/it]                                                                                
+========================================================================
+  [InjecAgent] Topology 4/4: RANDOM
+========================================================================
+  [INFO] Seed: 24
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:05<00:00,  5.99s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:05<00:00,  5.99s/it]
+  [INFO] Skipping debate cleaning for TA: an empty answer means no tool was called (safe), so TA debates are never dropped for empty responses.
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [InjecAgent/random]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [InjecAgent/random]: 100%|██████████| 1/1 [00:01<00:00,  1.72s/it]                                                                                    [INFO] Dataset 'InjecAgent': 4 valid debates, 4 used indexes recorded.
+
+========================================================================
+  Dataset MsMarco (loader TAG=MA)
+========================================================================
+  [INFO] Planned questions: fixed=1, random=1, seed=31
+
+========================================================================
+  [MsMarco] Topology 1/4: TREE
+========================================================================
+  [INFO] Seed: 31
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:10<00:00, 10.90s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:10<00:00, 10.91s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology tree
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [MsMarco/tree]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [MsMarco/tree]: 100%|██████████| 1/1 [00:01<00:00,  1.09s/it]                                                                             
+========================================================================
+  [MsMarco] Topology 2/4: CHAIN
+========================================================================
+  [INFO] Seed: 32
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:10<00:00, 10.76s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:10<00:00, 10.76s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology chain
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [MsMarco/chain]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [MsMarco/chain]: 100%|██████████| 1/1 [00:01<00:00,  1.28s/it]                                                                              
+========================================================================
+  [MsMarco] Topology 3/4: STAR
+========================================================================
+  [INFO] Seed: 33
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:13<00:00, 13.87s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:13<00:00, 13.87s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 1 invalid/empty debates from topology star
+  [INFO] Clean report for topology star:
+    Total debates      : 1
+    Kept debates       : 0
+    Removed debates    : 1
+  [INFO] Reason counts:
+      - round_2_agent_4_empty_message: 1
+  [INFO] Example removed debates (first up to 5):
+      - debate_index=0: round_2_agent_4_empty_message
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [MsMarco/star]: 0it [00:00, ?it/s]                                                  
+========================================================================
+  [MsMarco] Topology 4/4: RANDOM
+========================================================================
+  [INFO] Seed: 34
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:19<00:00, 19.12s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:19<00:00, 19.12s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology random
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [MsMarco/random]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [MsMarco/random]: 100%|██████████| 1/1 [00:01<00:00,  1.46s/it]                                                                                 [INFO] Dataset 'MsMarco': 3 valid debates, 3 used indexes recorded.
+
+========================================================================
+  Dataset gsm8k (loader TAG=GSM8K)
+========================================================================
+  [INFO] Planned questions: fixed=1, random=1, seed=41
+
+========================================================================
+  [gsm8k] Topology 1/4: TREE
+========================================================================
+  [INFO] Seed: 41
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [01:19<00:00, 79.45s/it]Overall Progress: 100%|███████████████████████████| 1/1 [01:19<00:00, 79.45s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology tree
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [gsm8k/tree]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [gsm8k/tree]: 100%|██████████| 1/1 [00:03<00:00,  3.49s/it]                                                                           
+========================================================================
+  [gsm8k] Topology 2/4: CHAIN
+========================================================================
+  [INFO] Seed: 42
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:10<00:00, 10.74s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:10<00:00, 10.74s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology chain
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [gsm8k/chain]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [gsm8k/chain]: 100%|██████████| 1/1 [00:01<00:00,  1.29s/it]                                                                            
+========================================================================
+  [gsm8k] Topology 3/4: STAR
+========================================================================
+  [INFO] Seed: 43
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:24<00:00, 24.27s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:24<00:00, 24.27s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology star
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [gsm8k/star]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [gsm8k/star]: 100%|██████████| 1/1 [00:01<00:00,  1.08s/it]                                                                           
+========================================================================
+  [gsm8k] Topology 4/4: RANDOM
+========================================================================
+  [INFO] Seed: 44
+  [INFO] Planned questions: 1
+Overall Progress:   0%|                                   | 0/1 [00:00<?, ?it/s]Overall Progress: 100%|███████████████████████████| 1/1 [00:07<00:00,  7.42s/it]Overall Progress: 100%|███████████████████████████| 1/1 [00:07<00:00,  7.42s/it]
+  [INFO] Cleaning data: removing debates with invalid/empty responses...
+  [INFO] Cleaned data: removed 0 invalid/empty debates from topology random
+  [INFO] Starting text processing on cleaned debates...
+  [INFO] text_process_workers=8 requested, but processor device is 'cuda'. Falling back to sequential processing.
+Text Processing [gsm8k/random]:   0%|          | 0/1 [00:00<?, ?it/s]Text Processing [gsm8k/random]: 100%|██████████| 1/1 [00:01<00:00,  1.03s/it]                                                                               [INFO] Dataset 'gsm8k': 4 valid debates, 4 used indexes recorded.
+  [INFO] Stored per-tag used indexes in idx_metadata (15 total).
+    - MMLUPRO: 4 index(es)
+    - InjecAgent: 4 index(es)
+    - MsMarco: 3 index(es)
+    - gsm8k: 4 index(es)
+  [INFO] Processed text data saved to tests/multi-dataset/multi-train-test.pkl
+  [INFO] Total execution time: 5m 36.38s
+
+  [INFO] Timing report:
+    Initial debates/questions generated : 16
+    Final valid debates kept            : 15
+    Avg time per initial debate/question: 21.0236 sec
+    Avg time per final valid debate     : 22.4252 sec
+  [INFO] Timing report saved to tests/multi-dataset/report-multi-train-test.pkl.json

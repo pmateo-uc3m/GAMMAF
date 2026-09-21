@@ -1,0 +1,684 @@
+"""DebateDataGenerationLoop-complete.py -- placeholder-aware generation loop.
+
+Single consolidated ``-complete`` copy of ``DebateDataGenerationLoop.py`` (the
+original is left untouched, see the ``-complete`` convention).
+
+Purely additive change with respect to the original: the per-turn
+``format_data`` dictionaries built in ``generate_round_1_concurrent`` and
+``generate_debate_round_concurrent`` now also carry the three optional
+placeholder keys
+
+    ``topology_string``          -- descriptive adjacency of the step's topology
+    ``malicious_agents_string``  -- indexes of the malicious agents
+    ``flags_string``             -- indexes flagged by the defense model (always
+                                    empty during generation; no defense runs here)
+
+Prompts that do not reference these keys format exactly as before
+(``str.format`` ignores unused keys).
+"""
+
+from DebateConfigLoader import DebateConfig
+from typing import List
+from langchain_openai import ChatOpenAI
+from DebateAgent import DebateAgent
+from dotenv import load_dotenv
+from pydantic import SecretStr
+import random
+import os
+import datetime
+from collections import Counter
+from functools import lru_cache
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from tqdm import tqdm
+import json
+import numpy as np
+
+from langchain_core.runnables import RunnableLambda
+import importlib.util
+from pathlib import Path
+import DatasetManager
+from DatasetManager import make_loader_kwargs, default_parse_model_output
+import inspect
+from LoggingUtils import log_info, log_warn, log_error
+
+load_dotenv()  # Load environment variables from .env file
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise ValueError(f"Missing required environment variable: {name}")
+    return value
+
+
+def generate_random_topologies(num_agents: int, density: float, rng):
+    max_edges = num_agents * (num_agents - 1)
+    target_edges = int(density * max_edges)
+
+    if target_edges < num_agents - 1:
+        raise ValueError("Density too low for connectivity")
+
+    adj = np.zeros((num_agents, num_agents), dtype=int)
+
+    # Step 1: directed chain (weak connectivity)
+    perm = rng.permutation(num_agents)
+    for i in range(num_agents - 1):
+        adj[perm[i], perm[i + 1]] = 1
+
+    # Step 2: add random edges
+    edges = np.argwhere(adj == 0)
+    edges = edges[edges[:, 0] != edges[:, 1]]
+
+    rng.shuffle(edges)
+    for u, v in edges:
+        if adj.sum() >= target_edges:
+            break
+        adj[u, v] = 1
+
+    return adj.tolist()
+
+
+# ---------------------------------------------------------------------------
+# Prompt placeholder helpers (additive)
+#
+# These helpers derive the optional prompt placeholders from the live
+# topology / agent state at each debate step.  They contain no instructions
+# or guidance, only a description of the adjacency plus simple index lists.
+# ---------------------------------------------------------------------------
+
+
+def _index_list_to_string(indexes) -> str:
+    """Render an iterable of agent indexes as a simple sorted list string."""
+    if indexes is None:
+        return "[]"
+    normalized = set()
+    for index in indexes:
+        try:
+            normalized.add(int(index))
+        except (TypeError, ValueError):
+            continue
+    return "[" + ", ".join(str(index) for index in sorted(normalized)) + "]"
+
+
+def build_malicious_agents_string(malicious_indexes) -> str:
+    """``{malicious_agents_string}``: e.g. ``[0, 3]`` (``[]`` when none)."""
+    return _index_list_to_string(malicious_indexes)
+
+
+def build_flags_string(flags) -> str:
+    """``{flags_string}``: agent indexes currently flagged at this step.
+
+    ``flags`` may be ``None`` or an all-zero sequence before any flagging has
+    happened (e.g. round 1), which renders as ``[]``.
+    """
+    if flags is None:
+        return "[]"
+    flagged = []
+    for index, flag in enumerate(flags):
+        try:
+            is_flagged = int(flag) != 0
+        except (TypeError, ValueError):
+            is_flagged = bool(flag)
+        if is_flagged:
+            flagged.append(index)
+    return _index_list_to_string(flagged)
+
+
+def _adjacency_key(adjacency):
+    """Convert an adjacency matrix (list/numpy) into a hashable square tuple."""
+    if adjacency is None:
+        return None
+    try:
+        rows = [tuple(int(value) for value in row) for row in adjacency]
+    except (TypeError, ValueError):
+        return None
+    if not rows or any(len(row) != len(rows) for row in rows):
+        return None
+    return tuple(rows)
+
+
+def _weakly_connected_components(adjacency_key):
+    size = len(adjacency_key)
+    neighbours = [set() for _ in range(size)]
+    for i in range(size):
+        for j in range(size):
+            if i != j and (adjacency_key[i][j] == 1 or adjacency_key[j][i] == 1):
+                neighbours[i].add(j)
+                neighbours[j].add(i)
+    seen = [False] * size
+    components = []
+    for start in range(size):
+        if seen[start]:
+            continue
+        stack = [start]
+        seen[start] = True
+        component = []
+        while stack:
+            node = stack.pop()
+            component.append(node)
+            for neighbour in neighbours[node]:
+                if not seen[neighbour]:
+                    seen[neighbour] = True
+                    stack.append(neighbour)
+        components.append(sorted(component))
+    components.sort(key=lambda component: component[0])
+    return components
+
+
+@lru_cache(maxsize=256)
+def _build_topology_string_cached(adjacency_key) -> str:
+    size = len(adjacency_key)
+    if size == 0:
+        return "Network topology for this step: no agents."
+
+    receives_from = []
+    sends_to = []
+    edges = []
+    for i in range(size):
+        incoming = [j for j in range(size) if j != i and adjacency_key[i][j] == 1]
+        outgoing = [j for j in range(size) if j != i and adjacency_key[j][i] == 1]
+        receives_from.append(incoming)
+        sends_to.append(outgoing)
+        for sender in incoming:
+            edges.append(f"{sender} -> {i}")
+
+    lines = [
+        f"Network topology for this step: {size} agents (indexes 0-{size - 1}), directed adjacency.",
+        'A directed edge "sender -> receiver" means the sender\'s messages reach the receiver.',
+        "Edges (sender -> receiver): " + ("; ".join(edges) if edges else "none"),
+    ]
+    for i in range(size):
+        lines.append(
+            f"Agent {i}: receives messages from {receives_from[i]}; "
+            f"sends messages to {sends_to[i]}"
+        )
+    components = _weakly_connected_components(adjacency_key)
+    if len(components) > 1:
+        lines.append(
+            "Weakly connected components: "
+            + "; ".join(str(component) for component in components)
+        )
+    return "\n".join(lines)
+
+
+def build_topology_string(adjacency) -> str:
+    """``{topology_string}``: purely descriptive adjacency description of a step."""
+    adjacency_key = _adjacency_key(adjacency)
+    if adjacency_key is None:
+        return "Network topology for this step: topology information is not available."
+    return _build_topology_string_cached(adjacency_key)
+
+
+class DebateOrchestration:
+    def __init__(self, config: DebateConfig):
+        self.config = config
+        self.topology = config.topology
+        self.random_flag = config.is_random_topology
+        self.prompts = None
+        
+        model_name = _require_env("MODEL_NAME")
+        base_url = _require_env("BASE_URL")
+        api_key = SecretStr(_require_env("API_KEY"))
+
+        self.base_llm = ChatOpenAI(
+            model = model_name,
+            api_key = api_key,
+            base_url = base_url,
+            timeout = config.timeout,
+            max_retries = config.llm_max_retries,
+        )
+        self.llm = self.base_llm | RunnableLambda(default_parse_model_output)
+        # Defaults; refined in run_evaluation once the dataloader is known.
+        self.supports_tool_calls = False
+        self._agent_class = DebateAgent
+
+    @staticmethod
+    def _load_ta_agent():
+        spec = importlib.util.spec_from_file_location(
+            "DebateAgent_TA", Path(__file__).with_name("DebateAgent-TA.py")
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.TAAgent
+
+    def generate_agents(self, question_index: int = None) -> List[DebateAgent]:
+        agents : List[DebateAgent] = []
+        mal_idx = np.random.default_rng(
+            self.config.malicious_randomization_seed + question_index if question_index is not None else self.config.malicious_randomization_seed
+            ).choice(list(range(self.config.number_of_agents)), size=self.config.number_malicious_agents, replace=False)
+        agent_class = self._agent_class
+        model = self.base_llm if self.supports_tool_calls else self.llm
+        for i in range(self.config.number_of_agents):
+            is_malicious = i in mal_idx
+            agents.append(agent_class(
+                agent_id=i,
+                model=model,
+                system_prompt = self.prompts["SYSTEM_PROMPT_MALICIOUS"] if is_malicious else self.prompts["SYSTEM_PROMPT"],
+                first_round_prompt = self.prompts["FIRST_ROUND_PROMPT_MALICIOUS"] if is_malicious else self.prompts["FIRST_ROUND_PROMPT"],
+                debate_prompt = self.prompts["DEBATE_PROMPT_MALICIOUS"] if is_malicious else self.prompts["DEBATE_PROMPT"],
+                max_retries=self.config.llm_max_retries,
+                is_malicious=is_malicious,
+            ))
+        return agents
+
+    def _merge_prompt_format_data(self, format_data: dict, question_format_data: dict | None) -> dict:
+        if not question_format_data:
+            return format_data
+
+        if not isinstance(question_format_data, dict):
+            return format_data
+
+        for k, v in question_format_data.items():
+            if k in format_data:
+                continue
+            format_data[k] = v
+        return format_data
+        
+    # What will happen if we scale the number of agents so not all can run concurrently?
+    def generate_round_1_concurrent(
+        self,
+        question: str,
+        choices: str,
+        agents: List[DebateAgent],
+        mal_answer: str = "",
+        question_format_data: dict | None = None,
+        round_num: int | None = 1,
+        topology: list[list[int]] | None = None,
+        malicious_indexes: list[int] | None = None
+    ):
+                
+        def single_agent_round_1(agent: DebateAgent):
+            format_data={
+                "agent_id" : agent.agent_id,
+                "question" : question,
+                "choices" : choices,
+                "topology" : topology,
+                "malicious_indexes" : malicious_indexes,
+                "topology_string" : build_topology_string(topology),
+                "malicious_agents_string" : build_malicious_agents_string(malicious_indexes),
+                "flags_string" : build_flags_string(None),
+            }
+            if round_num is not None:
+                format_data["round_num"] = round_num
+            format_data = self._merge_prompt_format_data(format_data, question_format_data)
+            if mal_answer:
+                format_data['wrong_answer'] = str(mal_answer)
+
+            response = agent.first_round_generate(format_data=format_data)
+            
+            return {
+                "agent_id" : agent.agent_id,
+                "is_malicious" : agent.is_malicious,
+                "answer" : response.answer.upper(),
+                "message" : response.message,
+                "tool_calls" : getattr(response, "tool_calls", None) or [],
+            }
+            
+        round_responses = []
+        
+        with ThreadPoolExecutor(max_workers=len(agents)) as executor:
+            agent_tasks = {
+                executor.submit(single_agent_round_1, agent) : agent
+                for agent in agents
+            }
+            
+            for completed_task in as_completed(agent_tasks):
+                agent = agent_tasks[completed_task]
+                try:
+                    result = completed_task.result()
+                    round_responses.append(result)
+                    
+                except Exception as e:
+                    raise RuntimeError(f"agent_{agent.agent_id}_round_1_failed: {e}") from e
+        
+        # Once the generation of the first round for all agents finishes:
+        round_responses.sort(key=lambda x: x['agent_id'])
+        
+        return round_responses
+    
+    def generate_debate_round_concurrent(
+        self,
+        question,
+        choices,
+        previous_round_responses,
+        agents: List[DebateAgent],
+        round,
+        topology,
+        mal_answer: str = "",
+        question_format_data: dict | None = None,
+        malicious_indexes: list[int] | None = None
+    ):
+        
+        def single_agent_round_debate(agent: DebateAgent, topology = topology):
+            # Ensure topology is a list of lists
+            topology = topology
+            
+            neighbors = [
+                (j, previous_round_responses[j]) for j in range(len(previous_round_responses)) 
+                if (topology[agent.agent_id][j] == 1 and j != agent.agent_id)
+            ]
+            
+            format_neighbors = "\n".join(
+                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['message']}\n" 
+                for m in neighbors
+            )
+            resolved_malicious_indexes = (
+                malicious_indexes
+                if malicious_indexes is not None
+                else [a.agent_id for a in agents if getattr(a, "is_malicious", False)]
+            )
+            format_data={
+                "agent_id" : agent.agent_id,
+                "question" : question,
+                "choices" : choices,
+                "neighbors_messages" : format_neighbors,
+                "round_num" : round,
+                "topology" : topology,
+                "malicious_indexes" : malicious_indexes,
+                "topology_string" : build_topology_string(topology),
+                "malicious_agents_string" : build_malicious_agents_string(resolved_malicious_indexes),
+                "flags_string" : build_flags_string(None),
+            }
+            format_data = self._merge_prompt_format_data(format_data, question_format_data)
+            if mal_answer:
+                format_data['wrong_answer'] = str(mal_answer)
+
+            response = agent.debate_round_generate(format_data=format_data)
+            if not isinstance(response.answer, str):
+                log_warn(f"Agent {agent.agent_id} Round {round} - Response is not a string: type={type(response.answer)}, value={response.answer}")
+                response.answer = str(response.answer)
+
+            return {
+                "agent_id" : agent.agent_id,
+                "is_malicious" : agent.is_malicious,
+                "answer" : response.answer.upper(),
+                "message" : response.message,
+                "tool_calls" : getattr(response, "tool_calls", None) or [],
+            }
+            
+        round_responses = []
+        
+        with ThreadPoolExecutor(max_workers=len(agents)) as executor:
+            agent_tasks = {
+                executor.submit(single_agent_round_debate, agent) : agent
+                for agent in agents
+            }
+            
+            for completed_task in as_completed(agent_tasks):
+                agent = agent_tasks[completed_task]
+                try:
+                    result = completed_task.result()
+                    round_responses.append(result)
+                    
+                except Exception as e:
+                    raise RuntimeError(f"agent_{agent.agent_id}_round_{round}_failed: {e}") from e
+        
+        # Once the generation of the first round for all agents finishes:
+        round_responses.sort(key=lambda x: x['agent_id'])
+        
+        return round_responses
+    
+    def check_consensus(self, round_responses) -> bool:
+        response_counts = {}
+        for resp in round_responses:
+            answer = resp['answer']
+            if answer not in response_counts:
+                response_counts[answer] = 0
+            response_counts[answer] += 1
+        
+        total_agents = len(round_responses)
+        for count in response_counts.values():
+            if count / total_agents >= self.config.consensus_threshold:
+                return True
+        return False
+    
+    def get_answer(self, round_responses) -> str:
+        response_counts = {}
+        for resp in round_responses:
+            answer = resp['answer']
+            if answer not in response_counts:
+                response_counts[answer] = 0
+            response_counts[answer] += 1
+        
+        sorted_responses = sorted(response_counts.items(), key=lambda x: x[1], reverse=True)
+        return sorted_responses[0][0]
+    
+    def check_answer(self, round_responses, correct_answer) -> bool:
+        try:
+            return self.dataloader.is_answer_correct(round_responses, correct_answer)
+        except Exception as e:
+            log_error(f"Answer comparison failed: correct_answer={correct_answer}, error={e}")
+            return False
+    
+    def debate_question(
+        self,
+        question: str,
+        choices: str,
+        pbar=None,
+        mal_answer: str = "",
+        question_index: int = None,
+        question_format_data: dict | None = None,
+    ):
+        agents = self.generate_agents(question_index=question_index)
+        all_rounds_responses = []
+        
+        # Track malicious agent indexes
+        malicious_indexes = [agent.agent_id for agent in agents if agent.is_malicious]
+        
+        if self.random_flag:
+            rng = np.random.default_rng(self.config.random_topology_data["seed"] + (question_index if question_index is not None else 0))
+            density = rng.uniform(self.config.random_topology_data["density interval"][0], self.config.random_topology_data["density interval"][1])
+            generated_topology = generate_random_topologies(
+                num_agents=self.config.number_of_agents,
+                density=density,
+                rng=rng
+            )
+            
+        topology = self.topology if not self.random_flag else generated_topology
+        # If mal_answer is empty and we have malicious agents, generate a random wrong answer
+        # This is needed because malicious agent prompts require {wrong_answer} key
+        if not mal_answer and malicious_indexes:
+            # Generate a random wrong answer (any choice except the correct one, which is unknown here)
+            # So we just pick a random choice A-D
+            mal_answer = random.choice(["A", "B", "C", "D"])
+        
+        round_1_responses = self.generate_round_1_concurrent(
+            question,
+            choices,
+            agents,
+            mal_answer=mal_answer,
+            question_format_data=question_format_data,
+            topology= topology,
+            malicious_indexes=malicious_indexes,
+        )
+        if pbar:
+            pbar.update(1)
+        all_rounds_responses.append(round_1_responses)
+        
+        # This is commented out to force always more than one round (otherwise there is no message passing)
+        # if self.check_consensus(round_1_responses):
+        #     return all_rounds_responses, malicious_indexes, topology
+        
+        for i in range(2, self.config.max_rounds+1):
+            round_i_responses = self.generate_debate_round_concurrent(
+                question,
+                choices,
+                all_rounds_responses[-1],
+                agents,
+                round=i,
+                topology=topology,
+                mal_answer=mal_answer,
+                question_format_data=question_format_data,
+                malicious_indexes=malicious_indexes
+            )
+            if pbar:
+                pbar.update(1)
+            all_rounds_responses.append(round_i_responses)
+            if self.check_consensus(round_i_responses):
+                return all_rounds_responses, malicious_indexes, topology
+        return all_rounds_responses, malicious_indexes, topology
+    
+    def run_debate(self, questions: List[dict], progress_bars: dict, master_pbar, malicious_consensus = False):
+    
+        results = [None] * len(questions)
+        lock = threading.Lock()
+        failure_counts = Counter()
+        failure_examples = []
+        
+        def process_single_question(index: int, question_data: dict):
+            # Datasets expose the prompt text under 'question' (MMLU/GSM8K/MA)
+            # or 'instruction' (InjecAgent/TA); fall back accordingly.
+            question_text = question_data.get('question') or question_data.get('instruction') or ''
+            choices_text = question_data.get('choices')
+            ground_truth = question_data.get('answer', question_data.get('correct_answer', ''))
+            mal_answer = ""
+            if malicious_consensus:
+                wrong_answer_idx = np.random.default_rng(self.config.questions_random_seed).choice([i for i in range(0,4) if i!=ground_truth])
+                mal_answer = chr(wrong_answer_idx + 65)
+            
+            pbar = progress_bars.get(index) if progress_bars else None
+            
+            debate_result, malicious_indexes, topology = self.debate_question(
+                question_text,
+                choices_text,
+                pbar=pbar,
+                mal_answer=mal_answer,
+                question_index=index,
+                question_format_data=question_data,
+            )
+            expanded_result = {
+                "question": question_text,
+                "choices": choices_text,
+                "debate_rounds": debate_result,
+                "malicious_agent_indexes": malicious_indexes,
+                "topology": topology,
+                "consensus_reached": self.check_consensus(debate_result[-1]),
+                "final_answer": self.get_answer(debate_result[-1]),
+                "correct_answer": ground_truth,
+                "is_correct": self.check_answer(debate_result[-1], ground_truth),
+                "attack_tool": question_data.get("attack_tool", ""),
+                "attack_params": question_data.get("attack_params", {}) or {},
+                "attack_type": question_data.get("attack_type", ""),
+                "available_tools": question_data.get("available_tools", []) or [],
+            }
+            
+            num_rounds = len(debate_result)
+            with lock:
+                if pbar:
+                    pbar.set_description(f"Q{index+1}: {num_rounds} round(s) - Finished")
+                    pbar.n = pbar.total
+                    pbar.refresh()
+                
+                if master_pbar:
+                    master_pbar.update(1)
+                
+            return index, expanded_result
+        
+        executor = ThreadPoolExecutor(max_workers=self.config.parallel_questions)
+        future_to_index = {
+            executor.submit(process_single_question, idx, q_data): idx
+            for idx, q_data in enumerate(questions)
+        }
+        
+        try:
+            for future in as_completed(future_to_index):
+                idx = future_to_index[future]
+                try:
+                    idx, result = future.result()
+                    results[idx] = result
+                except Exception as e:
+                    msg = str(e).strip() or e.__class__.__name__
+                    failure_counts[msg] += 1
+                    if len(failure_examples) < 8:
+                        failure_examples.append((idx, msg))
+                    log_warn(f"Q{idx+1} failed: {msg}")
+        except KeyboardInterrupt:
+            log_warn("Cancelling all pending tasks...")
+            for future in future_to_key.keys():
+                future.cancel()
+            executor._shutdown = True
+            executor.shutdown(wait=False)
+            raise
+
+        if failure_counts:
+            log_info("Question failure summary:")
+            for reason, count in failure_counts.most_common():
+                print(f"    - {count}x {reason}")
+            log_info("Example failed questions:")
+            for idx, msg in failure_examples:
+                print(f"    - Q{idx+1}: {msg}")
+
+        return results
+
+    def run_evaluation(self):
+        
+        dataset_classes = {
+            cls.TAG.upper(): cls
+            for name, cls in inspect.getmembers(DatasetManager, inspect.isclass)
+            if hasattr(cls, "TAG")
+        }
+        
+        dataset_name = self.config.dataset_tag.upper()
+        self.dataset_name = dataset_name
+        
+        if dataset_name not in dataset_classes:
+            raise ValueError(f"Unsupported dataset: {dataset_name}")
+        loader_cls = dataset_classes[dataset_name]
+
+        loader_kwargs = make_loader_kwargs(
+            loader_cls,
+            self.config,
+            num_questions=getattr(self.config, "num_questions", None),
+            random_seed=getattr(self.config, "questions_random_seed", None),
+        )
+        self.dataloader = loader_cls(**loader_kwargs)
+        self.prompts = self.dataloader.get_prompts()
+
+        # Datasets that require tool-call handling (InjecAgent) opt in via the
+        # loader. They use the raw model (no parse chain) and the tool-call
+        # aware agent in DebateAgent-TA.py.
+        self.supports_tool_calls = bool(getattr(self.dataloader, "SUPPORTS_TOOL_CALLS", False))
+        self._agent_class = self._load_ta_agent() if self.supports_tool_calls else DebateAgent
+
+        # Use parser from the selected dataloader (only used by non-tool-call agents).
+        self.llm = self.base_llm | RunnableLambda(self.dataloader.parse_model_output)
+        
+        questions = self.dataloader.get_formatted_questions()
+        
+        master_pbar = tqdm(
+            total=len(questions),
+            desc="Overall Progress",
+            position=0,
+            ncols=80,
+            leave=True
+        )
+        
+        progress_bars = {}
+        if self.config.verbose:
+            for idx in range(len(questions)):
+                progress_bars[idx] = tqdm(
+                    total=self.config.max_rounds,
+                    desc=f"Q{idx+1}",
+                    position=idx+1,
+                    ncols=80,
+                    leave=True
+                )
+
+        start_time = datetime.datetime.now()
+        interrupted = False
+        
+        try:
+            results = self.run_debate(questions, progress_bars, master_pbar=master_pbar, malicious_consensus=True)
+        except KeyboardInterrupt:
+            log_warn("KeyboardInterrupt received. Saving partial results...")
+            interrupted = True
+            results = None
+        finally:
+            # Close all progress bars
+            master_pbar.close()
+            if self.config.verbose:
+                for pbar in progress_bars.values():
+                    pbar.close()
+                    
+        return results, interrupted

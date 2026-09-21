@@ -1,0 +1,92 @@
+# Evaluation config -- multi-dataset validation test (consolidated HPS mode)
+# Run with:  python MainEvaluation-complete.py --hps <this file>
+#
+# List-valued model parameters are expanded by MainEvaluation-complete.py into
+# independent search runs.  Here XG-Guard is searched over num_epochs=[1, 2].
+# The selected HPS pool indexes are saved PER DATASET TAG under
+# hyperparameter_search.index_pkl_dir, and the combined record under index_pkl.
+
+models_directory: defense-models
+output_file: tests/multi-dataset/results/summary-hps.json
+train_pkl_path: tests/multi-dataset/multi-train-test.pkl
+
+defense_model_train_configs:
+  XG-Guard:
+    pkl_train: tests/multi-dataset/multi-train-test.pkl
+    seed: 42
+    device: cpu
+
+    feat_dim_s: 384
+    feat_dim_t: 384
+    hidden_dim: 256
+    batch_size: 4
+    val_split: 0.2
+    num_epochs: [1, 2]     # <- search space (expanded per model)
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    alpha: 0.5
+    top_k: 2
+    topologies: null
+
+hyperparameter_search:
+  total_samples: 3        # fixed HPS pool size (per dataset tag)
+  run_samples: 2          # per-run subset size (per dataset tag)
+  split_seed: 42
+  index_pkl: tests/multi-dataset/hps/index.pkl        # combined per-tag record
+  index_pkl_dir: tests/multi-dataset/hps              # per-tag index pickles
+  results_csv: tests/multi-dataset/hps/results.csv
+
+eval_datasets:
+  - tag: MMLUPRO
+    num_questions: 1
+    n_questions_on_random_topo: 1
+    questions_random_seed: 111
+
+  - tag: InjecAgent
+    ma_dataset_path: TA/TA-generation/output/TA_dataset.json
+    num_questions: 1
+    n_questions_on_random_topo: 1
+    questions_random_seed: 121
+
+  - tag: MsMarco
+    ma_dataset_path: MA/Task_generation/output/msmarco_contaminated_benchmark.json
+    num_questions: 1
+    n_questions_on_random_topo: 1
+    questions_random_seed: 131
+
+  - tag: gsm8k
+    num_questions: 1
+    n_questions_on_random_topo: 1
+    questions_random_seed: 141
+
+live_evaluation_config:
+  timeout: 120
+  prompts_file: prompts/prompts_blindguard.json
+
+  questions_path: DatasetManager.py
+
+  llm_max_retries: 3
+  num_agents: 5
+  num_malicious_agents: 2
+  malicious_seed: 123
+  max_rounds: 3
+  consensus_threshold: 1.0
+  no_consensus_check: false
+  check_consensus_only_unflagged: true
+
+  top_k_defense: 2
+  no_defense_baseline: false
+
+  max_concurrent_inference: 30
+
+  num_questions: 1
+  new_random_each_question: true
+  n_questions_on_random_topo: 1
+  topologies_seed: 24
+  density_range_for_random_topo: [0.3, 0.7]
+
+  text_processor_path: TextProcessingManager.py
+  text_processor_class_name: RoundProcessor
+
+  save_traces: false
+  clean_debates_with_empty_responses: false

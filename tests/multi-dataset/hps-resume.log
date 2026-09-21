@@ -1,0 +1,50 @@
+
+========================================================================
+  Hyperparameter Search (multi-dataset)
+========================================================================
+  hps_total_samples............. 3
+  hps_run_samples............... 2
+  hps_split_seed................ 42
+  index_pkl..................... tests/multi-dataset/hps/index.pkl
+  index_pkl_dir................. tests/multi-dataset/hps
+  results_csv................... tests/multi-dataset/hps/results.csv
+  [INFO] HPS evaluation datasets: MMLUPRO->MMLUPro, InjecAgent->TA, MsMarco->MA, gsm8k->GSM8K
+  [INFO] Loaded training indexes for 4 tag(s) from tests/multi-dataset/multi-train-test.pkl.
+  [INFO] Hyperparameter expansion: 2 run(s) (1 varied parameter column(s)).
+  [INFO]   - XG-Guard | XG-Guard_num_epochs1 | signature=c62fd082cebb
+  [INFO]   - XG-Guard | XG-Guard_num_epochs2 | signature=3f0d78ac0c0e
+  [INFO] Resume: 2 completed configuration(s) found in tests/multi-dataset/hps/results.csv
+  [INFO] Selected questions loader by dataset tag 'MMLUPro': MMLUProLoader
+  [INFO] Reusing stored HPS pool indices from tests/multi-dataset/hps/MMLUPRO-index.pkl (3 indices)
+  [INFO] Stored pool params: {'hps_total_samples': 3, 'hps_split_seed': 42, 'train_indexes_count': 4, 'dataset_tag': 'MMLUPRO', 'loader_tag': 'MMLUPro'}
+  [INFO] HPS pool ready for 'MMLUPRO': 3 question(s), index pickle: tests/multi-dataset/hps/MMLUPRO-index.pkl
+  [INFO] Selected questions loader by dataset tag 'TA': InjecAgentLoader
+  [INFO] Reusing stored HPS pool indices from tests/multi-dataset/hps/InjecAgent-index.pkl (3 indices)
+  [INFO] Stored pool params: {'hps_total_samples': 3, 'hps_split_seed': 42, 'train_indexes_count': 4, 'dataset_tag': 'InjecAgent', 'loader_tag': 'TA'}
+  [INFO] HPS pool ready for 'InjecAgent': 3 question(s), index pickle: tests/multi-dataset/hps/InjecAgent-index.pkl
+  [INFO] Selected questions loader by dataset tag 'MA': MSMARCOLoader
+  [INFO] Reusing stored HPS pool indices from tests/multi-dataset/hps/MsMarco-index.pkl (3 indices)
+  [INFO] Stored pool params: {'hps_total_samples': 3, 'hps_split_seed': 42, 'train_indexes_count': 3, 'dataset_tag': 'MsMarco', 'loader_tag': 'MA'}
+  [INFO] HPS pool ready for 'MsMarco': 3 question(s), index pickle: tests/multi-dataset/hps/MsMarco-index.pkl
+  [INFO] Selected questions loader by dataset tag 'GSM8K': GSM8KLoader
+  [INFO] Reusing stored HPS pool indices from tests/multi-dataset/hps/gsm8k-index.pkl (3 indices)
+  [INFO] Stored pool params: {'hps_total_samples': 3, 'hps_split_seed': 42, 'train_indexes_count': 4, 'dataset_tag': 'gsm8k', 'loader_tag': 'GSM8K'}
+  [INFO] HPS pool ready for 'gsm8k': 3 question(s), index pickle: tests/multi-dataset/hps/gsm8k-index.pkl
+  [INFO] Combined per-tag HPS indexes saved to tests/multi-dataset/hps/index.pkl
+
+========================================================================
+  HP Search [1/2]: XG-Guard -- SKIPPED
+========================================================================
+  [INFO] Skipping run (already present in CSV): XG-Guard_num_epochs1
+
+========================================================================
+  HP Search [2/2]: XG-Guard -- SKIPPED
+========================================================================
+  [INFO] Skipping run (already present in CSV): XG-Guard_num_epochs2
+
+========================================================================
+  HPS Search Finished
+========================================================================
+  [INFO] Total elapsed: 0m 0.00s
+  [INFO] Results CSV: tests/multi-dataset/hps/results.csv
+  [INFO] Per-tag index pickles: tests/multi-dataset/hps

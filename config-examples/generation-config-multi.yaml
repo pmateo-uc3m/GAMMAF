@@ -1,0 +1,58 @@
+# Generation pipeline config -- multi-dataset validation test
+# (MMLUPRO + InjecAgent + MsMarco + gsm8k in a single generation run)
+
+timeout: 120
+parallel_questions: 16
+llm_max_retries: 3
+
+questions_random_seed: 11
+verbose: false
+
+# Output
+save_data_dir: tests/multi-dataset
+file_name: multi-train-test.pkl
+
+# Post-processing
+process_text: true
+clean_data: true
+text_process_workers: 0
+
+# Debate parameters (defaults shared by every dataset entry)
+debate_config:
+  num_agents: 5
+  num_malicious: 0
+  max_rounds: 3
+  consensus_threshold: 1.0
+  malicious_randomization_seed: 3
+
+  # Random topology generation
+  random_topo_seed: 24
+  density:
+    min: 0.3
+    max: 0.7
+
+# Per-dataset entries. When 'datasets' is present it replaces the legacy
+# single 'dataset_tag' key.  Each entry may override the shared debate values
+# above with its own n_questions / n_questions_random_topo / seed / dataset path.
+datasets:
+  - tag: MMLUPRO
+    n_questions: 1
+    n_questions_random_topo: 1
+    questions_random_seed: 11
+
+  - tag: InjecAgent
+    ma_dataset_path: TA/TA-generation/output/TA_dataset.json
+    n_questions: 1
+    n_questions_random_topo: 1
+    questions_random_seed: 21
+
+  - tag: MsMarco
+    ma_dataset_path: MA/Task_generation/output/msmarco_contaminated_benchmark.json
+    n_questions: 1
+    n_questions_random_topo: 1
+    questions_random_seed: 31
+
+  - tag: gsm8k
+    n_questions: 1
+    n_questions_random_topo: 1
+    questions_random_seed: 41

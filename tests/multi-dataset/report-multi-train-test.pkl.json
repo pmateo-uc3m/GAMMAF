@@ -1,0 +1,64 @@
+{
+  "total_seconds": 336.3782072067261,
+  "total_minutes": 5,
+  "remaining_seconds": 36.378207206726074,
+  "initial_debates": 16,
+  "valid_debates": 15,
+  "avg_seconds_per_initial": 21.02363795042038,
+  "avg_seconds_per_valid": 22.42521381378174,
+  "datasets": [
+    {
+      "config_tag": "MMLUPRO",
+      "loader_tag": "MMLUPro",
+      "n_questions": 1,
+      "n_questions_random_topo": 1,
+      "used_indexes": [
+        1609,
+        7371,
+        10780,
+        1808
+      ]
+    },
+    {
+      "config_tag": "InjecAgent",
+      "loader_tag": "TA",
+      "n_questions": 1,
+      "n_questions_random_topo": 1,
+      "used_indexes": [
+        317,
+        812,
+        37,
+        402
+      ]
+    },
+    {
+      "config_tag": "MsMarco",
+      "loader_tag": "MA",
+      "n_questions": 1,
+      "n_questions_random_topo": 1,
+      "used_indexes": [
+        1645,
+        2634,
+        188
+      ]
+    },
+    {
+      "config_tag": "gsm8k",
+      "loader_tag": "GSM8K",
+      "n_questions": 1,
+      "n_questions_random_topo": 1,
+      "used_indexes": [
+        4963,
+        666,
+        3776,
+        4983
+      ]
+    }
+  ],
+  "used_indexes_per_tag": {
+    "MMLUPRO": 4,
+    "InjecAgent": 4,
+    "MsMarco": 3,
+    "gsm8k": 4
+  }
+}

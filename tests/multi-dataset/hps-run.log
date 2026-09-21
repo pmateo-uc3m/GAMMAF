@@ -1,0 +1,156 @@
+
+========================================================================
+  Hyperparameter Search (multi-dataset)
+========================================================================
+  hps_total_samples............. 3
+  hps_run_samples............... 2
+  hps_split_seed................ 42
+  index_pkl..................... tests/multi-dataset/hps/index.pkl
+  index_pkl_dir................. tests/multi-dataset/hps
+  results_csv................... tests/multi-dataset/hps/results.csv
+  [INFO] HPS evaluation datasets: MMLUPRO->MMLUPro, InjecAgent->TA, MsMarco->MA, gsm8k->GSM8K
+  [INFO] Loaded training indexes for 4 tag(s) from tests/multi-dataset/multi-train-test.pkl.
+  [INFO] Hyperparameter expansion: 2 run(s) (1 varied parameter column(s)).
+  [INFO]   - XG-Guard | XG-Guard_num_epochs1 | signature=c62fd082cebb
+  [INFO]   - XG-Guard | XG-Guard_num_epochs2 | signature=3f0d78ac0c0e
+  [INFO] Selected questions loader by dataset tag 'MMLUPro': MMLUProLoader
+  [INFO] Selecting HPS pool of 3 questions (seed=42, excluding 4 training indices)
+  [INFO] Persisted pool indices to tests/multi-dataset/hps/MMLUPRO-index.pkl
+  [INFO] HPS pool ready for 'MMLUPRO': 3 question(s), index pickle: tests/multi-dataset/hps/MMLUPRO-index.pkl
+  [INFO] Selected questions loader by dataset tag 'TA': InjecAgentLoader
+  [INFO] Selecting HPS pool of 3 questions (seed=42, excluding 4 training indices)
+  [INFO] Persisted pool indices to tests/multi-dataset/hps/InjecAgent-index.pkl
+  [INFO] HPS pool ready for 'InjecAgent': 3 question(s), index pickle: tests/multi-dataset/hps/InjecAgent-index.pkl
+  [INFO] Selected questions loader by dataset tag 'MA': MSMARCOLoader
+  [INFO] Selecting HPS pool of 3 questions (seed=42, excluding 3 training indices)
+  [INFO] Persisted pool indices to tests/multi-dataset/hps/MsMarco-index.pkl
+  [INFO] HPS pool ready for 'MsMarco': 3 question(s), index pickle: tests/multi-dataset/hps/MsMarco-index.pkl
+  [INFO] Selected questions loader by dataset tag 'GSM8K': GSM8KLoader
+  [INFO] Selecting HPS pool of 3 questions (seed=42, excluding 4 training indices)
+  [INFO] Persisted pool indices to tests/multi-dataset/hps/gsm8k-index.pkl
+  [INFO] HPS pool ready for 'gsm8k': 3 question(s), index pickle: tests/multi-dataset/hps/gsm8k-index.pkl
+  [INFO] Combined per-tag HPS indexes saved to tests/multi-dataset/hps/index.pkl
+
+========================================================================
+  HP Search [1/2]: XG-Guard
+========================================================================
+  defense_model_train_configs.XG-Guard.num_epochs 1
+  run_name...................... XG-Guard_num_epochs1
+  [INFO] Text processor loaded: ('TextProcessingManager.py', 'RoundProcessor')
+  [INFO] No embedded config found for 'BlindGuard'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'CASPIAN'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'DOMINANT'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'Guardian-static'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'Guardian'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'MyModel-v5'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'PREM-v2'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'PREM'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'TAM'. Skipping — model will not be evaluated or trained.
+  [INFO] Loaded run 'XG-Guard_num_epochs1' from model 'XG-Guard'.
+
+========================================================================
+  Training [1/2]: XG-Guard
+========================================================================
+  [INFO] Using device: cpu
+  [INFO] Loading and processing training data...
+  [INFO] Total training samples: 35
+  [INFO] Train samples: 28, Validation samples: 7
+  [INFO] Training data processed. Starting training...
+  [INFO] Training XG-Guard: batch_size=4, lr=0.001, epochs=1
+    Epoch 001/001  |  Train Loss: 1.395232  |  Val Loss: 1.318612  |  LR: 1.000000e-03  [BEST]
+  [DONE] Model trained.
+  [INFO] Training completed in 0m 2.76s
+
+========================================================================
+  Evaluating [1/2]: XG-Guard_num_epochs1
+========================================================================
+  [WARN] Optional live-evaluation config 'debug_mode' missing; using default False.
+  [WARN] Optional live-evaluation config 'static_adjacency_mode' missing; using default False.
+  [INFO] Starting defense run: topologies=1, total_tasks=2
+Questions completed:   0%|          | 0/2 [00:00<?, ?it/s]Questions completed:  50%|█████     | 1/2 [00:41<00:41, 41.17s/it]Questions completed: 100%|██████████| 2/2 [02:10<00:00, 69.59s/it]Questions completed: 100%|██████████| 2/2 [02:10<00:00, 65.33s/it]
+  [INFO] [MMLUPRO] run subset: 2 question(s); pool indexes used: 3
+  [WARN] Optional live-evaluation config 'debug_mode' missing; using default False.
+  [WARN] Optional live-evaluation config 'static_adjacency_mode' missing; using default False.
+  [INFO] Starting defense run: topologies=1, total_tasks=2
+Questions completed:   0%|          | 0/2 [00:00<?, ?it/s]Questions completed:  50%|█████     | 1/2 [00:31<00:31, 31.59s/it]Questions completed: 100%|██████████| 2/2 [00:35<00:00, 15.11s/it]Questions completed: 100%|██████████| 2/2 [00:35<00:00, 17.58s/it]
+  [INFO] [InjecAgent] run subset: 2 question(s); pool indexes used: 3
+  [WARN] Optional live-evaluation config 'debug_mode' missing; using default False.
+  [WARN] Optional live-evaluation config 'static_adjacency_mode' missing; using default False.
+  [INFO] Starting defense run: topologies=1, total_tasks=2
+Questions completed:   0%|          | 0/2 [00:00<?, ?it/s]Questions completed:  50%|█████     | 1/2 [00:17<00:17, 17.79s/it]Questions completed: 100%|██████████| 2/2 [00:26<00:00, 12.53s/it]Questions completed: 100%|██████████| 2/2 [00:26<00:00, 13.32s/it]
+  [INFO] [MsMarco] run subset: 2 question(s); pool indexes used: 3
+  [WARN] Optional live-evaluation config 'debug_mode' missing; using default False.
+  [WARN] Optional live-evaluation config 'static_adjacency_mode' missing; using default False.
+  [INFO] Starting defense run: topologies=1, total_tasks=2
+Questions completed:   0%|          | 0/2 [00:00<?, ?it/s]Questions completed:  50%|█████     | 1/2 [00:29<00:29, 29.61s/it]Questions completed: 100%|██████████| 2/2 [01:12<00:00, 37.37s/it]Questions completed: 100%|██████████| 2/2 [01:12<00:00, 36.20s/it]
+  [INFO] [gsm8k] run subset: 2 question(s); pool indexes used: 3
+  [INFO] Results flushed to CSV: tests/multi-dataset/hps/results.csv (4 tag-run pair(s) completed)
+  [INFO] Evaluation completed in 4m 30.79s
+  [DONE] Resources cleaned up
+  [INFO] Run elapsed: 4m 50.75s | total so far: 4m 50.75s
+
+========================================================================
+  HP Search [2/2]: XG-Guard
+========================================================================
+  defense_model_train_configs.XG-Guard.num_epochs 2
+  run_name...................... XG-Guard_num_epochs2
+  [INFO] Progress: 1/2 done | elapsed 4m 50.75s | ETA ~4m 50.75s
+  [INFO] No embedded config found for 'BlindGuard'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'CASPIAN'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'DOMINANT'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'Guardian-static'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'Guardian'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'MyModel-v5'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'PREM-v2'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'PREM'. Skipping — model will not be evaluated or trained.
+  [INFO] No embedded config found for 'TAM'. Skipping — model will not be evaluated or trained.
+  [INFO] Loaded run 'XG-Guard_num_epochs2' from model 'XG-Guard'.
+
+========================================================================
+  Training [2/2]: XG-Guard
+========================================================================
+  [INFO] Using device: cpu
+  [INFO] Loading and processing training data...
+  [INFO] Total training samples: 35
+  [INFO] Train samples: 28, Validation samples: 7
+  [INFO] Training data processed. Starting training...
+  [INFO] Training XG-Guard: batch_size=4, lr=0.001, epochs=2
+    Epoch 001/002  |  Train Loss: 1.395232  |  Val Loss: 1.318612  |  LR: 1.000000e-03  [BEST]
+    Epoch 002/002  |  Train Loss: 1.324689  |  Val Loss: 1.315930  |  LR: 1.000000e-03  [BEST]
+  [DONE] Model trained.
+  [INFO] Training completed in 0m 3.39s
+
+========================================================================
+  Evaluating [2/2]: XG-Guard_num_epochs2
+========================================================================
+  [WARN] Optional live-evaluation config 'debug_mode' missing; using default False.
+  [WARN] Optional live-evaluation config 'static_adjacency_mode' missing; using default False.
+  [INFO] Starting defense run: topologies=1, total_tasks=2
+Questions completed:   0%|          | 0/2 [00:00<?, ?it/s]Questions completed:  50%|█████     | 1/2 [00:31<00:31, 31.60s/it]Questions completed: 100%|██████████| 2/2 [00:33<00:00, 14.12s/it]Questions completed: 100%|██████████| 2/2 [00:33<00:00, 16.74s/it]
+  [INFO] [MMLUPRO] run subset: 2 question(s); pool indexes used: 3
+  [WARN] Optional live-evaluation config 'debug_mode' missing; using default False.
+  [WARN] Optional live-evaluation config 'static_adjacency_mode' missing; using default False.
+  [INFO] Starting defense run: topologies=1, total_tasks=2
+Questions completed:   0%|          | 0/2 [00:00<?, ?it/s]Questions completed:  50%|█████     | 1/2 [00:14<00:14, 14.67s/it]Questions completed: 100%|██████████| 2/2 [00:25<00:00, 12.41s/it]Questions completed: 100%|██████████| 2/2 [00:25<00:00, 12.75s/it]
+  [INFO] [InjecAgent] run subset: 2 question(s); pool indexes used: 3
+  [WARN] Optional live-evaluation config 'debug_mode' missing; using default False.
+  [WARN] Optional live-evaluation config 'static_adjacency_mode' missing; using default False.
+  [INFO] Starting defense run: topologies=1, total_tasks=2
+Questions completed:   0%|          | 0/2 [00:00<?, ?it/s]Questions completed:  50%|█████     | 1/2 [00:29<00:29, 29.35s/it]Questions completed: 100%|██████████| 2/2 [00:36<00:00, 16.38s/it]Questions completed: 100%|██████████| 2/2 [00:36<00:00, 18.32s/it]
+  [INFO] [MsMarco] run subset: 2 question(s); pool indexes used: 3
+  [WARN] Optional live-evaluation config 'debug_mode' missing; using default False.
+  [WARN] Optional live-evaluation config 'static_adjacency_mode' missing; using default False.
+  [INFO] Starting defense run: topologies=1, total_tasks=2
+Questions completed:   0%|          | 0/2 [00:00<?, ?it/s]Questions completed:  50%|█████     | 1/2 [00:47<00:47, 47.18s/it]Questions completed: 100%|██████████| 2/2 [00:49<00:00, 20.63s/it]Questions completed: 100%|██████████| 2/2 [00:49<00:00, 24.61s/it]
+  [INFO] [gsm8k] run subset: 2 question(s); pool indexes used: 3
+  [INFO] Results flushed to CSV: tests/multi-dataset/hps/results.csv (8 tag-run pair(s) completed)
+  [INFO] Evaluation completed in 2m 30.60s
+  [DONE] Resources cleaned up
+  [INFO] Run elapsed: 2m 34.03s | total so far: 7m 24.80s
+
+========================================================================
+  HPS Search Finished
+========================================================================
+  [INFO] Total elapsed: 7m 24.80s
+  [INFO] Results CSV: tests/multi-dataset/hps/results.csv
+  [INFO] Per-tag index pickles: tests/multi-dataset/hps
