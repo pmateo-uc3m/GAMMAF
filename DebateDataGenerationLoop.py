@@ -360,7 +360,7 @@ class DebateOrchestration:
             ]
             
             format_neighbors = "\n".join(
-                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['message']}\n" 
+                f"Agent {m[0]}\nCasted Message: {m[1]['message']}\n"
                 for m in neighbors
             )
             resolved_malicious_indexes = (

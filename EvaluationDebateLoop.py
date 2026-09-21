@@ -442,7 +442,7 @@ class LiveDebateOrchestration:
             ]
             
             format_neighbors = "\n".join(
-                f"Agent {m[0]}\nResponse: {m[1]['answer']}\nArgument: {m[1]['message']}\n" 
+                f"Agent {m[0]}\nCasted Message: {m[1]['message']}\n"
                 for m in neighbors
             ) if len(neighbors) > 0 else "No messages from other agents in this round."
             
@@ -556,6 +556,7 @@ class LiveDebateOrchestration:
         entry = {
             "agent_id": resp['agent_id'],
             "answer": resp['answer'],
+            "message": resp.get('message', ""),
         }
         if self.supports_tool_calls:
             entry["trace"] = resp.get("trace", "")
@@ -961,11 +962,13 @@ class LiveDebateOrchestration:
         return all_traces
     
     def check_if_empty_response(self, round_responses):
-        # TA: an empty answer means the agent called no tool (safe), so it is
-        # never treated as an empty/failed response and TA debates are not cleaned.
-        if self.supports_tool_calls:
-            return False
-        return any(resp['answer'].strip() == "" for resp in round_responses)
+        # A debate is only cleaned when at least one agent emitted an empty
+        # message. An empty answer is fine (e.g. a TA agent that called no
+        # tool); it is kept as an empty string.
+        return any(
+            str(resp.get("message", "")).strip() == ""
+            for resp in round_responses
+        )
     
     def _compute_f1(self, flags, gt_flags):
         n_malicious = sum(gt_flags)
