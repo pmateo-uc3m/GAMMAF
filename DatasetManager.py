@@ -89,27 +89,27 @@ def _select_evaluation_indexes(available_indexes, num_questions, rng):
     return rng.choice(available_indexes, size=num_questions, replace=False)
 
 
-def make_loader_kwargs(loader_cls, config=None, **base):
+def make_loader_kwargs(loader_cls, ma_dataset_path=None, **base):
     """Build kwargs for a questions loader.
 
-    Threads ``ma_dataset_path`` from ``config`` into the loader arguments when
-    the loader class supports it (currently ``MSMARCOLoader``).  Loaders are
-    selected by tag and may be loaded as separate module instances, so the
-    capability is detected via the constructor signature rather than class
-    identity.
+    Threads ``ma_dataset_path`` into the loader arguments when the loader class
+    supports it (currently ``MSMARCOLoader``).  Loaders may be loaded as
+    separate module instances, so the capability is detected via the
+    constructor signature rather than class identity.
     """
     kwargs = dict(base)
-    if config is not None and "dataset_path" in inspect.signature(
+    if ma_dataset_path and "dataset_path" in inspect.signature(
         loader_cls.__init__
     ).parameters:
-        ma_path = getattr(config, "ma_dataset_path", None)
-        if ma_path:
-            kwargs["dataset_path"] = ma_path
+        kwargs["dataset_path"] = ma_dataset_path
     return kwargs
 
 class MMLULoader:
     TAG = "MMLU"
     PROMPTS_FILE = "prompts/prompts_PI.json"
+    # Optional per-run override; the orchestration loops set it from the
+    # dataset config entry when a 'prompts_file' is configured there.
+    prompts_file = None
     RESPONSE_FORMAT = ResponseFormat
     # Datasets whose agents produce tool calls must override this and opt in to
     # the tool-call round-trip path in the debate agent / evaluation loop.
@@ -126,7 +126,7 @@ class MMLULoader:
 
     def get_prompts(self):
         import json
-        with open(self.PROMPTS_FILE, "r", encoding="utf-8") as f:
+        with open(self.prompts_file or self.PROMPTS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
         
     def load_questions(self):

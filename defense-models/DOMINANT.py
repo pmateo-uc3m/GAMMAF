@@ -47,7 +47,7 @@ sys.path.append(str(_DIR.parent))
 sys.path.insert(0, str(_DIR))
 
 from LoggingUtils import log_done, log_info, log_section, log_warn, print_epoch_log
-from Utils import load_config, load_config_from_path
+from EvaluationConfigCheck import load_defense_model_config
 
 # Reuse BlindGuard's training-data loader so DOMINANT consumes the exact same
 # sentence-embedding / graph representation (no data perturbation is applied).
@@ -187,7 +187,7 @@ class DOMINANTLoop:
     def __init__(self, args):
         self.args = args
         self.config = args
-        if getattr(args, "device", None):
+        if args.device:
             self.device = torch.device(args.device)
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -196,14 +196,14 @@ class DOMINANTLoop:
         self._validate_config()
 
     def _validate_config(self):
-        self.hidden_dim = int(getattr(self.config, "hidden_dim", 64))
-        self.dropout = float(getattr(self.config, "dropout", 0.3))
-        self.alpha = float(getattr(self.config, "alpha", 0.8))
-        self.learning_rate = float(getattr(self.config, "learning_rate", 5e-3))
-        self.weight_decay = float(getattr(self.config, "weight_decay", 0.0))
-        self.epochs = int(getattr(self.config, "num_epochs", getattr(self.config, "epochs", 100)))
-        self.batch_size = int(getattr(self.config, "batch_size", 16))
-        self.val_split = float(getattr(self.config, "val_split", 0.2))
+        self.hidden_dim = int(self.config.hidden_dim)
+        self.dropout = float(self.config.dropout)
+        self.alpha = float(self.config.alpha)
+        self.learning_rate = float(self.config.learning_rate)
+        self.weight_decay = float(self.config.weight_decay)
+        self.epochs = int(self.config.epochs)
+        self.batch_size = int(self.config.batch_size)
+        self.val_split = float(self.config.val_split)
         if not 0 <= self.alpha <= 1:
             raise ValueError("DOMINANT alpha must be in [0, 1]")
         if not 0 <= self.val_split < 1:
@@ -225,7 +225,7 @@ class DOMINANTLoop:
         return x.astype(np.float32, copy=False)
 
     def _make_model(self, input_dim):
-        if getattr(self.config, "input_dim", None) is not None and int(self.config.input_dim) != input_dim:
+        if self.config.input_dim is not None and int(self.config.input_dim) != input_dim:
             raise ValueError(f"DOMINANT input_dim={self.config.input_dim} does not match embeddings ({input_dim})")
         self.model = DOMINANTNet(input_dim, self.hidden_dim, self.dropout).to(self.device)
 
@@ -256,7 +256,7 @@ class DOMINANTLoop:
             raise ValueError("DOMINANT training samples must have shape [agents, embedding_dim]")
         self._make_model(input_dim)
 
-        split_seed = int(getattr(self.config, "split_seed", getattr(self.config, "seed", 0)))
+        split_seed = int(self.config.split_seed)
         n_total = len(samples)
         perm_idx = np.random.default_rng(split_seed).permutation(n_total)
         if n_total >= 2 and 0 < self.val_split < 1:
@@ -271,7 +271,7 @@ class DOMINANTLoop:
         train_samples = [samples[i] for i in train_idx]
         val_samples = [samples[i] for i in val_idx]
 
-        dataloader_seed = int(getattr(self.config, "dataloader_seed", getattr(self.config, "seed", 0)))
+        dataloader_seed = int(self.config.dataloader_seed)
         gen = torch.Generator()
         gen.manual_seed(dataloader_seed)
         loader = DataLoader(_DominantDataset(train_samples), batch_size=self.batch_size, shuffle=True,
@@ -333,12 +333,12 @@ class DOMINANTLoop:
             scores = scores.cpu().numpy().astype(float)
 
         n_agents = x_np.shape[0]
-        threshold = getattr(self.config, "threshold", None)
+        threshold = self.config.threshold
         flags = np.zeros(n_agents, dtype=int)
         if threshold is not None:
             flags[scores > float(threshold)] = 1
         else:
-            top_k = int(getattr(self.config, "top_k", 1))
+            top_k = int(self.config.top_k)
             flags[np.argsort(-scores)[:min(top_k, n_agents)]] = 1
         return flags, scores
 
@@ -362,7 +362,7 @@ class DOMINANTLoop:
 
 class Master:
     def __init__(self, config_path):
-        self.args = load_config_from_path(config_path)
+        self.args = load_defense_model_config(config_path)
 
     def _run(self, train_pkl_path=None):
         random.seed(self.args.seed)

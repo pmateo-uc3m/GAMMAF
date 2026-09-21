@@ -1,9 +1,8 @@
 """DebateDataGenerationLoop.py -- placeholder-aware generation loop.
 
-The per-turn
-``format_data`` dictionaries built in ``generate_round_1_concurrent`` and
-``generate_debate_round_concurrent`` now also carry the three optional
-placeholder keys
+The per-turn ``format_data`` dictionaries built in
+``generate_round_1_concurrent`` and ``generate_debate_round_concurrent``
+carry three optional placeholder keys:
 
     ``topology_string``          -- descriptive adjacency of the step's topology
     ``malicious_agents_string``  -- indexes of the malicious agents
@@ -14,7 +13,6 @@ Prompts that do not reference these keys format exactly as before
 (``str.format`` ignores unused keys).
 """
 
-from DebateConfigLoader import DebateConfig
 from typing import List
 from langchain_openai import ChatOpenAI
 from DebateAgent import DebateAgent
@@ -35,9 +33,7 @@ import numpy as np
 from langchain_core.runnables import RunnableLambda
 import importlib.util
 from pathlib import Path
-import DatasetManager
 from DatasetManager import make_loader_kwargs, default_parse_model_output
-import inspect
 from LoggingUtils import log_info, log_warn, log_error
 
 load_dotenv()  # Load environment variables from .env file
@@ -208,7 +204,7 @@ def build_topology_string(adjacency) -> str:
 
 
 class DebateOrchestration:
-    def __init__(self, config: DebateConfig):
+    def __init__(self, config):
         self.config = config
         self.topology = config.topology
         self.random_flag = config.is_random_topology
@@ -242,11 +238,11 @@ class DebateOrchestration:
     def generate_agents(self, question_index: int = None) -> List[DebateAgent]:
         agents : List[DebateAgent] = []
         mal_idx = np.random.default_rng(
-            self.config.malicious_randomization_seed + question_index if question_index is not None else self.config.malicious_randomization_seed
-            ).choice(list(range(self.config.number_of_agents)), size=self.config.number_malicious_agents, replace=False)
+            self.config.malicious_seed + question_index if question_index is not None else self.config.malicious_seed
+            ).choice(list(range(self.config.num_agents)), size=self.config.num_malicious_agents, replace=False)
         agent_class = self._agent_class
         model = self.base_llm if self.supports_tool_calls else self.llm
-        for i in range(self.config.number_of_agents):
+        for i in range(self.config.num_agents):
             is_malicious = i in mal_idx
             agents.append(agent_class(
                 agent_id=i,
@@ -464,10 +460,10 @@ class DebateOrchestration:
         malicious_indexes = [agent.agent_id for agent in agents if agent.is_malicious]
         
         if self.random_flag:
-            rng = np.random.default_rng(self.config.random_topology_data["seed"] + (question_index if question_index is not None else 0))
-            density = rng.uniform(self.config.random_topology_data["density interval"][0], self.config.random_topology_data["density interval"][1])
-            generated_topology = generate_random_topologies(
-                num_agents=self.config.number_of_agents,
+            rng = np.random.default_rng(self.config.random_topo_seed + (question_index if question_index is not None else 0))
+            density = rng.uniform(self.config.density_range_for_random_topo[0], self.config.density_range_for_random_topo[1])
+            adjacency_matrix = generate_random_topologies(
+                num_agents=self.config.num_agents,
                 density=density,
                 rng=rng
             )
@@ -572,7 +568,7 @@ class DebateOrchestration:
                 
             return index, expanded_result
         
-        executor = ThreadPoolExecutor(max_workers=self.config.parallel_questions)
+        executor = ThreadPoolExecutor(max_workers=self.config.max_concurrent_inference)
         future_to_index = {
             executor.submit(process_single_question, idx, q_data): idx
             for idx, q_data in enumerate(questions)
@@ -610,26 +606,18 @@ class DebateOrchestration:
 
     def run_evaluation(self):
         
-        dataset_classes = {
-            cls.TAG.upper(): cls
-            for name, cls in inspect.getmembers(DatasetManager, inspect.isclass)
-            if hasattr(cls, "TAG")
-        }
-        
-        dataset_name = self.config.dataset_tag.upper()
-        self.dataset_name = dataset_name
-        
-        if dataset_name not in dataset_classes:
-            raise ValueError(f"Unsupported dataset: {dataset_name}")
-        loader_cls = dataset_classes[dataset_name]
+        loader_cls = self.config.loader_class
+        self.dataset_name = self.config.dataset_tag
 
         loader_kwargs = make_loader_kwargs(
             loader_cls,
-            self.config,
-            num_questions=getattr(self.config, "num_questions", None),
-            random_seed=getattr(self.config, "questions_random_seed", None),
+            ma_dataset_path=self.config.ma_dataset_path,
+            num_questions=self.config.num_questions,
+            random_seed=self.config.questions_random_seed,
         )
         self.dataloader = loader_cls(**loader_kwargs)
+        if self.config.prompts_file is not None:
+            self.dataloader.prompts_file = self.config.prompts_file
         self.prompts = self.dataloader.get_prompts()
 
         # Datasets that require tool-call handling (InjecAgent) opt in via the

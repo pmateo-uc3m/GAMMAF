@@ -53,45 +53,58 @@ This stage runs debates and optionally **embeds the agent "reason" fields** into
 
 ### Minimal generation config (YAML)
 
-Create a YAML file (e.g., [config-examples/generation-config.yaml](`config-examples/generation-config.yaml`)):
+Create a YAML file (e.g., [config-examples/generation-config.yaml](config-examples/generation-config.yaml)):
 
 ```yaml
 # Generation pipeline config (TrainDataGeneration.py)
+# Loaded and validated by GenerationConfigCheck.py.
 
-timeout:                # Timeout for inference API requests
-parallel_questions:     # Number of concurrent questions sent to inference API
+llm:
+  timeout: 20                # Timeout for inference API requests
+  llm_max_retries: 3         # Retries per LLM call
+  max_concurrent_inference: 30  # Concurrent inference calls (questions in flight)
 
-prompts:                # Prompt template file (JSON), see ./prompts
+debate:
+  num_agents: 5              # Number of agents in the MAS
+  num_malicious_agents: 0    # Malicious agents (0 for unsupervised training data)
+  malicious_seed: 3          # Seed to select malicious agents
+  max_rounds: 3              # Maximum number of debate rounds per task
+  consensus_threshold: 1.0   # Consensus ratio required to stop the debate
+  random_topo_seed: 24       # Seed for random-topology generation
+  density_range_for_random_topo: [0.3, 0.7]
 
-dataset_tag:            # Dataset selection (must match a class TAG in DatasetManager.py)
-questions_random_seed:  # Seed for question selection
+datasets:                    # One entry per run (tags must be unique)
+  - tag: MMLU                # Config tag (resolved to a loader TAG)
+    loader_tag: null         # Optional explicit loader TAG override
+    num_questions: 10        # Fixed-topology question count
+    num_questions_on_random_topo: 10
+    questions_random_seed: 1 # Question-selection seed
+    ma_dataset_path: null    # Optional dataset path (MSMARCOLoader)
+    prompts_file: null       # Optional: overrides the loader's PROMPTS_FILE
 
-# Output
-save_data_dir:          # Directory to save generated data
-file_name:              # Name of data file (must be .pkl)
+  # The same loader can be run again with a different tag and config
+  # (different seed, prompts, question counts...); every run is generated
+  # and saved separately under its own tag:
+  # - tag: MMLU_alt
+  #   loader_tag: MMLU
+  #   num_questions: 10
+  #   num_questions_on_random_topo: 10
+  #   questions_random_seed: 7
+  #   prompts_file: prompts/prompts_MMLU_alt.json
+
+output_dir: data             # Directory to save generated data
+output_file: test_data.pkl   # Data file name (must be .pkl)
 
 # Optional post-processing
-process_text: true          # Convert text outputs into embeddings via TextProcessingManager.RoundProcessor
-clean_data: true            # Drop debates with empty/invalid outputs (recommended: true)
-text_process_workers: 0     # 0 = auto; GPU forces sequential processing
+process_text: true
+clean_debates: true          # Drop debates with empty messages
+text_process_workers: 0      # 0 = auto; GPU processors are forced sequential
+text_processor_path: TextProcessingManager.py
+text_processor_class_name: RoundProcessor
+text_processor_kwargs: {}
+text_processor_device: null  # null = processor default
 
-# Debate parameters
-debate_config:
-  num_agents:                # Number of agents in MAS
-  num_malicious:             # Number of malicious agents (set 0 for unsupervised training data)
-  max_rounds:                # Maximum number of debate rounds per task
-  consensus_threshold:       # Threshold for consensus to stop debate
-  malicious_randomization_seed:  # Seed to select malicious agents
-
-  # Question counts per topology
-  n_questions:               # Number of questions for each fixed topology (tree, chain, star)
-  n_questions_random_topo:   # Number of questions for random topologies
-
-  # Random topology generation (used only for "random" topology)
-  random_topo_seed: 24
-  density:
-    min: 0.3
-    max: 0.7
+verbose: false
 ```
 
 Run:
@@ -112,28 +125,92 @@ This stage:
 
 ### Minimal evaluation config (YAML)
 
-Create a YAML file (e.g., [config-examples/evaluation-config.yaml](`config-examples/evaluation-config.yaml`)):
+Create a YAML file (e.g., [config-examples/evaluation-config.yaml](config-examples/evaluation-config.yaml)):
 
 ```yaml
 # Main evaluation config (MainEvaluation.py)
+# Loaded and validated by EvaluationConfigCheck.py.
 
-models_directory:  # Directory that contains all the defense models that are going to be benchmarked
-output_file:       # JSON file where the evaluation results will be saved
+models_directory: defense-models # Directory containing the defense models to benchmark
+output_file: results/test.json   # JSON file where the evaluation results will be saved
+train_pkl_path: data/train-gpt-oss-300.pkl  # Default training pkl (per-model fallback)
+
+llm:
+  timeout: 20                # Timeout for inference API requests
+  llm_max_retries: 3
+  max_concurrent_inference: 150 # Total concurrent inference budget
+
+debate:
+  num_agents: 5
+  num_malicious_agents: 2
+  malicious_seed: 123
+  max_rounds: 3
+  consensus_threshold: 1.0
+  check_consensus_only_unflagged: true # Only consider unflagged agents for consensus
+  no_consensus_check: false            # Continue until max_rounds even if consensus is reached
+  new_random_each_question: true       # Generate a new random topology per question
+  random_topo_seed: 24
+  density_range_for_random_topo: [0.3, 0.7]
+
+datasets:
+  - tag: MMLU
+    loader_tag: null
+    num_questions: 20
+    num_questions_on_random_topo: 20
+    questions_random_seed: 28
+    ma_dataset_path: null
+    prompts_file: null       # Optional: overrides the loader's PROMPTS_FILE
+    hps_indexes: null        # Optional explicit per-tag HPS index pickle
+
+  # The same loader can be evaluated again with a different tag and config;
+  # both runs are evaluated and saved under their own tag:
+  # - tag: MMLU_alt
+  #   loader_tag: MMLU
+  #   num_questions: 20
+  #   num_questions_on_random_topo: 20
+  #   questions_random_seed: 7
+  #   prompts_file: prompts/prompts_MMLU_alt.json
+
+evaluation:
+  questions_path: DatasetManager.py
+  questions_class_name: null
+  python_seed: 28
+  numpy_seed: 28
+  answer_seed: 28
+  top_k_defense: 2
+  no_defense_baseline: false # true = include baseline, false = skip
+  save_traces: false         # Saves debates (high storage usage)
+  debug_mode: false
+  static_adjacency_mode: false
+  topologies_file: null      # Optional JSON file with fixed topologies
+  topologies_from_pkl: null  # Optional training pkl to reuse its topologies
+
+text_processor_path: TextProcessingManager.py
+text_processor_class_name: RoundProcessor
+text_processor_kwargs: {}
+text_processor_device: cpu
+
+# Optional section: its presence enables the hyperparameter search (--hps)
+# hyperparameter_search:
+#   total_samples: 100
+#   run_samples: 40
+#   split_seed: 42
+#   index_pkl: hps/index.pkl
+#   index_pkl_dir: hps/indexes
+#   results_csv: hps/results.csv
 
 # One config section per defense model file in models_directory (file stem must match)
 defense_model_train_configs:
   BlindGuard:
-    pkl_train:     # Path to the pkl with the training data
+    pkl_train: data/train-gpt-oss-300.pkl # Path to the pkl with the training data
     seed: 42
-    device: cpu    # Device for model training
-
+    device: cpu # Device for model training
     # Data perturbation (used to simulate anomalies in training)
     anomaly_rate: 0.2
     anomaly_scale: 0.5
     anomalize_data: true
-    no_balance: false  # Disable class balancing if true (recommended: false)
-
-    # Training hyperparameters (required)
+    no_balance: false # Set to true to disable class balancing before training
+    # Training hyperparameters
     input_dim: 1152
     hidden_dim: 256
     emb_dim: 128
@@ -144,18 +221,14 @@ defense_model_train_configs:
     learning_rate: 0.001
     weight_decay: 0.0001
     scheduler_t_max: 20
-
-    # Optional reproducibility seeds
-    # data_seed: 42
-    # split_seed: 42
-    # dataloader_seed: 42
+    top_k: 2
+    topologies: null
 
   XG-Guard:
-    pkl_train:     # Path to the pkl with the training data
+    pkl_train: data/train-gpt-oss-300.pkl
     seed: 42
-    device: cpu    # Device for model training
-
-    # Training hyperparameters (required)
+    device: cpu
+    # Training hyperparameters
     feat_dim_s: 384
     feat_dim_t: 384
     hidden_dim: 256
@@ -165,50 +238,8 @@ defense_model_train_configs:
     learning_rate: 0.001
     weight_decay: 0.0001
     alpha: 0.5
-
-    # Optional reproducibility seeds
-    # split_seed: 42
-    # dataloader_seed: 42
-
-live_evaluation_config:
-  timeout:         # Timeout for inference API requests
-  prompts_file:    # Prompt template file (JSON), see ./prompts
-
-  # Question loader
-  questions_path: DatasetManager.py
-  questions_dataset_tag: MMLU
-  questions_random_seed: 28
-
-  # Debate + attacker settings
-  num_agents: 5
-  num_malicious_agents: 2
-  malicious_seed: 123
-  max_rounds: 3
-  consensus_threshold: 1.0
-  no_consensus_check: false                # Continue until max_rounds even if consensus is reached
-  check_consensus_only_unflagged: true     # Only consider unflagged agents for consensus
-
-  # Defense settings
-  top_k_defense: 2
-  no_defense_baseline: false               # false = include baseline, true = skip
-
-  # Concurrency
-  max_concurrent_inference:                # Maximum concurrent inference requests
-
-  # Questions
-  num_questions:                           # Number of questions per fixed topology
-  new_random_each_question: true           # Generate new random topology per question
-  n_questions_on_random_topo: 50
-  topologies_seed: 24
-  density_range_for_random_topo: [0.3, 0.7]
-
-  # Text processor (for defense model embeddings)
-  text_processor_path: TextProcessingManager.py
-  text_processor_class_name: RoundProcessor
-
-  # Debug artifacts
-  save_traces: false                       # Saves debates (high storage usage)
-  clean_debates_with_empty_responses: true # Remove debates with empty responses
+    top_k: 2
+    topologies: null
 ```
 
 Run:
@@ -298,26 +329,45 @@ To add a dataset for the generation pipeline, add a new class with:
 - `parse_model_output(message)` returning `ResponseFormat(reason=..., answer=...)`
 - `agent_is_safe(model_answer, correct_answer)`
 
-Then set in your generation YAML:
+Then add an entry for it in your generation YAML:
 
 ```yaml
-dataset_tag: MYDATASET
+datasets:
+  - tag: MYDATASET
+    loader_tag: null
+    num_questions: 10
+    num_questions_on_random_topo: 10
+    questions_random_seed: 1
+    ma_dataset_path: null
+    prompts_file: null       # Optional: overrides the loader's PROMPTS_FILE
 ```
+
+Dataset `tag`s must be unique, but the same loader can appear several times
+with different configs (seed, question counts, `prompts_file`, ...): each entry
+is generated and saved separately under its own tag.
 
 **B) Load a questions loader from an arbitrary file (used by live evaluation)**
 
-`EvaluationDebateLoop.py` can load a questions loader class from a Python file path using either:
+`EvaluationConfigCheck.py` loads a questions loader class from the configured
+`evaluation.questions_path` file using either:
 
-- `questions_dataset_tag` (matches a class’s `TAG`), or
-- `questions_class_name` (explicit class name)
+- `datasets[].tag` / `datasets[].loader_tag` (matches a class's `TAG`), or
+- `evaluation.questions_class_name` (explicit class name override)
 
 Config keys:
 
 ```yaml
-questions_path: path/to/my_questions.py
-questions_dataset_tag: MYDATASET
-# or:
-# questions_class_name: MyQuestionsLoader
+evaluation:
+  questions_path: path/to/my_questions.py
+  questions_class_name: null # or: MyQuestionsLoader
+
+datasets:
+  - tag: MYDATASET
+    loader_tag: null
+    num_questions: 20
+    num_questions_on_random_topo: 20
+    questions_random_seed: 28
+    prompts_file: null       # Optional: overrides the loader's PROMPTS_FILE
 ```
 
 

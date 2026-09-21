@@ -10,7 +10,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader as TorchDataLoader
 from pathlib import Path
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds
-from Utils import load_config_from_path
+from EvaluationConfigCheck import load_defense_model_config
 
 class DataProcessor:
     def __init__(self, target_topologies=None):
@@ -374,8 +374,8 @@ class Loop:
         lr_patience_reduce = 0
         early_stop_count = 0
         lr_patience_max = self.config.lr_patience_max
-        lr_reduce_factor = getattr(self.config, 'lr_patience_factor', getattr(self.config, 'lr_reduce_factor', 0.5))
-        min_lr = getattr(self.config, 'min_lr', 1e-8)
+        lr_reduce_factor = self.config.lr_reduce_factor
+        min_lr = self.config.min_lr
         
         self.model.train()
         for epoch in range(self.config.epochs):
@@ -696,7 +696,7 @@ class Master:
     """Class that manages all the train-evaluate-save logic.
     Should return the evaluation trace and the trained model (for possible live test)."""
     def __init__(self, config_path):
-        self.args = load_config_from_path(config_path)
+        self.args = load_defense_model_config(config_path)
     
     def _run(self, train_pkl_path=None):
         random.seed(self.args.seed)
@@ -728,14 +728,14 @@ class Master:
         
         log_info(f"Total training samples: {len(train_pairs)}")
         
-        split_seed = getattr(self.args, 'split_seed', self.args.seed)
+        split_seed = self.args.split_seed
         split_rng = np.random.default_rng(split_seed)
         indices = split_rng.permutation(len(train_pairs))
         split_idx = int(len(train_pairs) * (1 - self.args.val_split))
         train_set = [train_pairs[i] for i in indices[:split_idx]]
         val_set = [train_pairs[i] for i in indices[split_idx:]]
         
-        dataloader_seed = getattr(self.args, 'dataloader_seed', self.args.seed)
+        dataloader_seed = self.args.dataloader_seed
         train_loader = create_geometric_dataloader(train_set, self.args.batch_size, shuffle=True, seed=dataloader_seed)
         val_loader = create_geometric_dataloader(val_set, self.args.batch_size, shuffle=False) if len(val_set) > 0 else None
         
@@ -761,7 +761,7 @@ if __name__ == "__main__":
     arguments = argparse.ArgumentParser(description="XG-Guard Anomaly Detection with Graph Neural Networks")
     arguments.add_argument('--config', type=str, default=None, help='Path to YAML config file with all parameters')    
     parsed_config = arguments.parse_args()
-    args = load_config_from_path(parsed_config.config)
+    args = load_defense_model_config(parsed_config.config)
     
     # Set random seeds for reproducibility
     random.seed(args.seed)
@@ -790,14 +790,14 @@ if __name__ == "__main__":
     
     log_info(f"Total training samples: {len(train_pairs)}")
     
-    split_seed = getattr(args, 'split_seed', args.seed)
+    split_seed = args.split_seed
     split_rng = np.random.default_rng(split_seed)
     indices = split_rng.permutation(len(train_pairs))
     split_idx = int(len(train_pairs) * (1 - args.val_split))
     train_set = [train_pairs[i] for i in indices[:split_idx]]
     val_set = [train_pairs[i] for i in indices[split_idx:]]
     
-    dataloader_seed = getattr(args, 'dataloader_seed', args.seed)
+    dataloader_seed = args.dataloader_seed
     train_loader = create_geometric_dataloader(train_set, args.batch_size, shuffle=True, seed=dataloader_seed)
     val_loader = create_geometric_dataloader(val_set, args.batch_size, shuffle=False) if len(val_set) > 0 else None
     

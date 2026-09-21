@@ -6,19 +6,28 @@ per dataset tag, the exact dataset indexes that were used ("used indexes") so
 that later stages (training, hyperparameter search, evaluation) can avoid
 train/eval leakage.
 
-Config schema (new keys)::
+Config schema (see ``config-examples/generation-config.yaml``)::
+
+    llm: {timeout, llm_max_retries, max_concurrent_inference}
+    debate: {num_agents, num_malicious_agents, malicious_seed, max_rounds,
+             consensus_threshold, random_topo_seed,
+             density_range_for_random_topo}
 
     datasets:                       # list of dataset entries (multi-dataset mode)
       - tag: MMLUPRO                # config tag (resolved to a loader TAG)
         loader_tag: MMLUPro         # optional explicit loader TAG override
-        n_questions: 10             # fixed-topology question count for this dataset
-        n_questions_random_topo: 10 # random-topology question count for this dataset
-        questions_random_seed: 1    # optional per-dataset seed
+        num_questions: 10           # fixed-topology question count for this dataset
+        num_questions_on_random_topo: 10 # random-topology question count
+        questions_random_seed: 1    # per-dataset seed
         ma_dataset_path: ...        # optional per-dataset dataset path
 
-When ``datasets`` is absent, the legacy single-dataset keys
-(``dataset_tag`` + ``debate_config.n_questions`` / ``n_questions_random_topo``)
-are wrapped into a single-entry list, so existing configs keep working.
+    output_dir: data
+    output_file: train_data.pkl
+    process_text: true
+    clean_debates: true
+
+All configuration loading and validation is delegated to
+``GenerationConfigCheck.py``.
 
 Output pickle schema::
 
@@ -33,86 +42,20 @@ Each debate additionally carries ``dataset_tag`` and ``dataset_index`` so a
 debate can always be traced back to the dataset instance it was generated from.
 """
 
-from DebateConfigLoader import DebateConfig
+from GenerationConfigCheck import build_debate_config, load_generation_config
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-import inspect
 import importlib
 import importlib.util
 import os
 import pickle
 import json
 from typing import Any, cast
-from Utils import load_config
 from tqdm import tqdm
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, fmt_seconds, print_timing_report
 
 from TextProcessingManager import RoundProcessor
 from DebateDataGenerationLoop import DebateOrchestration
-
-
-# ---------------------------------------------------------------------------
-# Dataset tag resolution
-#
-# Config tags (human friendly, e.g. "InjecAgent", "MsMarco", "gsm8k") are
-# resolved to the canonical loader TAG declared on the DatasetManager classes
-# (e.g. "TA", "MA", "GSM8K").  Resolution order:
-#   1. explicit ``loader_tag`` (exact or normalized match),
-#   2. exact config tag match against the loader TAGs,
-#   3. normalized (case/punctuation insensitive) match,
-#   4. a small alias table for well-known config tags.
-# ---------------------------------------------------------------------------
-
-_DATASET_TAG_ALIASES = {
-    "INJECAGENT": "TA",
-    "INJECAGENTTA": "TA",
-    "MSMARCO": "MA",
-    "MSMARCOCONTAMINATED": "MA",
-    "MMLUPRO": "MMLUPRO",
-    "GSM8K": "GSM8K",
-}
-
-
-def _normalize_tag(tag: str) -> str:
-    return "".join(ch for ch in str(tag).upper() if ch.isalnum())
-
-
-def _dataset_loader_classes():
-    import DatasetManager
-    return {
-        cls.TAG: cls
-        for _, cls in inspect.getmembers(DatasetManager, inspect.isclass)
-        if hasattr(cls, "TAG")
-    }
-
-
-def _resolve_loader_tag(config_tag: str, explicit_loader_tag: str | None = None) -> str:
-    classes = _dataset_loader_classes()
-    if explicit_loader_tag:
-        for tag in classes:
-            if tag == explicit_loader_tag or _normalize_tag(tag) == _normalize_tag(explicit_loader_tag):
-                return tag
-        raise ValueError(
-            f"Unknown loader_tag '{explicit_loader_tag}' for dataset tag '{config_tag}'. "
-            f"Available loader TAGs: {sorted(classes)}"
-        )
-
-    if config_tag in classes:
-        return config_tag
-
-    normalized = _normalize_tag(config_tag)
-    for tag in classes:
-        if _normalize_tag(tag) == normalized:
-            return tag
-
-    alias = _DATASET_TAG_ALIASES.get(normalized)
-    if alias and alias in classes:
-        return alias
-
-    raise ValueError(
-        f"Could not resolve dataset tag '{config_tag}' to a DatasetManager loader. "
-        f"Available loader TAGs: {sorted(classes)}"
-    )
 
 
 def to_jsonable(obj):
@@ -262,14 +205,10 @@ def generate_topologies(num_agents: int, random_config = None):
     return topologies
 
 
-def load_text_processor(args, config_path: str | None = None):
-    """Load text processor class from config path/module + class name."""
-    processor_class_name = getattr(args, "text_processor_class_name", "RoundProcessor")
-    processor_path = getattr(args, "text_processor_path", None)
-
-    # Backward compatible default.
-    if processor_path is None:
-        return RoundProcessor()
+def load_text_processor(config):
+    """Instantiate the configured text processor class."""
+    processor_class_name = config.text_processor_class_name
+    processor_path = config.text_processor_path
 
     # Accept Python module path (e.g., package.module) or script path (e.g., ./postprocessing.py).
     is_script_path = processor_path.endswith(".py") or os.path.sep in processor_path or "/" in processor_path
@@ -279,11 +218,6 @@ def load_text_processor(args, config_path: str | None = None):
         else:
             # Relative paths are always resolved from current working directory.
             resolved_path = os.path.abspath(processor_path)
-
-        if not os.path.isfile(resolved_path):
-            raise FileNotFoundError(
-                f"Processor script not found: '{processor_path}'. Tried '{resolved_path}'"
-            )
 
         spec = importlib.util.spec_from_file_location("dynamic_text_processor", resolved_path)
         if spec is None or spec.loader is None:
@@ -299,20 +233,11 @@ def load_text_processor(args, config_path: str | None = None):
             f"Class '{processor_class_name}' not found in processor module '{processor_path}'."
         )
 
-    processor_kwargs = getattr(args, "text_processor_kwargs", None)
-    if not isinstance(processor_kwargs, dict):
-        processor_kwargs = {}
+    processor_kwargs = dict(config.text_processor_kwargs)
+    if config.text_processor_device is not None:
+        processor_kwargs.setdefault("device", config.text_processor_device)
 
-    text_processor_device = getattr(args, "text_processor_device", None)
-    if text_processor_device is not None and "device" not in processor_kwargs:
-        processor_kwargs["device"] = text_processor_device
-
-    try:
-        return processor_cls(**processor_kwargs)
-    except TypeError:
-        if processor_kwargs:
-            log_warn("text_processor_kwargs/text_processor_device not supported by processor class; falling back to default constructor.")
-        return processor_cls()
+    return processor_cls(**processor_kwargs)
 
 
 def process_single_debate(
@@ -337,82 +262,10 @@ def process_single_debate(
 
 
 # ---------------------------------------------------------------------------
-# Multi-dataset configuration parsing
+# Generation
 # ---------------------------------------------------------------------------
 
-def _get_dataset_entries(args, debate_cfg):
-    """Return the per-dataset generation entries.
-
-    Each entry is a plain dict with keys: ``tag`` (config tag), ``loader_tag``
-    (resolved canonical TAG), ``n_questions``, ``n_questions_random_topo``,
-    ``questions_random_seed`` and ``ma_dataset_path``.
-    """
-    base_defaults = {
-        "n_questions": getattr(debate_cfg, "n_questions", getattr(args, "num_questions", 0)),
-        "n_questions_random_topo": getattr(
-            debate_cfg,
-            "n_questions_random_topo",
-            getattr(args, "n_questions_random_topo", 0),
-        ),
-        "questions_random_seed": getattr(args, "questions_random_seed", getattr(args, "random_debate", 0)),
-        "ma_dataset_path": getattr(debate_cfg, "ma_dataset_path", getattr(args, "ma_dataset_path", None)),
-    }
-
-    datasets = getattr(args, "datasets", None)
-    if not datasets:
-        # Legacy single-dataset config.
-        legacy_tag = getattr(args, "dataset_tag", None)
-        if not legacy_tag:
-            raise ValueError(
-                "No datasets configured: provide a top-level 'datasets' list or a legacy "
-                "'dataset_tag' key."
-            )
-        entry = dict(base_defaults)
-        entry["tag"] = legacy_tag
-        entry["loader_tag"] = None
-        entries = [entry]
-    else:
-        if not isinstance(datasets, list) or not datasets:
-            raise ValueError("'datasets' must be a non-empty list of dataset entries.")
-        entries = []
-        for idx, raw_entry in enumerate(datasets):
-            if not isinstance(raw_entry, dict):
-                raise ValueError(f"datasets[{idx}] must be a mapping.")
-            if not raw_entry.get("tag"):
-                raise ValueError(f"datasets[{idx}] is missing required key 'tag'.")
-            entry = dict(base_defaults)
-            for key in (
-                "n_questions",
-                "n_questions_random_topo",
-                "questions_random_seed",
-                "ma_dataset_path",
-                "loader_tag",
-            ):
-                if key in raw_entry:
-                    entry[key] = raw_entry[key]
-            entry["tag"] = raw_entry["tag"]
-            entries.append(entry)
-
-    # Resolve loader TAGs and reject loader duplicates (each loader may appear
-    # only once per generation run).
-    resolved_entries = []
-    seen_tags = set()
-    for entry in entries:
-        resolved_tag = _resolve_loader_tag(entry["tag"], entry.get("loader_tag"))
-        if resolved_tag in seen_tags:
-            raise ValueError(
-                f"Duplicate dataset loader tag '{resolved_tag}' in 'datasets' "
-                f"(from config tag '{entry['tag']}'). Each loader may appear once."
-            )
-        seen_tags.add(resolved_tag)
-        resolved_entry = dict(entry)
-        resolved_entry["loader_tag"] = resolved_tag
-        resolved_entries.append(resolved_entry)
-
-    return resolved_entries
-
-
-def _generate_for_dataset(dataset_entry, args, debate_cfg, base, processor):
+def _generate_for_dataset(dataset_entry, config, processor):
     """Generate all topologies for ONE dataset entry.
 
     Returns ``(dataset_results, used_dataset_indexes, stats)`` where
@@ -420,12 +273,11 @@ def _generate_for_dataset(dataset_entry, args, debate_cfg, base, processor):
     results}`` records, ``used_dataset_indexes`` are the dataset indexes that
     actually survived cleaning, and ``stats`` holds the debate counters.
     """
-    resolved_tag = dataset_entry["loader_tag"]
-    tag_label = dataset_entry["tag"]
-    n_questions_fixed = int(dataset_entry.get("n_questions") or 0)
-    n_questions_random_topo = int(dataset_entry.get("n_questions_random_topo") or 0)
-    ma_dataset_path = dataset_entry.get("ma_dataset_path")
-    base_question_seed = dataset_entry.get("questions_random_seed")
+    resolved_tag = dataset_entry.loader_tag
+    tag_label = dataset_entry.tag
+    n_questions_fixed = dataset_entry.num_questions
+    n_questions_random_topo = dataset_entry.num_questions_on_random_topo
+    base_question_seed = dataset_entry.questions_random_seed
 
     # TA (InjecAgent) semantics: an empty agent answer means no tool was called,
     # which is a safe outcome, so debate cleaning is never applied to TA.
@@ -437,9 +289,9 @@ def _generate_for_dataset(dataset_entry, args, debate_cfg, base, processor):
         f"seed={base_question_seed}"
     )
 
-    topologies = generate_topologies(base["n_agents"])
+    topologies = generate_topologies(config.debate.num_agents)
     if n_questions_random_topo > 0:
-        topologies['random'] = [[0] * base["n_agents"] for _ in range(base["n_agents"])]
+        topologies['random'] = [[0] * config.debate.num_agents for _ in range(config.debate.num_agents)]
 
     dataset_results = []
     used_global_indexes = []
@@ -449,7 +301,7 @@ def _generate_for_dataset(dataset_entry, args, debate_cfg, base, processor):
 
     for i, (topo_name, adj_matrix) in enumerate(topologies.items(), start=1):
         # Use unique seed per topology so each gets different questions.
-        topology_seed = (base_question_seed or 0) + (i - 1)
+        topology_seed = base_question_seed + (i - 1)
         questions_for_topology = (
             n_questions_random_topo if topo_name == "random" else n_questions_fixed
         )
@@ -460,32 +312,16 @@ def _generate_for_dataset(dataset_entry, args, debate_cfg, base, processor):
         log_info(f"Seed: {topology_seed}")
         log_info(f"Planned questions: {questions_for_topology}")
 
-        config = DebateConfig(
-            timeout=args.timeout,
-            is_random_topology=True if topo_name == "random" else False,
-            random_topology_data={
-                "seed": base["random_topo_seed"],
-                "density interval": (base["density_min"], base["density_max"]),
-            },
-            max_rounds=base["max_rounds"],
-            number_of_agents=base["n_agents"],
-            number_malicious_agents=base["num_malicious"],
-            consensus_threshold=base["consensus_threshold"],
-            topology=adj_matrix,
-            prompts_file=None,
-            malicious_randomization_seed=base["malicious_randomization_seed"],
-            parallel_questions=args.parallel_questions,
-            parallel_agents=True,
-            save_logs_json=False,
-            save_logs_dir=f"debate_logs_{resolved_tag}_{topo_name}",
-            verbose=args.verbose,
-            num_questions=questions_for_topology,
-            questions_random_seed=topology_seed,
-            dataset_tag=resolved_tag,
-            ma_dataset_path=ma_dataset_path,
+        runtime_config = build_debate_config(
+            config,
+            dataset_entry,
+            topo_name,
+            adj_matrix,
+            questions_for_topology,
+            topology_seed,
         )
 
-        debate_orchestration = DebateOrchestration(config)
+        debate_orchestration = DebateOrchestration(runtime_config)
         results, _ = debate_orchestration.run_evaluation()
         if results is None:
             log_warn(f"No results returned for topology {topo_name}; skipping.")
@@ -520,7 +356,7 @@ def _generate_for_dataset(dataset_entry, args, debate_cfg, base, processor):
         initial_count = len(results)
         dataset_initial_debates += initial_count
 
-        if base["clean_data"] and not is_ta:
+        if config.clean_debates and not is_ta:
             log_info("Cleaning data: removing debates with invalid/empty responses...")
             cleaned_results = []
             kept_positions = []
@@ -565,7 +401,7 @@ def _generate_for_dataset(dataset_entry, args, debate_cfg, base, processor):
                         print(f"      - debate_index={ex['debate_index']}: {reasons_str}")
 
         else:
-            if base["clean_data"] and is_ta:
+            if config.clean_debates and is_ta:
                 log_info(
                     "Skipping debate cleaning for TA: an empty answer means no tool was "
                     "called (safe), so TA debates are never dropped for empty responses."
@@ -574,12 +410,12 @@ def _generate_for_dataset(dataset_entry, args, debate_cfg, base, processor):
                 j for j, debate in enumerate(results) if debate is not None
             ]
 
-        if base["process_text"]:
+        if config.process_text:
             log_info("Starting text processing on cleaned debates...")
             assert processor is not None
             total_to_process = len(results)
 
-            workers = base["text_process_workers"] if base["text_process_workers"] > 0 else min(8, os.cpu_count() or 1)
+            workers = config.text_process_workers if config.text_process_workers > 0 else min(8, os.cpu_count() or 1)
             processor_device = getattr(processor, "device", "cpu")
 
             if processor_device != "cpu":
@@ -646,60 +482,28 @@ def main():
     arguments = argparse.ArgumentParser(description="XG-Guard Anomaly Detection with Graph Neural Networks")
     arguments.add_argument('config', type=str, default=None, help='Path to YAML config file with all parameters')
     parsed_config = arguments.parse_args()
-    args = load_config(parsed_config)
+    config = load_generation_config(parsed_config.config)
     log_section("Training Data Generation (multi-dataset)")
 
-    # Support both nested schema (debate_config.*) and legacy flat keys.
-    debate_cfg = getattr(args, "debate_config", args)
-    n_agents = getattr(debate_cfg, "num_agents", getattr(args, "num_agents", None))
-    if n_agents is None:
-        raise ValueError("Missing number of agents in config: set debate_config.num_agents (or num_agents).")
-
-    base = {
-        "n_agents": n_agents,
-        "max_rounds": getattr(debate_cfg, "max_rounds", getattr(args, "max_rounds", 3)),
-        "num_malicious": getattr(debate_cfg, "num_malicious", getattr(args, "num_malicious", 0)),
-        "consensus_threshold": getattr(
-            debate_cfg, "consensus_threshold", getattr(args, "consensus_threshold", 1.0)
-        ),
-        "malicious_randomization_seed": getattr(
-            debate_cfg,
-            "malicious_randomization_seed",
-            getattr(args, "random_malicious_seed", 42),
-        ),
-        "random_topo_seed": getattr(debate_cfg, "random_topo_seed", getattr(args, "random_topo", 24)),
-        "density_min": getattr(getattr(debate_cfg, "density", None), "min", getattr(args, "density_min", 0.3)),
-        "density_max": getattr(getattr(debate_cfg, "density", None), "max", getattr(args, "density_max", 0.7)),
-        "process_text": getattr(args, "process_text", False),
-        "clean_data": getattr(args, "clean_data", False),
-        "text_process_workers": int(getattr(args, "text_process_workers", 0) or 0),
-    }
-
-    save_data_dir = getattr(args, "save_data_dir", "data")
-    file_name = getattr(args, "file_name", "train-data.pkl")
-
-    dataset_entries = _get_dataset_entries(args, debate_cfg)
     log_info(
         "Datasets to generate: "
-        + ", ".join(f"{e['tag']}->{e['loader_tag']}" for e in dataset_entries)
+        + ", ".join(f"{e.tag}->{e.loader_tag}" for e in config.datasets)
     )
 
     processor = None
-    if base["process_text"]:
-        processor = load_text_processor(args, getattr(parsed_config, "config", None))
-    if base["process_text"] and processor is None:
-        raise RuntimeError("process_text is enabled but no processor could be initialized.")
+    if config.process_text:
+        processor = load_text_processor(config)
 
     all_results = []
     idx_metadata = {}
     total_initial_debates = 0
     total_valid_debates = 0
 
-    for entry in dataset_entries:
+    for entry in config.datasets:
         dataset_results, used_global_indexes, stats = _generate_for_dataset(
-            entry, args, debate_cfg, base, processor
+            entry, config, processor
         )
-        tag = entry["tag"]
+        tag = entry.tag
 
         all_results.extend(dataset_results)
         idx_metadata[tag] = used_global_indexes
@@ -711,14 +515,14 @@ def main():
             f"{len(used_global_indexes)} used indexes recorded."
         )
 
-    os.makedirs(save_data_dir, exist_ok=True)
-    output_filepath = os.path.join(save_data_dir, file_name)
+    os.makedirs(config.output_dir, exist_ok=True)
+    output_filepath = os.path.join(config.output_dir, config.output_file)
     legacy_flat = sorted({int(i) for indexes in idx_metadata.values() for i in indexes})
     output = {
         "data": all_results,
         "idx_metadata": idx_metadata,
         "idx_metadata_flat": legacy_flat,
-        "dataset_tags": [entry["tag"] for entry in dataset_entries],
+        "dataset_tags": [entry.tag for entry in config.datasets],
     }
     total_used = sum(len(v) for v in idx_metadata.values())
     if total_used:
@@ -758,22 +562,22 @@ def main():
         "avg_seconds_per_valid": avg_seconds_per_valid,
         "datasets": [
             {
-                "config_tag": entry["tag"],
-                "loader_tag": entry["loader_tag"],
-                "n_questions": entry.get("n_questions"),
-                "n_questions_random_topo": entry.get("n_questions_random_topo"),
-                "used_indexes": list(idx_metadata.get(entry["tag"], [])),
+                "config_tag": entry.tag,
+                "loader_tag": entry.loader_tag,
+                "num_questions": entry.num_questions,
+                "num_questions_on_random_topo": entry.num_questions_on_random_topo,
+                "used_indexes": list(idx_metadata.get(entry.tag, [])),
             }
-            for entry in dataset_entries
+            for entry in config.datasets
         ],
         "used_indexes_per_tag": {
             tag: len(indexes) for tag, indexes in idx_metadata.items()
         },
     }
-    report_filename = f"report-{file_name}"
+    report_filename = f"report-{config.output_file}"
     if not report_filename.lower().endswith(".json"):
         report_filename += ".json"
-    report_filepath = os.path.join(save_data_dir, report_filename)
+    report_filepath = os.path.join(config.output_dir, report_filename)
     with open(report_filepath, "w", encoding="utf-8") as report_file:
         json.dump(to_jsonable(timing_report), report_file, indent=2)
     log_info(f"Timing report saved to {report_filepath}")

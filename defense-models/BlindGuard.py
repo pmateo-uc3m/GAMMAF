@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from Utils import load_config, load_config_from_path
+from EvaluationConfigCheck import load_defense_model_config
 from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds
 
 @dataclass
@@ -399,14 +399,14 @@ class SCLTopologyLoop:
         y_full = topology_data['labels']
         
         # Validation split
-        split_seed = getattr(self.args, 'split_seed', self.args.seed)
+        split_seed = self.args.split_seed
         X_train, X_val, y_train, y_val = train_test_split(
             X_full, y_full, test_size=self.args.val_split, random_state=split_seed, stratify=y_full
         )
         
         # Create dataset and dataloader
         dataset_train = SCLDataset(X_train, y_train)
-        dataloader_seed = getattr(self.args, 'dataloader_seed', self.args.seed)
+        dataloader_seed = self.args.dataloader_seed
         train_generator = torch.Generator()
         train_generator.manual_seed(dataloader_seed)
         dataloader_train = DataLoader(dataset_train, batch_size=self.args.batch_size, shuffle=True, generator=train_generator)
@@ -587,7 +587,7 @@ class SCLTopologyLoop:
     
 class Master:
     def __init__(self, config_path):
-        self.args = load_config_from_path(config_path)
+        self.args = load_defense_model_config(config_path)
         
     def _run(self, train_pkl_path=None):
         # if self.args.save_model and not self.args.save_path:
@@ -605,7 +605,7 @@ class Master:
         data_params = vars(DataGenerationParams())
         data_params['anomaly_rate'] = self.args.anomaly_rate
         data_params['anomaly_scale'] = self.args.anomaly_scale
-        data_seed = getattr(self.args, 'data_seed', self.args.seed)
+        data_seed = self.args.data_seed
 
         log_info("Loading and processing training data...")
         train_data = TrainDataProcessor(data_params, target_topologies=self.args.topologies, rng_seed=data_seed)
@@ -641,7 +641,7 @@ if __name__ == "__main__":
     arguments = argparse.ArgumentParser(description="Supervised Contrastive Learning for BlindGuard Anomaly Detection")
     arguments.add_argument('--config', type=str, default=None, help='Path to YAML configuration file')
     parsed_config = arguments.parse_args()
-    args = load_config(parsed_config)
+    args = load_defense_model_config(parsed_config.config)
     
     # if args.save_model and not args.save_path:
     #     raise ValueError("If --save_model is True, you must provide a --save_path to save the model.")
@@ -658,7 +658,7 @@ if __name__ == "__main__":
     data_params = vars(DataGenerationParams())
     data_params['anomaly_rate'] = args.anomaly_rate
     data_params['anomaly_scale'] = args.anomaly_scale
-    data_seed = getattr(args, 'data_seed', args.seed)
+    data_seed = args.data_seed
 
     log_info("Loading and processing training data...")
     train_data = TrainDataProcessor(data_params, target_topologies=args.topologies, rng_seed=data_seed)

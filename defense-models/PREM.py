@@ -46,7 +46,7 @@ sys.path.append(str(_PREM_DIR.parent))
 sys.path.insert(0, str(_PREM_DIR))
 
 from LoggingUtils import log_done, log_info, log_section, log_warn, print_epoch_log
-from Utils import load_config, load_config_from_path
+from EvaluationConfigCheck import load_defense_model_config
 
 # Reuse BlindGuard's training-data loader so PREM consumes the exact same
 # sentence-embedding / graph representation (no data perturbation is applied).
@@ -136,12 +136,12 @@ class PREMTopologyLoop:
                  discriminator_cls=PREMDiscriminator):
         self.args = args
         self.config = args
-        if getattr(args, "device", None):
+        if args.device:
             self.device = torch.device(args.device)
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
-        self.prop_steps = int(getattr(args, "prop_steps", 2))
+        self.prop_steps = int(args.prop_steps)
         self._propagation_fn = propagation_fn
         self._discriminator_cls = discriminator_cls
         self._predict_lock = threading.Lock()
@@ -193,20 +193,20 @@ class PREMTopologyLoop:
             raise ValueError("PREM ego and neighbor feature matrices must have the same shape.")
 
         input_dim = ego.shape[1]
-        cfg_input_dim = getattr(self.args, "input_dim", None)
+        cfg_input_dim = self.args.input_dim
         if cfg_input_dim is not None and int(cfg_input_dim) != input_dim:
             raise ValueError(f"PREM input_dim={cfg_input_dim} does not match embeddings ({input_dim}).")
-        emb_dim = int(getattr(self.args, "emb_dim", 128))
-        alpha = float(getattr(self.args, "alpha", 0.9))
-        gamma = float(getattr(self.args, "gamma", 0.1))
-        num_epochs = int(getattr(self.args, "num_epochs", getattr(self.args, "epochs", 100)))
-        batch_size = int(getattr(self.args, "batch_size", -1))
-        learning_rate = float(getattr(self.args, "learning_rate", 1e-3))
-        weight_decay = float(getattr(self.args, "weight_decay", 0.0))
-        val_split = float(getattr(self.args, "val_split", 0.2))
+        emb_dim = int(self.args.emb_dim)
+        alpha = float(self.args.alpha)
+        gamma = float(self.args.gamma)
+        num_epochs = int(self.args.num_epochs)
+        batch_size = int(self.args.batch_size)
+        learning_rate = float(self.args.learning_rate)
+        weight_decay = float(self.args.weight_decay)
+        val_split = float(self.args.val_split)
 
         # Validation split (indices only; training is fully unsupervised).
-        split_seed = int(getattr(self.args, "split_seed", getattr(self.args, "seed", 0)))
+        split_seed = int(self.args.split_seed)
         if n_total >= 2 and 0 < val_split < 1:
             perm_idx = np.random.default_rng(split_seed).permutation(n_total)
             n_val = max(1, int(round(n_total * val_split)))
@@ -301,12 +301,12 @@ class PREMTopologyLoop:
             xn_t = torch.from_numpy(xn).float().to(self.device)
             scores = self.model(x_t, xn_t).cpu().numpy().astype(float)
 
-        threshold = getattr(self.config, "threshold", None)
+        threshold = self.config.threshold
         flags = np.zeros(n_agents, dtype=int)
         if threshold is not None:
             flags[scores > float(threshold)] = 1
         else:
-            top_k = int(getattr(self.config, "top_k", 1))
+            top_k = int(self.config.top_k)
             flags[np.argsort(-scores)[:min(top_k, n_agents)]] = 1
 
         return flags, scores
@@ -341,7 +341,7 @@ class PREMTopologyLoop:
 
 class Master:
     def __init__(self, config_path):
-        self.args = load_config_from_path(config_path)
+        self.args = load_defense_model_config(config_path)
 
     def _run(self, train_pkl_path=None):
         random.seed(self.args.seed)
@@ -354,7 +354,7 @@ class Master:
         train_data = TrainDataProcessor({}, target_topologies=self.args.topologies)
         train_data.load_pkl(train_pkl_path or self.args.pkl_train)
 
-        prop_steps = int(getattr(self.args, "prop_steps", 2))
+        prop_steps = int(self.args.prop_steps)
         prem_data = build_prem_dataset(train_data, prop_steps)
         log_info(f"PREM data prepared: {prem_data['ego'].shape[0]} ego/neighbor node pairs "
                  f"(feature dim {prem_data['ego'].shape[1]}).")

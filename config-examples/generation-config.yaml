@@ -1,39 +1,48 @@
 # Generation pipeline config (TrainDataGeneration.py)
+# Loaded and validated by GenerationConfigCheck.py.
 
-timeout: 20
-parallel_questions: 30 # Number of concurrent questions sent to inference API
-llm_max_retries: 3
+llm:
+  timeout: 20
+  llm_max_retries: 3
+  max_concurrent_inference: 30
 
-prompts: prompts/prompts_blindguard.json # Prompt template file (JSON) used by agents, see example in ./prompts
-
-dataset_tag: MMLU # Dataset selection (must match a class TAG in DatasetManager.py)
-questions_random_seed: 1 # Seed for question selection
-verbose: false
-
-# Output
-save_data_dir: data # Directory to save generated data
-file_name: test_data.pkl # Name of data file (must be .pkl)
-
-# Optional post-processing
-process_text: true          # Turn text output in embeddings with TextProcessingManager.RoundProcessor
-clean_data: true            # Drop debates with empty/invalid agent outputs (suggested to leave as true)
-text_process_workers: 0     # 0 = auto; GPU processors will be forced to sequential
-
-# Debate parameters
-# Debate parameters
-debate_config:
+debate:
   num_agents: 5
-  num_malicious: 0
+  num_malicious_agents: 0
+  malicious_seed: 3
   max_rounds: 3
   consensus_threshold: 1.0
-  malicious_randomization_seed: 3
-
-  # Question counts per topology
-  n_questions: 10
-  n_questions_random_topo: 10
-
-  # Random topology generation
   random_topo_seed: 24
-  density: 
-    min: 0.3
-    max: 0.7
+  density_range_for_random_topo: [0.3, 0.7]
+
+datasets:
+  - tag: MMLU
+    loader_tag: null
+    num_questions: 10
+    num_questions_on_random_topo: 10
+    questions_random_seed: 1
+    ma_dataset_path: null
+    prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+
+  # The same loader can be run again with a different tag and config; both
+  # runs are generated and saved under their own tag:
+  # - tag: MMLU_alt
+  #   loader_tag: MMLU
+  #   num_questions: 10
+  #   num_questions_on_random_topo: 10
+  #   questions_random_seed: 7
+  #   prompts_file: prompts/prompts_MMLU_alt.json
+
+output_dir: data
+output_file: test_data.pkl
+
+# Optional post-processing
+process_text: true
+clean_debates: true
+text_process_workers: 0
+text_processor_path: TextProcessingManager.py
+text_processor_class_name: RoundProcessor
+text_processor_kwargs: {}
+text_processor_device: null
+
+verbose: false

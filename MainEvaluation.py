@@ -1,8 +1,7 @@
 """
 MainEvaluation.py -- multi-dataset defense benchmarking.
 
-Multi-dataset defense benchmarking for GAMMAF.  It keeps every behavior of the
-single-dataset pipeline while adding:
+Multi-dataset defense benchmarking for GAMMAF:
 
 * **Combined training**: every defense model is trained once on the combined
   dataset pickle produced by ``TrainDataGeneration.py`` (all datasets
@@ -15,58 +14,73 @@ single-dataset pipeline while adding:
   dataset tag (``<output_dir>/<tag>/<model>.json``); the configured
   ``output_file`` holds a small summary mapping tags/models to those files.
 * **Consolidated hyperparameter search** (``--hps``), which lives in this same
-  file and in ``EvaluationDebateLoop.py`` (no separate ``-HPS`` file,
-  see R5).  The search saves the selected HPS indexes **per dataset tag**.
+  file and in ``EvaluationDebateLoop.py``.  The search saves the selected HPS
+  indexes **per dataset tag**.
 
-Config schema (new keys)::
+All configuration loading and validation is delegated to
+``EvaluationConfigCheck.py``; this module only consumes the normalised config.
 
-    train_pkl_path: data/multi-train.pkl
-    output_file: results/multi-eval/summary.json
+Config schema (see ``config-examples/evaluation-config.yaml``)::
 
-    eval_datasets:                  # list of evaluation datasets (multi mode)
-      - tag: MMLUPRO                # config tag (resolved to a loader TAG)
-        loader_tag: MMLUPro         # optional explicit loader TAG
-        num_questions: 1            # fixed-topology question count
-        n_questions_on_random_topo: 1
-        questions_random_seed: 28   # optional per-tag seed
-        ma_dataset_path: ...        # optional per-tag dataset path
-        hps_indexes: hps/...-index.pkl  # optional explicit per-tag HPS indexes
+    models_directory: defense-models
+    output_file: results/summary.json
+    train_pkl_path: data/train-data.pkl     # optional per-model fallback
+
+    llm: {timeout, llm_max_retries, max_concurrent_inference}
+    debate: {num_agents, num_malicious_agents, malicious_seed, max_rounds,
+             consensus_threshold, check_consensus_only_unflagged,
+             no_consensus_check, new_random_each_question, random_topo_seed,
+             density_range_for_random_topo}
+
+    datasets:
+      - tag: MMLU
+        loader_tag: null
+        num_questions: 20
+        num_questions_on_random_topo: 20
+        questions_random_seed: 28
+        ma_dataset_path: null
+        hps_indexes: null
+
+    evaluation:
+      questions_path: DatasetManager.py
+      questions_class_name: null
+      python_seed: 28
+      numpy_seed: 28
+      answer_seed: 28
+      top_k_defense: 2
+      no_defense_baseline: true
+      save_traces: false
+      debug_mode: false
+      static_adjacency_mode: false
+      topologies_file: null
+      topologies_from_pkl: null
 
     hyperparameter_search:          # optional section => enables --hps mode
-      total_samples: 4              # fixed HPS pool size, per dataset tag
-      run_samples: 2                # per-run subset size, per dataset tag
+      total_samples: 100
+      run_samples: 40
       split_seed: 42
-      index_pkl: hps/multi/index.pkl       # combined per-tag index record
-      index_pkl_dir: hps/multi             # per-tag index pickles
-      results_csv: hps/multi/results.csv
+      index_pkl: hps/index.pkl
+      index_pkl_dir: hps/indexes
+      results_csv: hps/results.csv
 
-When ``eval_datasets`` is absent, the legacy single
-``live_evaluation_config.questions_dataset_tag`` setup is wrapped into a
-single-entry list, so existing configs keep working.  Legacy top-level HPS keys
-(``hps_total_samples``, ``hps_run_samples``, ``hps_split_seed``, ``index_pkl``,
-``results_csv``) are also accepted.
+    defense_model_train_configs:    # one entry per defense model file stem
+      BlindGuard: {...}
 """
 
 import argparse
-import copy
 import csv
 import gc
-import hashlib
 import importlib.util
 import inspect
-import itertools
 import json
 import os
 import pickle
-import tempfile
 import traceback
 from pathlib import Path
 from time import time
 
 import numpy as np
-import yaml
 
-from Utils import load_config_from_path, AttrDict, _to_attrdict
 from LoggingUtils import (
     log_section,
     log_info,
@@ -78,6 +92,7 @@ from LoggingUtils import (
     print_stats_table,
     print_timing_report,
 )
+from Utils import AttrDict
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +103,12 @@ from EvaluationDebateLoop import (
     LiveDebateOrchestration,
     build_hps_pool_loader,
     draw_hps_run_subset,
-    resolve_loader_tag_from_path,
+)
+from EvaluationConfigCheck import (
+    build_run_plans,
+    load_evaluation_config,
+    write_effective_config,
+    write_model_config,
 )
 
 
@@ -175,93 +195,26 @@ def load_topologies_from_pickle(pkl_path):
     return topologies
 
 
-def resolve_topologies(config, config_file_path):
-    live_cfg = config.live_evaluation_config
-
-    topologies_file = getattr(live_cfg, "topologies_file", None)
+def resolve_topologies(config):
+    topologies_file = config.evaluation.topologies_file
     if topologies_file:
-        topologies_path = Path(topologies_file)
-        if topologies_path.exists():
-            with open(topologies_path, "r", encoding="utf-8") as f:
-                log_info(f"Loading topologies from file: {topologies_path}")
-                return json.load(f)
-        log_warn(f"topologies_file not found: {topologies_path}. Falling back to generated topologies.")
+        with open(topologies_file, "r", encoding="utf-8") as f:
+            log_info(f"Loading topologies from file: {topologies_file}")
+            return json.load(f)
 
-    pkl_path = getattr(live_cfg, "topologies_from_pkl", None)
+    pkl_path = config.evaluation.topologies_from_pkl
     if pkl_path:
-        pkl_topologies_path = Path(pkl_path)
-        if pkl_topologies_path.exists():
-            topologies = load_topologies_from_pickle(pkl_topologies_path)
-            if topologies:
-                log_info(f"Loaded {len(topologies)} topologies from pickle: {pkl_topologies_path}")
-                return topologies
-            log_warn(f"No topologies found in pickle: {pkl_topologies_path}. Falling back to generated topologies.")
-        else:
-            log_warn(f"topologies_from_pkl not found: {pkl_topologies_path}. Falling back to generated topologies.")
+        topologies = load_topologies_from_pickle(Path(pkl_path))
+        if topologies:
+            log_info(f"Loaded {len(topologies)} topologies from pickle: {pkl_path}")
+            return topologies
+        log_warn(f"No topologies found in pickle: {pkl_path}. Falling back to generated topologies.")
 
-    n_agents = getattr(live_cfg, "num_agents", None)
-    if n_agents is None:
-        raise ValueError(
-            "Cannot resolve topologies: provide live_evaluation_config.num_agents "
-            "or a valid live_evaluation_config.topologies_file/topologies_from_pkl."
-        )
-
-    generated = generate_topologies(n_agents)
-    if getattr(live_cfg, "new_random_each_question", False):
+    generated = generate_topologies(config.debate.num_agents)
+    if config.debate.new_random_each_question:
         generated["random"] = None
-    log_info("Using generated topologies from live_evaluation_config.num_agents")
+    log_info("Using generated topologies from debate.num_agents")
     return generated
-
-
-def load_embedded_model_configs(config_file_path: str):
-    with open(config_file_path, "r", encoding="utf-8") as f:
-        raw_config = yaml.safe_load(f) or {}
-
-    # Global default training itinerary: every model that does not define its
-    # own 'pkl_train' falls back to the top-level train_pkl_path.
-    default_train_pkl = raw_config.get("train_pkl_path")
-
-    section_candidates = [
-        "defense_model_train_configs",
-        "model_train_configs",
-        "models_train_configs",
-    ]
-    for section_name in section_candidates:
-        section = raw_config.get(section_name)
-        if section is None:
-            continue
-        if not isinstance(section, dict):
-            raise ValueError(f"'{section_name}' must be a mapping of model_name -> config dict.")
-
-        normalized = {}
-        for model_name, cfg in section.items():
-            if isinstance(cfg, dict):
-                if default_train_pkl is not None and "pkl_train" not in cfg:
-                    cfg["pkl_train"] = default_train_pkl
-                cfg.setdefault("run_name", model_name)
-                normalized[model_name] = [cfg]
-            elif isinstance(cfg, list):
-                for i, c in enumerate(cfg):
-                    if default_train_pkl is not None and "pkl_train" not in c:
-                        c["pkl_train"] = default_train_pkl
-                    c.setdefault("run_name", f"{model_name}_{i}")
-                normalized[model_name] = cfg
-            else:
-                raise ValueError(f"Config for '{model_name}' must be a dict or list of dicts.")
-        return normalized
-
-    raise ValueError("Missing embedded defense train config section in main config.")
-
-
-def _write_temp_model_config(model_name: str, model_config: dict):
-    fd, temp_path = tempfile.mkstemp(prefix=f"{model_name}-", suffix=".yaml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.safe_dump(model_config, f, sort_keys=False)
-    except Exception:
-        Path(temp_path).unlink(missing_ok=True)
-        raise
-    return temp_path
 
 
 def get_models_from_path(path, embedded_model_configs):
@@ -286,10 +239,7 @@ def get_models_from_path(path, embedded_model_configs):
 
         for model_cfg in configs:
             run_name = model_cfg.get("run_name", module_name)
-            if not isinstance(model_cfg, dict):
-                raise ValueError(f"Embedded config for model '{module_name}' must be a dict.")
-
-            temp_config_path = _write_temp_model_config(run_name, model_cfg)
+            temp_config_path = write_model_config(run_name, model_cfg)
             models[run_name] = {
                 "master": cls(temp_config_path),
                 "config_path": f"embedded:defense_model_train_configs.{module_name}[{run_name}]",
@@ -334,85 +284,8 @@ def _safe_filename(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-#  Multi-dataset configuration
+#  Exclusion indexes
 # ---------------------------------------------------------------------------
-
-def _get_eval_dataset_entries(config):
-    """Return the evaluation dataset entries (multi-dataset aware).
-
-    Each entry is a dict with ``tag`` (config tag), ``loader_tag`` (resolved
-    canonical TAG), per-dataset question counts and optional overrides.
-    """
-    live_cfg = config.live_evaluation_config
-    raw_entries = getattr(config, "eval_datasets", None)
-
-    if not raw_entries:
-        legacy_tag = getattr(
-            live_cfg, "questions_dataset_tag", getattr(live_cfg, "dataset_tag", None)
-        )
-        if not legacy_tag:
-            raise ValueError(
-                "No evaluation datasets configured: provide a top-level 'eval_datasets' "
-                "list or live_evaluation_config.questions_dataset_tag."
-            )
-        raw_entries = [
-            {
-                "tag": legacy_tag,
-                "num_questions": getattr(live_cfg, "num_questions", 0),
-                "n_questions_on_random_topo": getattr(live_cfg, "n_questions_on_random_topo", 0),
-                "questions_random_seed": getattr(live_cfg, "questions_random_seed", None),
-                "ma_dataset_path": getattr(live_cfg, "ma_dataset_path", None),
-                "hps_indexes": getattr(config, "HPS_indexes", None),
-            }
-        ]
-
-    if not isinstance(raw_entries, list) or not raw_entries:
-        raise ValueError("'eval_datasets' must be a non-empty list of dataset entries.")
-
-    entries = []
-    seen = set()
-    for idx, raw_entry in enumerate(raw_entries):
-        if not isinstance(raw_entry, dict):
-            raise ValueError(f"eval_datasets[{idx}] must be a mapping.")
-        if not raw_entry.get("tag"):
-            raise ValueError(f"eval_datasets[{idx}] is missing required key 'tag'.")
-
-        loader_cls = resolve_loader_tag_from_path(
-            live_cfg.questions_path,
-            raw_entry["tag"],
-            explicit_loader_tag=raw_entry.get("loader_tag"),
-        )
-        loader_tag = loader_cls.TAG
-
-        if loader_tag in seen:
-            raise ValueError(
-                f"Duplicate evaluation tag '{raw_entry['tag']}' (loader TAG "
-                f"'{loader_tag}') in eval_datasets."
-            )
-        seen.add(loader_tag)
-
-        entry = {
-            "tag": raw_entry["tag"],
-            "loader_tag": loader_tag,
-            "num_questions": raw_entry.get(
-                "num_questions", getattr(live_cfg, "num_questions", 0)
-            ),
-            "n_questions_on_random_topo": raw_entry.get(
-                "n_questions_on_random_topo",
-                getattr(live_cfg, "n_questions_on_random_topo", 0),
-            ),
-            "questions_random_seed": raw_entry.get(
-                "questions_random_seed", getattr(live_cfg, "questions_random_seed", None)
-            ),
-            "ma_dataset_path": raw_entry.get(
-                "ma_dataset_path", getattr(live_cfg, "ma_dataset_path", None)
-            ),
-            "hps_indexes": raw_entry.get("hps_indexes", None),
-        }
-        entries.append(entry)
-
-    return entries
-
 
 def _load_train_indexes_per_tag(pkl_path):
     """Load ``idx_metadata`` from a training pickle as ``{tag: [indexes]}``.
@@ -493,73 +366,27 @@ def _parse_per_tag_index_pickle(path):
     return flat, per_tag
 
 
-def _load_hps_indexes_for_entry(config, entry, index_pkl_dir=None):
-    """Resolve the HPS exclusion indexes for one evaluation dataset tag.
+def _load_hps_indexes_for_entry(entry):
+    """Read the HPS exclusion indexes for one evaluation dataset entry."""
+    path = entry.get("hps_index_path")
+    if not path or not Path(path).exists():
+        return set()
 
-    Precedence:
-      1. explicit ``eval_datasets[i].hps_indexes`` path,
-      2. ``hps_index_pkl_dir`` / ``hyperparameter_search.index_pkl_dir``
-         ``<tag>-index.pkl`` / ``<loader_tag>-index.pkl``,
-      3. legacy top-level ``HPS_indexes`` file (per-tag or flat).
-    """
-    candidates = []
+    try:
+        flat, per_tag = _parse_per_tag_index_pickle(path)
+    except Exception as e:
+        log_warn(f"Could not read HPS indexes from {path}: {e}")
+        return set()
 
-    explicit = entry.get("hps_indexes")
-    if explicit:
-        candidates.append(Path(explicit))
-
-    if not index_pkl_dir:
-        hps_section = getattr(config, "hyperparameter_search", None)
-        if hps_section is not None:
-            index_pkl_dir = getattr(hps_section, "index_pkl_dir", None)
-    if not index_pkl_dir:
-        index_pkl_dir = getattr(config, "hps_index_pkl_dir", None)
-
-    if index_pkl_dir:
-        base = Path(index_pkl_dir)
-        for tag in (entry["tag"], entry["loader_tag"]):
-            candidates.append(base / f"{_safe_filename(tag)}-index.pkl")
-
-    legacy = getattr(config, "HPS_indexes", None)
-    if legacy:
-        candidates.append(Path(legacy))
-
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        try:
-            flat, per_tag = _parse_per_tag_index_pickle(candidate)
-        except Exception as e:
-            log_warn(f"Could not read HPS indexes from {candidate}: {e}")
-            continue
-
-        if per_tag:
-            indexes = _indexes_for_entry(per_tag, entry)
-            if indexes:
-                log_info(f"HPS index exclusion for '{entry['tag']}': {len(indexes)} index(es) from {candidate}")
-                return indexes
-            # The combined file exists but has no entry for this tag: for a
-            # single-dataset legacy setup fall back to the flat list.
-            if len(per_tag) == 1 and flat:
-                return set(flat)
-        elif flat:
-            log_info(f"HPS index exclusion for '{entry['tag']}': {len(flat)} index(es) from {candidate}")
-            return set(flat)
-
+    if per_tag:
+        indexes = _indexes_for_entry(per_tag, entry)
+        if indexes:
+            log_info(f"HPS index exclusion for '{entry['tag']}': {len(indexes)} index(es) from {path}")
+        return indexes
+    if flat:
+        log_info(f"HPS index exclusion for '{entry['tag']}': {len(flat)} index(es) from {path}")
+        return set(flat)
     return set()
-
-
-def _build_live_config_for_tag(base_live_cfg, entry):
-    """Clone the shared live config with per-tag overrides applied."""
-    live = AttrDict({k: _to_attrdict(v) for k, v in base_live_cfg.items()})
-    live.questions_dataset_tag = entry["loader_tag"]
-    live.num_questions = int(entry.get("num_questions") or 0)
-    live.n_questions_on_random_topo = int(entry.get("n_questions_on_random_topo") or 0)
-    if entry.get("questions_random_seed") is not None:
-        live.questions_random_seed = int(entry["questions_random_seed"])
-    if entry.get("ma_dataset_path"):
-        live.ma_dataset_path = entry["ma_dataset_path"]
-    return live
 
 
 def _per_tag_result_path(output_path: Path, tag: str, model_name: str) -> Path:
@@ -622,28 +449,24 @@ def _evaluate_model_on_tag(
     entry,
     topologies,
     config,
-    base_live,
     train_indexes_by_tag,
     output_path,
-    index_pkl_dir=None,
 ):
-    live_cfg = _build_live_config_for_tag(base_live, entry)
     train_indexes = _indexes_for_entry(train_indexes_by_tag, entry)
-    hps_indexes = _load_hps_indexes_for_entry(config, entry, index_pkl_dir=index_pkl_dir)
+    hps_indexes = _load_hps_indexes_for_entry(entry)
     excluded = set(train_indexes) | set(hps_indexes)
 
     log_info(
-        f"Evaluating '{model_label}' on dataset '{entry['tag']}' "
-        f"(loader TAG={entry['loader_tag']}); excluded indexes: "
+        f"Evaluating '{model_label}' on dataset '{entry.tag}' "
+        f"(loader TAG={entry.loader_tag}); excluded indexes: "
         f"{len(train_indexes)} training + {len(hps_indexes)} HPS = {len(excluded)} total"
     )
 
     orchestrator = LiveDebateOrchestration(
-        live_cfg,
+        config,
+        entry,
         train_indexes=sorted(train_indexes),
         excluded_indexes=sorted(hps_indexes),
-        dataset_tag=entry["tag"],
-        loader_tag=entry["loader_tag"],
     )
     traces = orchestrator.run_evaluation_single_defense_model_all_topos(
         model_instance, topologies
@@ -674,8 +497,7 @@ def _run_standard(config, parsed_args):
     log_section("Configuration Loading (standard multi-dataset evaluation)")
     log_info(f"Config file: {parsed_args.config_file}")
 
-    embedded_model_configs = load_embedded_model_configs(parsed_args.config_file)
-    models = get_models_from_path(config.models_directory, embedded_model_configs)
+    models = get_models_from_path(config.models_directory, config.defense_model_train_configs)
 
     overall_t0 = time()
     output_path = Path(config.output_file)
@@ -692,14 +514,14 @@ def _run_standard(config, parsed_args):
             log_info(f"Deleted existing report: {report_path.name}")
 
     summary = _read_summary(output_path)
-    eval_entries = _get_eval_dataset_entries(config)
-    eval_tags = [entry["tag"] for entry in eval_entries]
+    eval_entries = config.datasets
+    eval_tags = [entry.tag for entry in eval_entries]
     log_info(
         "Evaluation datasets: "
-        + ", ".join(f"{e['tag']}->{e['loader_tag']}" for e in eval_entries)
+        + ", ".join(f"{e.tag}->{e.loader_tag}" for e in eval_entries)
     )
 
-    train_pkl_path = getattr(config, "train_pkl_path", None)
+    train_pkl_path = config.train_pkl_path
     train_indexes_by_tag = _load_train_indexes_per_tag(train_pkl_path)
     if train_indexes_by_tag:
         log_info(
@@ -707,49 +529,40 @@ def _run_standard(config, parsed_args):
             f"from {train_pkl_path}."
         )
 
-    # Optional per-tag HPS index directory (written by the --hps mode).
-    hps_section = getattr(config, "hyperparameter_search", None)
-    index_pkl_dir = getattr(hps_section, "index_pkl_dir", None) if hps_section is not None else None
-    if not index_pkl_dir:
-        index_pkl_dir = getattr(config, "hps_index_pkl_dir", None)
-
     try:
         log_section("Topology Resolution")
-        topologies = resolve_topologies(config, parsed_args.config_file)
-        base_live = config.live_evaluation_config
+        topologies = resolve_topologies(config)
 
         summary.setdefault("train_pkl_path", str(train_pkl_path) if train_pkl_path else None)
-        summary["eval_datasets"] = [
-            {"tag": e["tag"], "loader_tag": e["loader_tag"]} for e in eval_entries
+        summary["datasets"] = [
+            {"tag": e.tag, "loader_tag": e.loader_tag} for e in eval_entries
         ]
 
-        if getattr(base_live, "no_defense_baseline", False) and \
+        if config.evaluation.no_defense_baseline and \
                 "no_defense_baseline" not in summary.get("completed_runs", []):
             log_section("No-Defense Baseline")
             baseline_missing = [
                 e for e in eval_entries
-                if "no_defense_baseline" not in summary.get("per_dataset_results", {}).get(e["tag"], {})
+                if "no_defense_baseline" not in summary.get("per_dataset_results", {}).get(e.tag, {})
             ]
             if baseline_missing:
                 for entry in baseline_missing:
                     t0 = time()
-                    live_cfg = _build_live_config_for_tag(base_live, entry)
                     train_indexes = _indexes_for_entry(train_indexes_by_tag, entry)
-                    hps_indexes = _load_hps_indexes_for_entry(config, entry, index_pkl_dir=index_pkl_dir)
+                    hps_indexes = _load_hps_indexes_for_entry(entry)
                     orchestrator = LiveDebateOrchestration(
-                        live_cfg,
+                        config,
+                        entry,
                         train_indexes=sorted(train_indexes),
                         excluded_indexes=sorted(hps_indexes),
-                        dataset_tag=entry["tag"],
-                        loader_tag=entry["loader_tag"],
                     )
                     questions = orchestrator.dataloader.get_formatted_questions()
                     baseline_traces = orchestrator.run_debate_no_defense(questions, topologies)
                     baseline_stats = orchestrator.parse_stats_single_model(baseline_traces)
                     used_indexes = [int(i) for i in list(getattr(orchestrator.dataloader, "indexes", []))]
                     payload = {
-                        "dataset_tag": entry["tag"],
-                        "loader_tag": entry["loader_tag"],
+                        "dataset_tag": entry.tag,
+                        "loader_tag": entry.loader_tag,
                         "model": "no_defense_baseline",
                         "train_excluded_indexes": sorted(int(i) for i in train_indexes),
                         "hps_excluded_indexes": sorted(int(i) for i in hps_indexes),
@@ -757,17 +570,17 @@ def _run_standard(config, parsed_args):
                         "n_used_indexes": len(used_indexes),
                         "results": baseline_stats,
                     }
-                    per_tag_path = _per_tag_result_path(output_path, entry["tag"], "no_defense_baseline")
+                    per_tag_path = _per_tag_result_path(output_path, entry.tag, "no_defense_baseline")
                     per_tag_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(per_tag_path, "w", encoding="utf-8") as f:
                         json.dump(payload, f, indent=2)
                     _register_result(
-                        summary, entry["tag"], "no_defense_baseline",
+                        summary, entry.tag, "no_defense_baseline",
                         per_tag_path, train_indexes, hps_indexes,
                     )
                     elapsed = time() - t0
-                    timing[f"no_defense_baseline::{entry['tag']}"] = elapsed
-                    print_stats_table(baseline_stats, model_name=f"no_defense_baseline [{entry['tag']}]")
+                    timing[f"no_defense_baseline::{entry.tag}"] = elapsed
+                    print_stats_table(baseline_stats, model_name=f"no_defense_baseline [{entry.tag}]")
                     log_info(f"Evaluation completed in {fmt_seconds(elapsed)}")
                     log_info(f"Results saved to {per_tag_path}")
                     del baseline_traces, baseline_stats
@@ -816,7 +629,7 @@ def _run_standard(config, parsed_args):
                 log_info(f"Training completed in {fmt_seconds(time() - train_t0)}")
 
                 for entry in eval_entries:
-                    tag = entry["tag"]
+                    tag = entry.tag
                     if tag in summary.get("per_dataset_results", {}) and \
                             effective_name in summary["per_dataset_results"][tag]:
                         log_info(f"[{tag}] '{effective_name}' already evaluated; skipping.")
@@ -828,10 +641,8 @@ def _run_standard(config, parsed_args):
                         entry,
                         topologies,
                         config,
-                        base_live,
                         train_indexes_by_tag,
                         output_path,
-                        index_pkl_dir=index_pkl_dir,
                     )
                     elapsed = time() - eval_t0
                     timing[f"{effective_name}::{tag}"] = elapsed
@@ -902,22 +713,6 @@ def _run_standard(config, parsed_args):
 #  Hyperparameter search (consolidated in this file, see R5)
 # ---------------------------------------------------------------------------
 
-HPS_INTERNAL_KEYS = {
-    "hps_total_samples",
-    "hps_run_samples",
-    "hps_split_seed",
-    "index_pkl",
-    "index_pkl_dir",
-    "results_csv",
-}
-
-STRUCTURAL_LIST_NAMES = {
-    "density_range_for_random_topo",
-    "topology",
-    "topologies",
-    "random_topology_data",
-}
-
 BASE_COLUMNS = [
     "config_signature",
     "model_name",
@@ -932,194 +727,8 @@ BASE_COLUMNS = [
 ]
 
 
-def _is_scalar(v):
-    return isinstance(v, (int, float, str, bool)) or v is None
-
-
-def _is_scalar_list(lst):
-    return isinstance(lst, list) and len(lst) > 0 and all(_is_scalar(x) for x in lst)
-
-
-def _find_list_params(obj, prefix=()):
-    found = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if k in HPS_INTERNAL_KEYS:
-                continue
-            path = prefix + (k,)
-            if isinstance(v, list):
-                if k in STRUCTURAL_LIST_NAMES:
-                    _descend_structural(v, path, found)
-                elif _is_scalar_list(v):
-                    found.append((path, list(v)))
-                else:
-                    _descend_structural(v, path, found)
-            elif isinstance(v, dict):
-                found.extend(_find_list_params(v, path))
-    return found
-
-
-def _descend_structural(lst, path, found):
-    for i, item in enumerate(lst):
-        if isinstance(item, dict):
-            found.extend(_find_list_params(item, path + (i,)))
-        elif isinstance(item, list):
-            _descend_structural(item, path + (i,), found)
-
-
-def _get_path(obj, path):
-    cur = obj
-    for p in path:
-        cur = cur[p]
-    return cur
-
-
-def _set_path(obj, path, value):
-    cur = obj
-    for p in path[:-1]:
-        cur = cur[p]
-    cur[path[-1]] = value
-
-
-def _path_to_str(path):
-    return ".".join(str(p) for p in path)
-
-
-def _sanitize_name_value(v):
-    if isinstance(v, bool):
-        return str(v).lower()
-    if isinstance(v, float):
-        return f"{v}".replace(".", "-")
-    if v is None:
-        return "none"
-    s = str(v)
-    return s.replace(".", "-").replace(" ", "_").replace("/", "_")
-
-
-def _make_hp_suffix(varied):
-    leaves = {}
-    for k in varied:
-        leaves.setdefault(k.split(".")[-1], []).append(k)
-    parts = []
-    for k, v in sorted(varied.items()):
-        leaf = k.split(".")[-1]
-        name = leaf if len(leaves[leaf]) == 1 else k.replace(".", "").replace("_", "")
-        parts.append(f"{name}{_sanitize_name_value(v)}")
-    return "_".join(parts) if parts else ""
-
-
-def _model_section_key(raw):
-    for key in ("defense_model_train_configs", "model_train_configs", "models_train_configs"):
-        if isinstance(raw.get(key), dict):
-            return key
-    return None
-
-
-def expand_model_config(model_cfg):
-    list_params = _find_list_params(model_cfg)
-    if not list_params:
-        return [(copy.deepcopy(model_cfg), {})]
-
-    list_params.sort(key=lambda x: _path_to_str(x[0]))
-    paths = [p for p, _ in list_params]
-    value_lists = [vs for _, vs in list_params]
-
-    expanded = []
-    for combo in itertools.product(*value_lists):
-        eff = copy.deepcopy(model_cfg)
-        varied = {}
-        for path, val in zip(paths, combo):
-            _set_path(eff, path, val)
-            varied[_path_to_str(path)] = val
-        expanded.append((eff, varied))
-    return expanded
-
-
-def build_run_plans(raw):
-    section_key = _model_section_key(raw)
-    if section_key is None:
-        raise ValueError(
-            "Missing embedded defense train config section in main config "
-            "(expected 'defense_model_train_configs', 'model_train_configs' or "
-            "'models_train_configs')."
-        )
-    section = raw[section_key]
-    global_cfg = _strip_hps_internal(raw)
-
-    plans = []
-    for model_name, model_cfg in section.items():
-        if isinstance(model_cfg, dict):
-            entries = [model_cfg]
-        elif isinstance(model_cfg, list):
-            entries = model_cfg
-        else:
-            log_warn(
-                f"Skipping model '{model_name}': config must be a dict or list of dicts."
-            )
-            continue
-
-        for entry in entries:
-            if not isinstance(entry, dict):
-                log_warn(f"Skipping model '{model_name}': config entry must be a dict.")
-                continue
-            base_name = entry.get("run_name", model_name)
-
-            for combo_cfg, model_varied in expand_model_config(entry):
-                varied = {
-                    f"{section_key}.{model_name}.{k}": v
-                    for k, v in model_varied.items()
-                }
-                hp_suffix = _make_hp_suffix(varied)
-                run_name = f"{base_name}_{hp_suffix}" if hp_suffix else base_name
-
-                combo_cfg["run_name"] = run_name
-
-                eff = copy.deepcopy(global_cfg)
-                eff[section_key] = {model_name: combo_cfg}
-
-                identity_cfg = copy.deepcopy(combo_cfg)
-                identity_cfg.pop("run_name", None)
-                signature = _config_signature(model_name, identity_cfg)
-
-                plans.append(
-                    {
-                        "model_name": model_name,
-                        "run_name": run_name,
-                        "eff": eff,
-                        "varied": varied,
-                        "signature": signature,
-                    }
-                )
-    return plans
-
-
-def _strip_hps_internal(cfg):
-    out = copy.deepcopy(cfg)
-    for k in HPS_INTERNAL_KEYS:
-        out.pop(k, None)
-    out.pop("hyperparameter_search", None)
-    return out
-
-
 def _canonical(obj):
     return json.dumps(obj, sort_keys=True, default=str)
-
-
-def _config_signature(model_name, effective_dict):
-    payload = {"model": model_name, "config": effective_dict}
-    h = hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
-    return h
-
-
-def _write_temp_main_config(effective_dict):
-    fd, temp_path = tempfile.mkstemp(prefix="hps-main-", suffix=".yaml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.safe_dump(effective_dict, f, sort_keys=False)
-    except Exception:
-        Path(temp_path).unlink(missing_ok=True)
-        raise
-    return temp_path
 
 
 def _flatten_stats_rows(stats, max_rounds, base_row):
@@ -1200,67 +809,25 @@ def _open_csv_writer(csv_path, fieldnames):
     return f, writer
 
 
-def _parse_hps_settings(raw_config, config):
-    section = raw_config.get("hyperparameter_search") or {}
-
-    def pick(new_key, legacy_key, default=None):
-        value = section.get(new_key) if isinstance(section, dict) else None
-        if value is None:
-            value = getattr(config, legacy_key, None)
-        return default if value is None else value
-
-    total = pick("total_samples", "hps_total_samples")
-    run_samples = pick("run_samples", "hps_run_samples")
-    split_seed = pick("split_seed", "hps_split_seed", 42)
-    index_pkl = pick("index_pkl", "index_pkl")
-    index_pkl_dir = pick("index_pkl_dir", "hps_index_pkl_dir")
-    results_csv = pick("results_csv", "results_csv")
-
-    if total is None:
-        raise ValueError("Hyperparameter search requires 'total_samples' (hps_total_samples).")
-    if index_pkl_dir is None:
-        if index_pkl is None:
-            raise ValueError(
-                "Hyperparameter search requires 'index_pkl' and/or 'index_pkl_dir' "
-                "to persist the selected per-tag indexes."
-            )
-        index_pkl_dir = str(Path(index_pkl).parent)
-    if results_csv is None:
-        raise ValueError("Hyperparameter search requires 'results_csv'.")
-
-    return {
-        "total_samples": int(total),
-        "run_samples": int(run_samples) if run_samples is not None else None,
-        "split_seed": int(split_seed),
-        "index_pkl": str(index_pkl) if index_pkl else None,
-        "index_pkl_dir": str(index_pkl_dir),
-        "results_csv": str(results_csv),
-    }
-
-
-def _completed_run_names_from_csv(signatures, plans):
-    completed = {
-        plan["run_name"] for plan in plans if plan["signature"] in signatures
-    }
-    return completed
-
-
-def _run_hps(raw_config, config, parsed_args):
+def _run_hps(config, config_file, parsed_args):
     log_section("Hyperparameter Search (multi-dataset)")
 
-    # The base config (as loaded) may contain list-valued model params; the raw
-    # YAML is used for Cartesian expansion, exactly like the original HPSearch.
-    settings = _parse_hps_settings(raw_config, config)
-    total_samples = settings["total_samples"]
-    run_samples = settings["run_samples"]
-    split_seed = settings["split_seed"]
-    index_pkl = settings["index_pkl"]
-    index_pkl_dir = Path(settings["index_pkl_dir"])
-    results_csv = Path(settings["results_csv"])
+    settings = config.hyperparameter_search
+    if settings is None:
+        raise ValueError(
+            "Hyperparameter search requires a 'hyperparameter_search' section in the "
+            "evaluation configuration"
+        )
+    total_samples = settings.total_samples
+    run_samples = settings.run_samples
+    split_seed = settings.split_seed
+    index_pkl = settings.index_pkl
+    index_pkl_dir = Path(settings.index_pkl_dir)
+    results_csv = Path(settings.results_csv)
 
-    log_config("hps_total_samples", total_samples)
-    log_config("hps_run_samples", run_samples)
-    log_config("hps_split_seed", split_seed)
+    log_config("total_samples", total_samples)
+    log_config("run_samples", run_samples)
+    log_config("split_seed", split_seed)
     log_config("index_pkl", index_pkl)
     log_config("index_pkl_dir", str(index_pkl_dir))
     log_config("results_csv", str(results_csv))
@@ -1275,29 +842,28 @@ def _run_hps(raw_config, config, parsed_args):
                 p.unlink()
                 log_info(f"--clean: removed {p}")
 
-    eval_entries = _get_eval_dataset_entries(config)
-    eval_tags = [entry["tag"] for entry in eval_entries]
+    eval_entries = config.datasets
+    eval_tags = [entry.tag for entry in eval_entries]
     log_info(
         "HPS evaluation datasets: "
-        + ", ".join(f"{e['tag']}->{e['loader_tag']}" for e in eval_entries)
+        + ", ".join(f"{e.tag}->{e.loader_tag}" for e in eval_entries)
     )
 
-    train_pkl_path = getattr(config, "train_pkl_path", None)
+    train_pkl_path = config.train_pkl_path
     train_indexes_by_tag = _load_train_indexes_per_tag(train_pkl_path)
     log_info(
         f"Loaded training indexes for {len(train_indexes_by_tag)} tag(s) "
         f"from {train_pkl_path}."
     )
 
-    run_plans = build_run_plans(raw_config)
+    run_plans = build_run_plans(config_file)
     total_plans = len(run_plans)
     varied_key_set = set()
     for plan in run_plans:
         varied_key_set.update(plan["varied"].keys())
     varied_cols = sorted(varied_key_set)
 
-    base_live = raw_config.get("live_evaluation_config", {}) or {}
-    max_rounds = int(base_live.get("max_rounds", 0))
+    max_rounds = config.debate.max_rounds
     metric_cols = _metric_columns(max_rounds)
     fieldnames = list(BASE_COLUMNS) + varied_cols + metric_cols
 
@@ -1328,18 +894,18 @@ def _run_hps(raw_config, config, parsed_args):
     pool_indices_per_tag = {}
     pool_indices_flat = set()
     for entry in eval_entries:
-        tag = entry["tag"]
-        live_cfg = _build_live_config_for_tag(config.live_evaluation_config, entry)
+        tag = entry.tag
         train_indexes = _indexes_for_entry(train_indexes_by_tag, entry)
         per_tag_index_path = index_pkl_dir / f"{_safe_filename(tag)}-index.pkl"
         pool_loader, pool_indices = build_hps_pool_loader(
-            live_cfg,
+            entry.loader_class,
             sorted(train_indexes),
             total_samples,
             split_seed,
             per_tag_index_path,
+            ma_dataset_path=entry.ma_dataset_path,
             dataset_tag=tag,
-            loader_tag=entry["loader_tag"],
+            loader_tag=entry.loader_tag,
         )
         pool_loaders[tag] = pool_loader
         pool_questions[tag] = list(pool_loader.get_formatted_questions())
@@ -1355,9 +921,9 @@ def _run_hps(raw_config, config, parsed_args):
             "indices": sorted(pool_indices_flat),
             "indices_per_tag": pool_indices_per_tag,
             "params": {
-                "hps_total_samples": total_samples,
-                "hps_run_samples": run_samples,
-                "hps_split_seed": split_seed,
+                "total_samples": total_samples,
+                "run_samples": run_samples,
+                "split_seed": split_seed,
                 "index_pkl_dir": str(index_pkl_dir),
                 "dataset_tags": eval_tags,
             },
@@ -1386,14 +952,14 @@ def _run_hps(raw_config, config, parsed_args):
 
             pending_tags = [
                 entry for entry in eval_entries
-                if (signature, entry["tag"]) not in completed_pairs
+                if (signature, entry.tag) not in completed_pairs
             ]
             if not pending_tags:
                 log_section(f"HP Search [{idx}/{total_plans}]: {model_name} -- SKIPPED")
                 log_info(f"Skipping run (already present in CSV): {run_name}")
                 continue
 
-            temp_main = _write_temp_main_config(eff)
+            temp_main = write_effective_config(eff)
             temp_paths.append(temp_main)
 
             log_section(f"HP Search [{idx}/{total_plans}]: {model_name}")
@@ -1415,24 +981,28 @@ def _run_hps(raw_config, config, parsed_args):
             model_instance = None
             combo_model_temps = []
             try:
-                combo_config = load_config_from_path(temp_main)
-                live_base = combo_config.live_evaluation_config
+                combo_config = load_evaluation_config(temp_main)
+                combo_config.debate.new_random_each_question = True
 
                 tp_key = (
-                    getattr(live_base, "text_processor_path", None),
-                    getattr(live_base, "text_processor_class_name", None),
+                    combo_config.text_processor_path,
+                    combo_config.text_processor_class_name,
                 )
                 if cached_tp is None or tp_key != cached_tp_key:
-                    textProcessor = _EDL.load_class_from_path(
-                        live_base.text_processor_path,
-                        live_base.text_processor_class_name,
+                    textProcessor = load_class_from_path(
+                        combo_config.text_processor_path,
+                        combo_config.text_processor_class_name,
                     )
-                    cached_tp = textProcessor(device="cpu")
+                    processor_kwargs = dict(combo_config.text_processor_kwargs)
+                    processor_kwargs.setdefault("device", combo_config.text_processor_device)
+                    cached_tp = textProcessor(**processor_kwargs)
                     cached_tp_key = tp_key
                     log_info(f"Text processor loaded: {cached_tp_key}")
 
-                embedded = load_embedded_model_configs(temp_main)
-                models = get_models_from_path(combo_config.models_directory, embedded)
+                models = get_models_from_path(
+                    combo_config.models_directory,
+                    combo_config.defense_model_train_configs,
+                )
                 if not models:
                     log_warn(
                         f"No trainable model resolved for '{model_name}' in "
@@ -1446,7 +1016,7 @@ def _run_hps(raw_config, config, parsed_args):
 
                 model_train_pkl = (
                     getattr(getattr(next(iter(models.values()))["master"], "args", None), "pkl_train", None)
-                    or getattr(combo_config, "train_pkl_path", None)
+                    or combo_config.train_pkl_path
                 )
 
                 log_section(f"Training [{idx}/{total_plans}]: {model_name}")
@@ -1469,23 +1039,21 @@ def _run_hps(raw_config, config, parsed_args):
                 eval_t0 = time()
                 any_rows = False
                 for entry in pending_tags:
-                    tag = entry["tag"]
+                    tag = entry.tag
                     subset = draw_hps_run_subset(
                         pool_questions[tag], run_samples, split_seed, f"{signature}::{tag}"
                     )
-                    live_cfg = _build_live_config_for_tag(live_base, entry)
-                    live_cfg.num_questions = len(subset)
-                    live_cfg.n_questions_on_random_topo = len(subset)
-                    live_cfg.new_random_each_question = True
+                    subset_entry = AttrDict(dict(entry))
+                    subset_entry.num_questions = len(subset)
+                    subset_entry.num_questions_on_random_topo = len(subset)
                     topologies = {"random": None}
 
                     orchestrator = LiveDebateOrchestration(
-                        live_cfg,
+                        combo_config,
+                        subset_entry,
                         dataloader=pool_loaders[tag],
                         text_processor=cached_tp,
                         train_indexes=sorted(_indexes_for_entry(train_indexes_by_tag, entry)),
-                        dataset_tag=tag,
-                        loader_tag=entry["loader_tag"],
                     )
                     traces = orchestrator.run_debate_with_defense(
                         subset, model_instance, topologies
@@ -1597,9 +1165,7 @@ def _run_hps(raw_config, config, parsed_args):
 # ---------------------------------------------------------------------------
 
 def _hps_requested(config) -> bool:
-    if getattr(config, "hyperparameter_search", None) is not None:
-        return True
-    return getattr(config, "hps_total_samples", None) is not None
+    return config.hyperparameter_search is not None
 
 
 if __name__ == "__main__":
@@ -1612,12 +1178,9 @@ if __name__ == "__main__":
         help="Run the consolidated hyperparameter search (multi-dataset).",
     )
     parsed_args = parser.parse_args()
-    config = load_config_from_path(parsed_args.config_file)
-
-    with open(parsed_args.config_file, "r", encoding="utf-8") as f:
-        raw_config = yaml.safe_load(f) or {}
+    config = load_evaluation_config(parsed_args.config_file)
 
     if parsed_args.hps or _hps_requested(config):
-        _run_hps(raw_config, config, parsed_args)
+        _run_hps(config, parsed_args.config_file, parsed_args)
     else:
         _run_standard(config, parsed_args)

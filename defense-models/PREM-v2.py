@@ -35,7 +35,7 @@ sys.path.append(str(_PREM_DIR.parent))
 sys.path.insert(0, str(_PREM_DIR))
 
 from LoggingUtils import log_done, log_info
-from Utils import load_config_from_path
+from EvaluationConfigCheck import load_defense_model_config
 
 from PREM import (
     PREMDiscriminator,
@@ -97,7 +97,7 @@ class PREMTopologyLoopV2(PREMTopologyLoop):
 
 class Master:
     def __init__(self, config_path):
-        self.args = load_config_from_path(config_path)
+        self.args = load_defense_model_config(config_path)
 
     def _run(self, train_pkl_path=None):
         random.seed(self.args.seed)
@@ -110,7 +110,7 @@ class Master:
         train_data = TrainDataProcessor({}, target_topologies=self.args.topologies)
         train_data.load_pkl(train_pkl_path or self.args.pkl_train)
 
-        prop_steps = int(getattr(self.args, "prop_steps", 2))
+        prop_steps = int(self.args.prop_steps)
         prem_data = build_prem_dataset(
             train_data, prop_steps, propagation_fn=mean_anonymized_propagation
         )

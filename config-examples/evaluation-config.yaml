@@ -1,6 +1,73 @@
 # Main evaluation config (MainEvaluation.py)
-models_directory: defense-models # Directory that contains all the defense models that are going to be benchmarked
-output_file: results/test.json # json file where the evaluation results will be saved
+# Loaded and validated by EvaluationConfigCheck.py.
+
+models_directory: defense-models
+output_file: results/test.json
+train_pkl_path: data/train-gpt-oss-300.pkl
+
+llm:
+  timeout: 20
+  llm_max_retries: 3
+  max_concurrent_inference: 150
+
+debate:
+  num_agents: 5
+  num_malicious_agents: 2
+  malicious_seed: 123
+  max_rounds: 3
+  consensus_threshold: 1.0
+  check_consensus_only_unflagged: true
+  no_consensus_check: false
+  new_random_each_question: true
+  random_topo_seed: 24
+  density_range_for_random_topo: [0.3, 0.7]
+
+datasets:
+  - tag: MMLU
+    loader_tag: null
+    num_questions: 20
+    num_questions_on_random_topo: 20
+    questions_random_seed: 28
+    ma_dataset_path: null
+    prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+    hps_indexes: null
+
+  # The same loader can be evaluated again with a different tag and config;
+  # both runs are evaluated and saved under their own tag:
+  # - tag: MMLU_alt
+  #   loader_tag: MMLU
+  #   num_questions: 20
+  #   num_questions_on_random_topo: 20
+  #   questions_random_seed: 7
+  #   prompts_file: prompts/prompts_MMLU_alt.json
+
+evaluation:
+  questions_path: DatasetManager.py
+  questions_class_name: null
+  python_seed: 28
+  numpy_seed: 28
+  answer_seed: 28
+  top_k_defense: 2
+  no_defense_baseline: true
+  save_traces: false
+  debug_mode: false
+  static_adjacency_mode: false
+  topologies_file: null
+  topologies_from_pkl: null
+
+text_processor_path: TextProcessingManager.py
+text_processor_class_name: RoundProcessor
+text_processor_kwargs: {}
+text_processor_device: cpu
+
+# Optional section: its presence enables the hyperparameter search (--hps).
+# hyperparameter_search:
+#   total_samples: 100
+#   run_samples: 40
+#   split_seed: 42
+#   index_pkl: hps/index.pkl
+#   index_pkl_dir: hps/indexes
+#   results_csv: hps/results.csv
 
 # One config section per defense model file in models_directory (file stem must match)
 defense_model_train_configs:
@@ -13,8 +80,7 @@ defense_model_train_configs:
     anomaly_scale: 0.5
     anomalize_data: true
     no_balance: false # Set to true to disable class balancing before training
-
-    # Training hyperparameters (required)
+    # Training hyperparameters
     input_dim: 1152
     hidden_dim: 256
     emb_dim: 128
@@ -26,15 +92,13 @@ defense_model_train_configs:
     weight_decay: 0.0001
     scheduler_t_max: 20
     top_k: 2
-
     topologies: null
 
   XG-Guard:
     pkl_train: data/train-gpt-oss-300.pkl
     seed: 42
     device: cpu
-
-    # Training hyperparameters (required)
+    # Training hyperparameters
     feat_dim_s: 384
     feat_dim_t: 384
     hidden_dim: 256
@@ -45,46 +109,4 @@ defense_model_train_configs:
     weight_decay: 0.0001
     alpha: 0.5
     top_k: 2
-
     topologies: null
-
-live_evaluation_config:
-  timeout: 20 # Added a default value
-  prompts_file: prompts/prompts_blindguard.json # Added a path
-
-  # Question loader
-  questions_path: DatasetManager.py
-  questions_dataset_tag: MMLU
-  questions_random_seed: 28
-
-  # Debate + attacker settings
-  llm_max_retries: 3
-  num_agents: 5
-  num_malicious_agents: 2
-  malicious_seed: 123
-  max_rounds: 3
-  consensus_threshold: 1.0
-  no_consensus_check: false 
-  check_consensus_only_unflagged: true
-
-  # Defense settings
-  top_k_defense: 2 
-  no_defense_baseline: true
-
-  # Concurrency
-  max_concurrent_inference: 150 # Added a default value
-
-  # Questions
-  num_questions: 20 
-  new_random_each_question: true 
-  n_questions_on_random_topo: 20 
-  topologies_seed: 24
-  density_range_for_random_topo: [0.3, 0.7]
-
-  # Text processor
-  text_processor_path: TextProcessingManager.py 
-  text_processor_class_name: RoundProcessor 
-
-  # Debug artifacts
-  save_traces: false 
-  clean_debates_with_empty_responses: true

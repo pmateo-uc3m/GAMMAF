@@ -46,7 +46,7 @@ sys.path.append(str(_DIR.parent))
 sys.path.insert(0, str(_DIR))
 
 from LoggingUtils import log_done, log_info, log_section, log_warn, print_epoch_log
-from Utils import load_config, load_config_from_path
+from EvaluationConfigCheck import load_defense_model_config
 
 from BlindGuard import TrainDataProcessor
 
@@ -170,23 +170,23 @@ class TAMLoop:
     def __init__(self, args):
         self.args = args
         self.config = args
-        if getattr(args, "device", None):
+        if args.device:
             self.device = torch.device(args.device)
         else:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.models = []  # list of (tree, cut, LAMNet)
-        self._seed = int(getattr(args, "seed", 0))
+        self._seed = int(args.seed)
         self._predict_lock = threading.Lock()
         self._validate_config()
 
     def _validate_config(self):
-        self.emb_dim = int(getattr(self.config, "emb_dim", 128))
-        self.num_trees = int(getattr(self.config, "num_trees", 3))      # T
-        self.num_cuts = int(getattr(self.config, "num_cuts", 4))        # K
-        self.lamda = float(getattr(self.config, "lamda", 0.0))
-        self.learning_rate = float(getattr(self.config, "learning_rate", 1e-5))
-        self.weight_decay = float(getattr(self.config, "weight_decay", 0.0))
-        self.num_epochs = int(getattr(self.config, "num_epochs", getattr(self.config, "epochs", 100)))
+        self.emb_dim = int(self.config.emb_dim)
+        self.num_trees = int(self.config.num_trees)      # T
+        self.num_cuts = int(self.config.num_cuts)        # K
+        self.lamda = float(self.config.lamda)
+        self.learning_rate = float(self.config.learning_rate)
+        self.weight_decay = float(self.config.weight_decay)
+        self.num_epochs = int(self.config.num_epochs)
         if self.emb_dim < 1 or self.num_trees < 1 or self.num_cuts < 1 or self.num_epochs < 1:
             raise ValueError("TAM emb_dim, num_trees, num_cuts, num_epochs must be >= 1")
 
@@ -287,12 +287,12 @@ class TAMLoop:
         scores = (1.0 - aff_norm).astype(float)
 
         n_agents = x_np.shape[0]
-        threshold = getattr(self.config, "threshold", None)
+        threshold = self.config.threshold
         flags = np.zeros(n_agents, dtype=int)
         if threshold is not None:
             flags[scores > float(threshold)] = 1
         else:
-            top_k = int(getattr(self.config, "top_k", 1))
+            top_k = int(self.config.top_k)
             flags[np.argsort(-scores)[:min(top_k, n_agents)]] = 1
         return flags, scores
 
@@ -325,7 +325,7 @@ class TAMLoop:
 
 class Master:
     def __init__(self, config_path):
-        self.args = load_config_from_path(config_path)
+        self.args = load_defense_model_config(config_path)
 
     def _run(self, train_pkl_path=None):
         random.seed(self.args.seed)
