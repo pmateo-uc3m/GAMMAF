@@ -1,0 +1,101 @@
+# Hyperparameter search config (HyperParameterSearch.py)
+# Unsupervised AutoUAD/NPD search over defense-model hyperparameters.
+
+data_path: paper-experiments/exp1/exp1-train-data.pkl
+models_directory: defense-models
+output_file: hps/hps-results.json
+
+# AutoUAD / NPD algorithm parameters.
+algorithm:
+  validation_split_ratio: 0.3   # X_val fraction of the standardized matrix (fixed split)
+  epsilon: 1.0e-9               # numerical stabilizer in the NPD denominator
+  split_seed: 42                # seed of the fixed train/validation split
+  gaussian_seed: 42             # seed of the synthetic Gaussian proxy X_gen
+  max_samples: null             # optional cap on the number of samples (null = use all)
+  feature_key: st_embedding     # default primary key (used when a model sets no feature_keys)
+  round_size: 10                # nodes per synthetic graph when feeding a model
+  score_chunk_size: 10          # nodes per graph when scoring X_val / X_gen
+  synthetic_topology: complete  # complete | chain | star
+  save_final_models_dir: null   # optional dir for the retrained final model checkpoints
+
+# Optuna settings.
+optuna:
+  n_trials: 50
+  sampler_seed: 42
+  timeout: null                 # seconds; null = no time limit
+
+# One section per defense model file stem in models_directory.
+# A list value defines the discrete search space for that parameter; a single
+# scalar value keeps the parameter fixed for every trial.
+#
+# Per-model extras:
+#   feature_keys: [st_embedding, tk_embedding]
+#       All data keys the model consumes, in priority order. The FIRST key is
+#       the primary one: its vectors form the tabular matrix used by the
+#       AutoUAD/NPD algorithm. Extra keys are attached to the per-agent dicts
+#       handed to the model (e.g. XG-Guard needs both keys).
+#       Shorthand for a single key: feature_key: st_embedding.
+#       When neither is set, algorithm.feature_key is used.
+#   n_trials: 10
+#       Optional per-model Optuna budget that overrides the global
+#       optuna.n_trials for this model only (e.g. slow-training models).
+models:
+  BlindGuard:
+    seed: 42
+    device: cpu
+    anomaly_rate: 0.3
+    anomaly_scale: 0.5
+    anomalize_data: true
+    no_balance: false
+    input_dim: 1152
+    hidden_dim: [64, 128, 256]
+    emb_dim: [32, 64, 128]
+    batch_size: 256
+    val_split: 0.2
+    num_epochs: 20
+    temperature: [0.05, 0.07, 0.1]
+    learning_rate: [0.0001, 0.001]
+    weight_decay: 0.0001
+    scheduler_t_max: 20
+    top_k: 2
+    topologies: null
+
+  TAM:
+    seed: 42
+    device: cpu
+    emb_dim: [128, 256]
+    num_trees: 3
+    num_cuts: 2
+    lamda: [0.05, 0.1, 0.5]
+    learning_rate: [0.0001, 0.001]
+    weight_decay: 0.0001
+    num_epochs: 20
+    topologies: null
+
+  CASPIAN:
+    seed: 42
+    device: cpu
+    top_k: 2
+    base_weight: [0.1, 0.2, 0.4]
+    reciprocity_weight: [0.1, 0.2]
+    cluster_weight: 1.0
+    persistence_weight: [0.4, 0.8]
+    pair_weight: [0.5, 1.0, 1.5]
+    deviation_weight: 0.3
+
+  XG-Guard:
+    feature_keys: [st_embedding, tk_embedding]  # multi-key model
+    n_trials: 10                                # per-model budget override
+    seed: 42
+    device: cpu
+    feat_dim_s: 384
+    feat_dim_t: 384
+    hidden_dim: [128, 256]
+    batch_size: 8
+    val_split: 0.2
+    num_epochs: 5
+    learning_rate: [0.0001, 0.001]
+    weight_decay: 0.0001
+    alpha: 0.5
+    top_k: 2
+    topologies: null
