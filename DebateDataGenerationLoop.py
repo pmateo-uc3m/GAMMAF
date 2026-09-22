@@ -468,7 +468,7 @@ class DebateOrchestration:
                 rng=rng
             )
             
-        topology = self.topology if not self.random_flag else generated_topology
+        topology = self.topology if not self.random_flag else adjacency_matrix
         # If mal_answer is empty and we have malicious agents, generate a random wrong answer
         # This is needed because malicious agent prompts require {wrong_answer} key
         if not mal_answer and malicious_indexes:

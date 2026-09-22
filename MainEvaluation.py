@@ -106,6 +106,7 @@ from EvaluationDebateLoop import (
 )
 from EvaluationConfigCheck import (
     build_run_plans,
+    load_class_from_path,
     load_evaluation_config,
     write_effective_config,
     write_model_config,
