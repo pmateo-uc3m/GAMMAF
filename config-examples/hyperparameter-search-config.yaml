@@ -6,16 +6,18 @@ models_directory: defense-models
 output_file: hps/hps-results.json
 
 # AutoUAD / NPD algorithm parameters.
+# Real training debates are used as graphs: their own adjacency/topology is
+# preserved, the split is debate-level and stratified by (topology_name,
+# dataset_tag), X_val scores come from the held-out debates and X_gen mirrors
+# the validation graph structures. Features are standardized globally (one
+# scaler over all agents of all graphs).
 algorithm:
-  validation_split_ratio: 0.3   # X_val fraction of the standardized matrix (fixed split)
+  validation_split_ratio: 0.3   # fraction of debates held out for validation
   epsilon: 1.0e-9               # numerical stabilizer in the NPD denominator
-  split_seed: 42                # seed of the fixed train/validation split
+  split_seed: 42                # seed of the debate split (and max_debates choice)
   gaussian_seed: 42             # seed of the synthetic Gaussian proxy X_gen
-  max_samples: null             # optional cap on the number of samples (null = use all)
+  max_debates: null             # optional cap on the number of debates (null = all)
   feature_key: st_embedding     # default primary key (used when a model sets no feature_keys)
-  round_size: 10                # nodes per synthetic graph when feeding a model
-  score_chunk_size: 10          # nodes per graph when scoring X_val / X_gen
-  synthetic_topology: complete  # complete | chain | star
   save_final_models_dir: null   # optional dir for the retrained final model checkpoints
 
 # Optuna settings.
@@ -23,6 +25,13 @@ optuna:
   n_trials: 50
   sampler_seed: 42
   timeout: null                 # seconds; null = no time limit
+  # Early stopping (global thresholds; every model tracks its own history).
+  # A model's search stops before its budget once `early_stopping_patience`
+  # consecutive trials fail to beat the best NPD seen so far by at least
+  # `early_stopping_min_improvement_pct` percent. `early_stopping_patience:
+  # null` disables early stopping; the percentage is then ignored.
+  early_stopping_patience: 5
+  early_stopping_min_improvement_pct: 5
 
 # One section per defense model file stem in models_directory.
 # A list value defines the discrete search space for that parameter; a single
@@ -38,7 +47,19 @@ optuna:
 #       When neither is set, algorithm.feature_key is used.
 #   n_trials: 10
 #       Optional per-model Optuna budget that overrides the global
-#       optuna.n_trials for this model only (e.g. slow-training models).
+#       optuna.n_trials for this model only (e.g. slow-training models). The
+#       executed trials are capped at min(n_trials, number of distinct
+#       parameter combinations).
+#   seed: 100
+#       Run seed for this model: controls the Optuna sampler, the final
+#       retrain and each trial's training RNG via seed + 1 + trial_number, so
+#       repeated parameter combinations are not bit-identical. It also seeds
+#       the model's own internal splits unless overridden below.
+#   split_seed: 42 / gaussian_seed: 1000
+#       Optional per-model overrides of algorithm.split_seed (debate-level
+#       X_trn/X_val partition, fixed across all trials of this model) and
+#       algorithm.gaussian_seed (synthetic proxy). gaussian_seed defaults to
+#       the per-model split_seed when only split_seed is set.
 models:
   BlindGuard:
     seed: 42
@@ -91,7 +112,7 @@ models:
     feat_dim_s: 384
     feat_dim_t: 384
     hidden_dim: [128, 256]
-    batch_size: 8
+    batch_size: 32
     val_split: 0.2
     num_epochs: 5
     learning_rate: [0.0001, 0.001]
