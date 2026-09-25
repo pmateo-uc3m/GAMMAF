@@ -81,6 +81,7 @@ _DEBATE_KEYS = {
     "new_random_each_question",
     "random_topo_seed",
     "density_range_for_random_topo",
+    "clean_debates",
 }
 
 _DATASET_KEYS = {
@@ -358,6 +359,9 @@ def _validate_debate(raw: dict[str, Any]) -> AttrDict:
         ),
         random_topo_seed=int(raw["random_topo_seed"]),
         density_range_for_random_topo=[float(density[0]), float(density[1])],
+        clean_debates=_require_bool(
+            raw.get("clean_debates", False), "debate.clean_debates"
+        ),
     )
 
 

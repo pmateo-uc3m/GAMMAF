@@ -12,7 +12,14 @@ Multi-dataset defense benchmarking for GAMMAF:
   training/eval leakage is impossible.
 * **Per-dataset results**: evaluation results are saved in separate files per
   dataset tag (``<output_dir>/<tag>/<model>.json``); the configured
-  ``output_file`` holds a small summary mapping tags/models to those files.
+  ``output_file`` holds a summary mapping tags/models to those files plus a
+  ``runs`` section with the full statistics of every completed model+dataset
+  combination.
+* **Crash-safe resume**: every completed model+dataset combination is written
+  atomically to the results file as soon as it finishes.  Re-running the same
+  config skips already-completed combinations and re-runs only the missing
+  ones; a combination interrupted before it was registered is re-run from
+  scratch.
 
 All configuration loading and validation is delegated to
 ``EvaluationConfigCheck.py``; this module only consumes the normalised config.
@@ -27,7 +34,7 @@ Config schema (see ``config-examples/evaluation-config.yaml``)::
     debate: {num_agents, num_malicious_agents, malicious_seed, max_rounds,
              consensus_threshold, check_consensus_only_unflagged,
              no_consensus_check, new_random_each_question, random_topo_seed,
-             density_range_for_random_topo}
+             density_range_for_random_topo, clean_debates}
 
     datasets:
       - tag: MMLU
@@ -61,8 +68,10 @@ import gc
 import importlib.util
 import inspect
 import json
+import os
 import pickle
 import traceback
+from datetime import datetime
 from pathlib import Path
 from time import time
 
@@ -376,32 +385,111 @@ def _per_tag_result_path(output_path: Path, tag: str, model_name: str) -> Path:
 #  Summary persistence
 # ---------------------------------------------------------------------------
 
-def _read_summary(output_path: Path) -> dict:
-    if not output_path.exists():
-        return {}
+def _now() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _atomic_write_json(path: Path, payload) -> None:
+    """Write ``payload`` atomically so an interrupted write cannot corrupt it."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.tmp")
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp_path, path)
+
+
+def _read_json_file(path):
+    if not path:
+        return None
+    path = Path(path)
+    if not path.exists():
+        return None
     try:
-        with open(output_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
     except (json.JSONDecodeError, OSError):
-        log_warn("Could not read existing results file. Starting fresh.")
+        return None
+
+
+def _read_summary(output_path: Path) -> dict:
+    data = _read_json_file(output_path)
+    if data is None:
+        if output_path.exists():
+            log_warn("Could not read existing results file. Starting fresh.")
         return {}
+    if not isinstance(data, dict):
+        log_warn("Existing results file is not a mapping. Starting fresh.")
+        return {}
+    return data
 
 
 def _write_summary(output_path: Path, summary: dict) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=4)
+    summary["updated_at"] = _now()
+    _atomic_write_json(output_path, summary)
 
 
-def _register_result(summary, tag, model_name, per_tag_path, train_indexes, hps_indexes):
+def _run_entry(summary: dict, model_name: str) -> dict:
+    runs = summary.setdefault("runs", {})
+    entry = runs.get(model_name)
+    if not isinstance(entry, dict):
+        entry = {}
+        runs[model_name] = entry
+    entry.setdefault("model", model_name)
+    entry.setdefault("datasets", {})
+    return entry
+
+
+def _completed_combo_payload(summary: dict, model_name: str, tag: str):
+    """Payload of a model+dataset combo that finished cleanly, else ``None``.
+
+    A combo counts as completed only when the runs bookkeeping records it as
+    completed *and* its per-dataset result file still exists and parses.  A
+    crash in the middle of a combo therefore never marks it completed: it is
+    simply re-run on the next invocation.  Summaries written by the older
+    format (``per_dataset_results`` only) are accepted as a fallback.
+    """
+    run = summary.get("runs", {}).get(model_name)
+    path = None
+    if isinstance(run, dict):
+        dataset = run.get("datasets", {}).get(tag)
+        if isinstance(dataset, dict) and dataset.get("status") == "completed":
+            path = dataset.get("result_file")
+    if path is None:
+        legacy = summary.get("per_dataset_results", {})
+        entry = legacy.get(tag, {}) if isinstance(legacy, dict) else {}
+        path = entry.get(model_name) if isinstance(entry, dict) else None
+    payload = _read_json_file(path)
+    if not isinstance(payload, dict) or "results" not in payload:
+        return None
+    return payload
+
+
+def _register_result(summary, model_name, payload, per_tag_path, duration_seconds=None):
+    tag = payload["dataset_tag"]
+    label = payload["model"]
+
     per_dataset = summary.setdefault("per_dataset_results", {})
-    per_dataset.setdefault(tag, {})[model_name] = str(per_tag_path)
+    per_dataset.setdefault(tag, {})[label] = str(per_tag_path)
 
     excluded = summary.setdefault("excluded_indexes", {})
     excluded[tag] = {
-        "train": sorted(int(i) for i in train_indexes),
-        "hps": sorted(int(i) for i in hps_indexes),
+        "train": sorted(int(i) for i in payload.get("train_excluded_indexes", [])),
+        "hps": sorted(int(i) for i in payload.get("hps_excluded_indexes", [])),
+    }
+
+    run = _run_entry(summary, model_name)
+    run["model"] = label
+    run["datasets"][tag] = {
+        "status": "completed",
+        "model": label,
+        "loader_tag": payload.get("loader_tag"),
+        "result_file": str(per_tag_path),
+        "n_used_indexes": payload.get("n_used_indexes"),
+        "duration_seconds": duration_seconds,
+        "results": payload.get("results"),
     }
 
 
@@ -464,12 +552,10 @@ def _evaluate_model_on_tag(
         "results": stats,
     }
     per_tag_path = _per_tag_result_path(output_path, entry["tag"], model_label)
-    per_tag_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(per_tag_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    _atomic_write_json(per_tag_path, payload)
     log_info(f"Per-dataset results saved to {per_tag_path}")
 
-    return stats, per_tag_path, train_indexes, hps_indexes
+    return payload, per_tag_path
 
 
 def _run_standard(config, parsed_args):
@@ -493,6 +579,9 @@ def _run_standard(config, parsed_args):
             log_info(f"Deleted existing report: {report_path.name}")
 
     summary = _read_summary(output_path)
+    summary.setdefault("script", "MainEvaluation.py")
+    summary.setdefault("config_file", str(parsed_args.config_file))
+    summary.setdefault("created_at", _now())
     eval_entries = config.datasets
     eval_tags = [entry.tag for entry in eval_entries]
     log_info(
@@ -517,15 +606,45 @@ def _run_standard(config, parsed_args):
             {"tag": e.tag, "loader_tag": e.loader_tag} for e in eval_entries
         ]
 
-        if config.evaluation.no_defense_baseline and \
-                "no_defense_baseline" not in summary.get("completed_runs", []):
-            log_section("No-Defense Baseline")
+        def _all_combos_completed(model_name):
+            return all(
+                _completed_combo_payload(summary, model_name, tag) is not None
+                for tag in eval_tags
+            )
+
+        def _finish_run(model_name, status, run_t0, started_at, error=None):
+            run = _run_entry(summary, model_name)
+            run["status"] = status
+            run["started_at"] = started_at
+            run["duration_seconds"] = round(time() - run_t0, 3)
+            if error is not None:
+                run["error"] = error
+            _write_summary(output_path, summary)
+
+        if config.evaluation.no_defense_baseline:
+            baseline_name = "no_defense_baseline"
             baseline_missing = [
                 e for e in eval_entries
-                if "no_defense_baseline" not in summary.get("per_dataset_results", {}).get(e.tag, {})
+                if _completed_combo_payload(summary, baseline_name, e.tag) is None
             ]
             if baseline_missing:
-                for entry in baseline_missing:
+                log_section("No-Defense Baseline")
+                baseline_started = time()
+                baseline_started_iso = _now()
+                _run_entry(summary, baseline_name)["status"] = "running"
+                _write_summary(output_path, summary)
+                for j, entry in enumerate(eval_entries, start=1):
+                    tag = entry.tag
+                    if _completed_combo_payload(summary, baseline_name, tag) is not None:
+                        log_info(
+                            f"[BASELINE] [DATASET {j}/{len(eval_entries)}] '{tag}' "
+                            "already completed; skipping."
+                        )
+                        continue
+                    log_info(
+                        f"[BASELINE] [DATASET {j}/{len(eval_entries)}] evaluating "
+                        f"'{baseline_name}' on '{tag}'"
+                    )
                     t0 = time()
                     train_indexes = _indexes_for_entry(train_indexes_by_tag, entry)
                     hps_indexes = _load_hps_indexes_for_entry(entry)
@@ -542,51 +661,54 @@ def _run_standard(config, parsed_args):
                     payload = {
                         "dataset_tag": entry.tag,
                         "loader_tag": entry.loader_tag,
-                        "model": "no_defense_baseline",
+                        "model": baseline_name,
                         "train_excluded_indexes": sorted(int(i) for i in train_indexes),
                         "hps_excluded_indexes": sorted(int(i) for i in hps_indexes),
                         "used_indexes": used_indexes,
                         "n_used_indexes": len(used_indexes),
                         "results": baseline_stats,
                     }
-                    per_tag_path = _per_tag_result_path(output_path, entry.tag, "no_defense_baseline")
-                    per_tag_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(per_tag_path, "w", encoding="utf-8") as f:
-                        json.dump(payload, f, indent=2)
-                    _register_result(
-                        summary, entry.tag, "no_defense_baseline",
-                        per_tag_path, train_indexes, hps_indexes,
-                    )
+                    per_tag_path = _per_tag_result_path(output_path, entry.tag, baseline_name)
+                    _atomic_write_json(per_tag_path, payload)
                     elapsed = time() - t0
-                    timing[f"no_defense_baseline::{entry.tag}"] = elapsed
-                    print_stats_table(baseline_stats, model_name=f"no_defense_baseline [{entry.tag}]")
+                    timing[f"{baseline_name}::{entry.tag}"] = elapsed
+                    _register_result(summary, baseline_name, payload, per_tag_path, elapsed)
+                    _refresh_completed_runs(summary, eval_tags)
+                    _write_summary(output_path, summary)
+                    print_stats_table(baseline_stats, model_name=f"{baseline_name} [{entry.tag}]")
                     log_info(f"Evaluation completed in {fmt_seconds(elapsed)}")
                     log_info(f"Results saved to {per_tag_path}")
                     del baseline_traces, baseline_stats
                     gc.collect()
-                _refresh_completed_runs(summary, eval_tags)
-                _write_summary(output_path, summary)
+                if _all_combos_completed(baseline_name):
+                    _finish_run(baseline_name, "completed", baseline_started, baseline_started_iso)
+                else:
+                    _write_summary(output_path, summary)
             else:
                 log_info("No-Defense baseline already completed for every dataset tag.")
 
-        completed_runs = _refresh_completed_runs(summary, eval_tags)
-        if completed_runs:
-            for name in list(models.keys()):
-                if name in completed_runs:
-                    log_info(f"Skipping '{name}' \u2014 already present in {output_path.name}.")
-                    temp_cfg = models[name].get("temp_config_path")
-                    if temp_cfg:
-                        Path(temp_cfg).unlink(missing_ok=True)
-                    del models[name]
+        pending_models = {}
+        for model_name, model_info in models.items():
+            if _all_combos_completed(model_name):
+                log_info(
+                    f"Skipping '{model_name}' \u2014 all model+dataset combinations "
+                    f"are already completed in {output_path.name}."
+                )
+                temp_cfg = model_info.get("temp_config_path")
+                if temp_cfg:
+                    Path(temp_cfg).unlink(missing_ok=True)
+                continue
+            pending_models[model_name] = model_info
 
-        total_models = len(models)
+        total_models = len(pending_models)
         if total_models == 0:
             log_info("All planned models are already completed. Nothing to do.")
         else:
             log_info(f"Processing {total_models} model(s).")
 
-        for idx, (model_name, model_info) in enumerate(models.items(), start=1):
+        for idx, (model_name, model_info) in enumerate(pending_models.items(), start=1):
             model_t0 = time()
+            model_started = _now()
             model_instance = None
             try:
                 log_section(f"Model {idx}/{total_models}: {model_name}")
@@ -607,14 +729,26 @@ def _run_standard(config, parsed_args):
                         log_info(f"Effective run name: {effective_name}")
                 log_info(f"Training completed in {fmt_seconds(time() - train_t0)}")
 
-                for entry in eval_entries:
+                run = _run_entry(summary, model_name)
+                run["status"] = "running"
+                run["started_at"] = model_started
+                run["model"] = effective_name
+                _write_summary(output_path, summary)
+
+                for j, entry in enumerate(eval_entries, start=1):
                     tag = entry.tag
-                    if tag in summary.get("per_dataset_results", {}) and \
-                            effective_name in summary["per_dataset_results"][tag]:
-                        log_info(f"[{tag}] '{effective_name}' already evaluated; skipping.")
+                    if _completed_combo_payload(summary, model_name, tag) is not None:
+                        log_info(
+                            f"[MODEL {idx}/{total_models}] [DATASET {j}/{len(eval_entries)}] "
+                            f"'{tag}' already completed; skipping."
+                        )
                         continue
+                    log_info(
+                        f"[MODEL {idx}/{total_models}] [DATASET {j}/{len(eval_entries)}] "
+                        f"evaluating '{effective_name}' on '{tag}'"
+                    )
                     eval_t0 = time()
-                    stats, per_tag_path, train_indexes, hps_indexes = _evaluate_model_on_tag(
+                    payload, per_tag_path = _evaluate_model_on_tag(
                         effective_name,
                         model_instance,
                         entry,
@@ -625,15 +759,11 @@ def _run_standard(config, parsed_args):
                     )
                     elapsed = time() - eval_t0
                     timing[f"{effective_name}::{tag}"] = elapsed
-                    print_stats_table(stats, model_name=f"{effective_name} [{tag}]")
-                    log_info(f"Evaluation on '{tag}' completed in {fmt_seconds(elapsed)}")
-                    _register_result(
-                        summary, tag, effective_name, per_tag_path,
-                        train_indexes, hps_indexes,
-                    )
+                    _register_result(summary, model_name, payload, per_tag_path, elapsed)
                     _refresh_completed_runs(summary, eval_tags)
                     _write_summary(output_path, summary)
-                    del stats
+                    print_stats_table(payload["results"], model_name=f"{effective_name} [{tag}]")
+                    log_info(f"Evaluation on '{tag}' completed in {fmt_seconds(elapsed)}")
 
                 _cleanup_model(model_instance)
                 model_instance = None
@@ -643,9 +773,20 @@ def _run_standard(config, parsed_args):
                 timing[effective_name] = total_elapsed
                 log_info(f"Total elapsed: {fmt_seconds(total_elapsed)}")
 
+                _finish_run(
+                    model_name,
+                    "completed" if _all_combos_completed(model_name) else "incomplete",
+                    model_t0,
+                    model_started,
+                )
+
             except KeyboardInterrupt:
                 if model_instance is not None:
                     _cleanup_model(model_instance)
+                run = _run_entry(summary, model_name)
+                run.setdefault("started_at", model_started)
+                run["status"] = "running"
+                _write_summary(output_path, summary)
                 raise
             except Exception as e:
                 if model_instance is not None:
@@ -654,6 +795,7 @@ def _run_standard(config, parsed_args):
                 log_error(f"Model '{model_name}' failed after {fmt_seconds(elapsed)}: {e}")
                 for line in traceback.format_exc().strip().splitlines():
                     log_error(line)
+                _finish_run(model_name, "failed", model_t0, model_started, error=f"{type(e).__name__}: {e}")
                 log_warn("Previously completed results are preserved. Moving to next model.")
                 continue
 
@@ -681,8 +823,7 @@ def _run_standard(config, parsed_args):
             report_filename += ".json"
         if timing:
             report_path = output_path.with_name(report_filename)
-            with open(report_path, "w", encoding="utf-8") as report_file:
-                json.dump(timing, report_file, indent=2)
+            _atomic_write_json(report_path, timing)
             print()
             print_timing_report(timing, total_elapsed)
             log_info(f"Timing report saved to {report_path}")

@@ -21,6 +21,9 @@ debate:
   new_random_each_question: true
   random_topo_seed: 24
   density_range_for_random_topo: [0.3, 0.7]
+  # Drop debates in which some agent emitted a response with both <answer> and
+  # <message> empty (tool-call responses, e.g. TA, are always kept).
+  clean_debates: false
 
 datasets:
   - tag: MMLU

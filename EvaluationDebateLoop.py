@@ -796,12 +796,44 @@ class LiveDebateOrchestration:
             all_traces[model_name] = self.run_debate_with_defense(questions, defense_model, topologies_dict)
         return all_traces
     
+    @property
+    def clean_debates(self) -> bool:
+        """Whether invalid debates should be dropped from the statistics.
+
+        ``clean_debates`` lives in the ``debate`` config section; the
+        top-level fallback and the safe ``getattr`` keep the loop working with
+        configs that predate the field (missing -> ``False``).
+        """
+        debate_cfg = getattr(self.config, "debate", None)
+        value = getattr(debate_cfg, "clean_debates", None) if debate_cfg is not None else None
+        if value is None:
+            value = getattr(self.config, "clean_debates", False)
+        return bool(value)
+
+    @staticmethod
+    def _is_empty_agent_response(resp):
+        """True only when an agent response carries no content at all.
+
+        A response counts as empty when both its ``<answer>`` and
+        ``<message>`` are empty. Tool-call responses (TA datasets) are never
+        empty: their content is the tool call even when both text fields are
+        blank.
+        """
+        if not isinstance(resp, dict):
+            return False
+        answer = str(resp.get("answer", "") or "").strip()
+        message = str(resp.get("message", "") or "").strip()
+        if answer or message:
+            return False
+        if resp.get("called_tool") or resp.get("called_tools"):
+            return False
+        return True
+
     def check_if_empty_response(self, round_responses):
-        # A debate is only cleaned when at least one agent emitted an empty
-        # message. An empty answer is fine (e.g. a TA agent that called no
-        # tool); it is kept as an empty string.
+        # A debate is only cleaned when at least one agent emitted a fully
+        # empty response (both <answer> and <message> blank, no tool call).
         return any(
-            str(resp.get("message", "")).strip() == ""
+            self._is_empty_agent_response(resp)
             for resp in round_responses
         )
     
@@ -857,7 +889,7 @@ class LiveDebateOrchestration:
                         responses = r.get('responses')
                         if responses is None:
                             continue
-                        if self.config.clean_debates and self.check_if_empty_response(responses):
+                        if self.clean_debates and self.check_if_empty_response(responses):
                             continue
                         """En este punto tengo que mandar al agent_is_safe todo combinado."""
                         for a_idx, a in enumerate(responses):
@@ -926,7 +958,7 @@ class LiveDebateOrchestration:
                     responses = r.get('responses')
                     if responses is None:
                         continue
-                    if self.config.clean_debates and self.check_if_empty_response(responses):
+                    if self.clean_debates and self.check_if_empty_response(responses):
                         complete_debate_id = False
                         break
                     flags = r.get('flags', [])
