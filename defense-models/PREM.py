@@ -3,14 +3,27 @@
 Paper: Pan et al., "PREM: A Simple Yet Effective Approach for Node-Level Graph
 Anomaly Detection" (IEEE ICDM 2023, arXiv:2310.11676).
 
-PREM replaces train-time message passing with a one-shot pre-processing module
-and a lightweight ego-neighbor matching network, then trains with a simple
-contrastive objective. The mapping to this codebase is as follows:
+This is the mean-aggregation variant matching the reference implementation
+found in the BlindGuard repo (PI/Prem_gad.py):
+
+* Neighbors are aggregated with **mean** semantics (``scatter_mean``) instead
+  of the symmetric-normalized **sum** used by the canonical paper. In matrix
+  form one propagation step is ``D^-1/2 (D^-1 A) D^-1/2`` where ``D = degree(A)``
+  (no explicit self-loop is added).
+* The discriminator linear layers are initialized with ``xavier_uniform_`` and
+  zero bias (as done by the reference ``_init_weights``).
+* The same anonymized ego removal (zero the propagation diagonal) and the same
+  contrastive training objective (Eq. 5-8) are kept, but with the negative pairs
+  actually used -- the reference's ``train_un2.py`` computes the negatives and
+  then discards them, which makes its loss degenerate.
+
+The module is self-contained (it does not import the legacy canonical-sum
+implementation). The mapping to this codebase is as follows:
 
 * Pre-processing module (no trainable weights):
     - ego features   X^(e) = X                       (raw sentence embeddings)
-    - neighbor feats X^(n) = P X,  P = M * (D~^-1/2 A~ D~^-1/2)^k   (Eq. 1-2)
-      where A~ = A + I (self-loop), D~ = degree(A~), M is the self-anonymization
+    - neighbor feats X^(n) = P X,  P = M * S^k
+      with S = D^-1/2 (D^-1 A) D^-1/2, D = degree(A), M the self-anonymization
       mask (zero diagonal, one elsewhere), and k = prop_steps.
 * Ego-neighbor matching network (Eq. 3-4):
     - h_i^(e) = x_i^(e) W1 + b1   (fc_ego)
@@ -53,29 +66,31 @@ from EvaluationConfigCheck import load_defense_model_config
 from BlindGuard import TrainDataProcessor
 
 
-def anonymized_propagation(adj_matrix, k):
-    """Anonymized propagation matrix P = M * (D~^-1/2 A~ D~^-1/2)^k (Eq. 2).
+def mean_anonymized_propagation(adj_matrix, k):
+    """Anonymized propagation with mean aggregation (reference Prem_gad.py).
 
-    A~ = A + I includes self-loops; D~ is its degree matrix; M is the
-    self-anonymization mask whose diagonal is zero and off-diagonal entries are
-    one. Zeroing the diagonal removes the ego contribution so X^(n) summarizes
-    neighbor information only.
+    One step mirrors ``scatter_mean``: ``X <- D^-1/2 * mean_neighbors(X)`` with a
+    ``D^-1/2`` scaling applied both before and after the mean, i.e.
+    ``S = D^-1/2 (D^-1 A) D^-1/2`` where ``D = degree(A)`` (no self-loop). The
+    k-step matrix has its diagonal zeroed so neighbor features exclude the ego.
     """
     adj = np.asarray(adj_matrix, dtype=np.float64)
     n = adj.shape[0]
-    a_tilde = adj + np.eye(n)
-    degree = a_tilde.sum(axis=1)
+    degree = adj.sum(axis=1)
+    deg_inv = np.zeros_like(degree)
     deg_inv_sqrt = np.zeros_like(degree)
     nonzero = degree > 0
+    deg_inv[nonzero] = 1.0 / degree[nonzero]
     deg_inv_sqrt[nonzero] = 1.0 / np.sqrt(degree[nonzero])
+    d_inv = np.diag(deg_inv)
     d_inv_sqrt = np.diag(deg_inv_sqrt)
-    s = d_inv_sqrt @ a_tilde @ d_inv_sqrt
+    s = d_inv_sqrt @ d_inv @ adj @ d_inv_sqrt
     s_k = np.linalg.matrix_power(s, int(k))
     np.fill_diagonal(s_k, 0.0)
     return s_k
 
 
-def build_prem_dataset(train_data, prop_steps, propagation_fn=anonymized_propagation):
+def build_prem_dataset(train_data, prop_steps, propagation_fn=mean_anonymized_propagation):
     """Turn BlindGuard's processed data into PREM's (ego, neighbor) node pairs.
 
     For every debate round of every topology the ego features are the raw
@@ -112,7 +127,11 @@ def build_prem_dataset(train_data, prop_steps, propagation_fn=anonymized_propaga
 
 
 class PREMDiscriminator(nn.Module):
-    """Ego-neighbor matching network: two linear layers + cosine similarity."""
+    """Ego-neighbor matching network: two linear layers + cosine similarity.
+
+    The linear layers use the reference implementation's ``xavier_uniform_``
+    weight init with zero biases.
+    """
 
     def __init__(self, input_dim, emb_dim):
         super().__init__()
@@ -120,6 +139,14 @@ class PREMDiscriminator(nn.Module):
         self.emb_dim = emb_dim
         self.fc_ego = nn.Linear(input_dim, emb_dim)       # W1, b1  (Eq. 3a)
         self.fc_neighbor = nn.Linear(input_dim, emb_dim)  # W2, b2  (Eq. 3b)
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, ego, neighbor):
         """Anomaly score s_i = -cos(h_i^(e), h_i^(n)) (Sec. IV-D)."""
@@ -132,7 +159,7 @@ class PREMDiscriminator(nn.Module):
 class PREMTopologyLoop:
     """PREM train / inference object consumed by the evaluation framework."""
 
-    def __init__(self, args, propagation_fn=anonymized_propagation,
+    def __init__(self, args, propagation_fn=mean_anonymized_propagation,
                  discriminator_cls=PREMDiscriminator):
         self.args = args
         self.config = args
@@ -377,7 +404,7 @@ class Master:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="PREM: PREprocessing and Matching for Node-Level Graph Anomaly Detection"
+        description="PREM: mean-aggregation PREM variant"
     )
     parser.add_argument("--config", type=str, default=None, help="Path to YAML configuration file")
     parsed = parser.parse_args()
