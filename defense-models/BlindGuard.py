@@ -10,7 +10,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.model_selection import train_test_split
 from dataclasses import dataclass
 from typing import Dict, Any
@@ -21,7 +20,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from EvaluationConfigCheck import load_defense_model_config
-from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds
+from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds, LRPlateauReducer
 
 @dataclass
 class DataGenerationParams:
@@ -424,10 +423,17 @@ class SCLTopologyLoop:
             lr=self.args.learning_rate, 
             weight_decay=self.args.weight_decay
         )
-        scheduler = CosineAnnealingLR(optimizer, T_max=self.args.scheduler_t_max, eta_min=1e-5)
+        lr_reducer = LRPlateauReducer(
+            optimizer,
+            patience=self.args.n_epochs_lr_reduce,
+            factor=self.args.lr_reduce_factor,
+            min_lr=self.args.min_lr,
+            min_improvement_pct=self.args.lr_reduce_improvement_pct,
+            early_stop_patience=self.args.n_epochs_early_stop,
+            early_stop_improvement_pct=self.args.early_stop_improvement_pct,
+        )
         
-        # Early stopping setup
-        best_val_loss = float('inf')
+        # Best model selection based on validation loss
         best_model_state = None
         
         # Training loop
@@ -458,20 +464,20 @@ class SCLTopologyLoop:
                     loss = criterion(embeddings, y)
                     total_val_loss += loss.item()
             
-            scheduler.step()
             avg_loss = total_loss / len(dataloader_train)
             avg_val_loss = total_val_loss / len(dataloader_val) if len(dataloader_val) > 0 else 0.0
             
-            is_best = avg_val_loss < best_val_loss
+            is_best, reduced, should_stop = lr_reducer.step(avg_val_loss)
             if is_best:
-                best_val_loss = avg_val_loss
                 best_model_state = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
-            current_lr = optimizer.param_groups[0]['lr']
-            print_epoch_log(epoch + 1, num_epochs, avg_loss, avg_val_loss, current_lr, is_best)
+            print_epoch_log(epoch + 1, num_epochs, avg_loss, avg_val_loss, lr_reducer.lr, is_best)
+            if should_stop:
+                log_warn(f"Early stopping triggered at epoch {epoch + 1} (no improvement for {self.args.n_epochs_early_stop} epochs)")
+                break
         
         if best_model_state is not None:
             self.model.load_state_dict({k: v.to(self.device) for k, v in best_model_state.items()})
-            log_done(f"Training complete. Best model restored with validation loss: {best_val_loss:.6f}")
+            log_done(f"Training complete. Best model restored with validation loss: {lr_reducer.best_loss:.6f}")
         else:
             log_warn("Training complete. No validation improvement snapshot was captured.")
                         

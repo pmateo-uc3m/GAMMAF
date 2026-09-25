@@ -88,8 +88,85 @@ def print_timing_report(timing: Dict, total_seconds: float):
     print(f"    {'total':.<35s} {fmt_seconds(total_seconds)}")
 
 
-def print_epoch_log(epoch: int, total_epochs: int, train_loss: float, val_loss: float, lr: float, is_best: bool = False):
-    line = f"    Epoch {epoch:03d}/{total_epochs:03d}  |  Train Loss: {train_loss:.6f}  |  Val Loss: {val_loss:.6f}  |  LR: {lr:.6e}"
+def print_epoch_log(epoch: int, total_epochs: int, train_loss: float, val_loss: float, lr: float, is_best: bool = False, extra: str = None):
+    line = f"    Epoch {epoch:03d}/{total_epochs:03d}  |  Train Loss: {train_loss:.6f}  |  Validation Loss: {val_loss:.6f}  |  LR: {lr:.6e}"
+    if extra:
+        line += f"  |  {extra}"
     if is_best:
         line += "  [BEST]"
     print(line)
+
+
+class LRPlateauReducer:
+    """Reduce the learning rate and/or stop training on validation plateaus.
+
+    A validation loss counts as an improvement when it beats the best loss
+    seen so far by at least the corresponding percentual threshold.  After
+    ``patience`` consecutive epochs without such an improvement the learning
+    rate is multiplied by ``factor``, floored at ``min_lr``.  Independently,
+    after ``early_stop_patience`` consecutive epochs without an improvement of
+    at least ``early_stop_improvement_pct`` percent, ``step`` reports that
+    training should stop.  The early-stop counter is deliberately not reset by
+    an LR reduction, so the LR has a chance to act before training stops.
+
+    ``step(val_loss)`` returns ``(is_best, reduced, should_stop)``: ``is_best``
+    marks a new best validation loss (used for best-checkpoint selection),
+    ``reduced`` marks epochs on which the learning rate was lowered and
+    ``should_stop`` marks epochs on which training should be stopped.
+    """
+
+    def __init__(self, optimizer, patience: int = 5, factor: float = 0.5, min_lr: float = 1e-6,
+                 min_improvement_pct: float = 1.0, early_stop_patience: int = None,
+                 early_stop_improvement_pct: float = None):
+        self.optimizer = optimizer
+        self.patience = max(1, int(patience))
+        self.factor = float(factor)
+        self.min_lr = float(min_lr)
+        self.min_improvement_pct = float(min_improvement_pct)
+        self.early_stop_patience = None if early_stop_patience is None else max(1, int(early_stop_patience))
+        self.early_stop_improvement_pct = (
+            self.min_improvement_pct if early_stop_improvement_pct is None else float(early_stop_improvement_pct)
+        )
+        self.best_loss = float("inf")
+        self.epochs_without_improvement = 0
+        self.epochs_without_improvement_early_stop = 0
+        self.reductions = 0
+
+    @property
+    def lr(self) -> float:
+        return self.optimizer.param_groups[0]["lr"]
+
+    def step(self, val_loss: float):
+        is_best = val_loss < self.best_loss
+        if is_best:
+            previous = self.best_loss
+            self.best_loss = float(val_loss)
+            if previous == float("inf") or previous <= 0.0:
+                improvement_pct = float("inf")
+            else:
+                improvement_pct = (previous - val_loss) / previous * 100.0
+            if improvement_pct >= self.min_improvement_pct:
+                self.epochs_without_improvement = 0
+            else:
+                self.epochs_without_improvement += 1
+            if improvement_pct >= self.early_stop_improvement_pct:
+                self.epochs_without_improvement_early_stop = 0
+            else:
+                self.epochs_without_improvement_early_stop += 1
+        else:
+            self.epochs_without_improvement += 1
+            self.epochs_without_improvement_early_stop += 1
+
+        reduced = False
+        if self.epochs_without_improvement >= self.patience:
+            for group in self.optimizer.param_groups:
+                group["lr"] = max(group["lr"] * self.factor, self.min_lr)
+            self.epochs_without_improvement = 0
+            self.reductions += 1
+            reduced = True
+
+        should_stop = (
+            self.early_stop_patience is not None
+            and self.epochs_without_improvement_early_stop >= self.early_stop_patience
+        )
+        return is_best, reduced, should_stop

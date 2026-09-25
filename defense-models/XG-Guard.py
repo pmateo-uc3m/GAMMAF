@@ -9,7 +9,7 @@ import random
 import numpy as np
 from torch.utils.data import Dataset, DataLoader as TorchDataLoader
 from pathlib import Path
-from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds
+from LoggingUtils import log_section, log_info, log_warn, log_error, log_done, log_config, print_epoch_log, fmt_seconds, LRPlateauReducer
 from EvaluationConfigCheck import load_defense_model_config
 
 class DataProcessor:
@@ -367,15 +367,18 @@ class Loop:
     def _train(self, train_loader, val_loader, device='cpu'):
     
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr, weight_decay=self.config.weight_decay)
+        lr_reducer = LRPlateauReducer(
+            optimizer,
+            patience=self.config.n_epochs_lr_reduce,
+            factor=self.config.lr_reduce_factor,
+            min_lr=self.config.min_lr,
+            min_improvement_pct=self.config.lr_reduce_improvement_pct,
+            early_stop_patience=self.config.n_epochs_early_stop,
+            early_stop_improvement_pct=self.config.early_stop_improvement_pct,
+        )
         
         best_val_loss = float('inf')
         best_model_state = None
-        early_stop = self.config.early_stop
-        lr_patience_reduce = 0
-        early_stop_count = 0
-        lr_patience_max = self.config.lr_patience_max
-        lr_reduce_factor = self.config.lr_reduce_factor
-        min_lr = self.config.min_lr
         
         self.model.train()
         for epoch in range(self.config.epochs):
@@ -400,34 +403,19 @@ class Loop:
             
             if val_loader is not None:
                 val_loss, val_metrics = self.validate_model(val_loader, self.config.alpha, device)
-                current_lr = optimizer.param_groups[0]['lr']
                 
-                is_best = val_loss < best_val_loss
+                is_best, reduced, should_stop = lr_reducer.step(val_loss)
                 if is_best:
-                    lr_patience_reduce = 0
-                    early_stop_count = 0
                     best_val_loss = val_loss
                     best_model_state = {k: v.cpu() for k, v in self.model.state_dict().items()}
-                else:
-                    if early_stop <= early_stop_count:
-                        log_warn(f"Early stopping triggered at epoch {epoch + 1} (no improvement for {early_stop} epochs)")
-                        break
-                    lr_patience_reduce += 1
-                    early_stop_count += 1
-                    if lr_patience_reduce >= lr_patience_max:
-                        for param_group in optimizer.param_groups:
-                            old_lr = param_group['lr']
-                            new_lr = max(old_lr * lr_reduce_factor, min_lr)
-                            param_group['lr'] = new_lr
-                        lr_patience_reduce = 0
-                        log_info(f"Reducing learning rate: {old_lr:.6e} -> {new_lr:.6e}")
                 
-                print_epoch_log(epoch + 1, self.config.epochs, avg_loss, val_loss, current_lr, is_best)
+                print_epoch_log(epoch + 1, self.config.epochs, avg_loss, val_loss, lr_reducer.lr, is_best)
+                if should_stop:
+                    log_warn(f"Early stopping triggered at epoch {epoch + 1} (no improvement for {self.config.n_epochs_early_stop} epochs)")
+                    break
             else:
                 print_epoch_log(epoch + 1, self.config.epochs, avg_loss, 0.0, optimizer.param_groups[0]['lr'], False)
         
-        return best_model_state, best_val_loss
-
         if best_model_state is not None:
             self.model.load_state_dict({k: v.to(device) for k, v in best_model_state.items()})
             log_done(f"Training complete. Best model restored with validation loss: {best_val_loss:.6f}")

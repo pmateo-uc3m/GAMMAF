@@ -1,7 +1,7 @@
 # Hyperparameter search config (HyperParameterSearch.py)
 # Unsupervised AutoUAD/NPD search over defense-model hyperparameters.
 
-data_path: paper-experiments/exp1/exp1-train-data.pkl
+data_path: paper-experiments/exp1/generation/exp1-train-data.pkl
 models_directory: defense-models
 output_file: hps/hps-results.json
 
@@ -33,6 +33,18 @@ optuna:
   early_stopping_patience: 5
   early_stopping_min_improvement_pct: 5
 
+# Global model-training defaults, applied to every defense model unless that
+# model's section overrides a key (scalar = fixed value, list = searched).
+# `n_epochs_early_stop` is intentionally larger than `n_epochs_lr_reduce` so
+# the LR reduction gets a chance to help before training is stopped.
+training:
+  n_epochs_lr_reduce: 5            # epochs without >= threshold % improvement -> LR reduction
+  lr_reduce_improvement_pct: 1.0   # % validation-loss improvement that counts as progress
+  lr_reduce_factor: 0.5            # LR multiplier applied on an LR reduction
+  min_lr: 1.0e-6                   # LR floor
+  n_epochs_early_stop: 12          # epochs without >= threshold % improvement -> stop training
+  early_stop_improvement_pct: 1.0  # % validation-loss improvement that resets the early-stop counter
+
 # One section per defense model file stem in models_directory.
 # A list value defines the discrete search space for that parameter; a single
 # scalar value keeps the parameter fixed for every trial.
@@ -60,6 +72,12 @@ optuna:
 #       X_trn/X_val partition, fixed across all trials of this model) and
 #       algorithm.gaussian_seed (synthetic proxy). gaussian_seed defaults to
 #       the per-model split_seed when only split_seed is set.
+#   val_split: 0.2
+#       Fraction of the model's training samples held out for validation.
+#   <any training key>: <value>
+#       Optional per-model override of the global `training` section for this
+#       model only. A scalar keeps it fixed; a list makes it searched like the
+#       other hyperparameters.
 models:
   BlindGuard:
     seed: 42
@@ -77,7 +95,7 @@ models:
     temperature: [0.05, 0.07, 0.1]
     learning_rate: [0.0001, 0.001]
     weight_decay: 0.0001
-    scheduler_t_max: 20
+    n_epochs_early_stop: 15      # per-model override example (global default: 12)
     top_k: 2
     topologies: null
 
@@ -114,7 +132,7 @@ models:
     hidden_dim: [128, 256]
     batch_size: 32
     val_split: 0.2
-    num_epochs: 5
+    num_epochs: 25
     learning_rate: [0.0001, 0.001]
     weight_decay: 0.0001
     alpha: 0.5

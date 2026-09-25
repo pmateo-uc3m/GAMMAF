@@ -49,6 +49,14 @@ Config schema (see ``config-examples/hyperparameter-search-config.yaml``)::
       early_stopping_patience: null          # consecutive non-improving trials -> stop (null = off)
       early_stopping_min_improvement_pct: 0.0  # % NPD gain over the best that counts as progress
 
+    training:                        # global model-training defaults (per-model override below)
+      n_epochs_lr_reduce: 5          # epochs without >= threshold % improvement -> LR reduction
+      lr_reduce_improvement_pct: 1.0
+      lr_reduce_factor: 0.5
+      min_lr: 1.0e-6
+      n_epochs_early_stop: 12        # epochs without >= threshold % improvement -> stop training
+      early_stop_improvement_pct: 1.0
+
     models:                          # one section per defense model file stem
       BlindGuard:
         seed: 42                     # run seed (sampler + per-trial training seeds)
@@ -62,6 +70,8 @@ Config schema (see ``config-examples/hyperparameter-search-config.yaml``)::
         split_seed: 542              # optional per-model debate-split seed
         gaussian_seed: 1542          # optional per-model Gaussian-proxy seed
         ...
+    # Any `training` key may also be set inside a model section to override the
+    # global value for that model only (scalar = fixed, list = searched).
 
 Resume
 ------
@@ -141,7 +151,11 @@ import optuna
 import yaml
 from sklearn.preprocessing import StandardScaler
 
-from EvaluationConfigCheck import write_model_config
+from EvaluationConfigCheck import (
+    merge_training_defaults,
+    validate_training_config,
+    write_model_config,
+)
 from LoggingUtils import (
     fmt_seconds,
     log_config,
@@ -149,6 +163,7 @@ from LoggingUtils import (
     log_error,
     log_info,
     log_section,
+    log_subsection,
     log_warn,
 )
 from Utils import AttrDict
@@ -163,6 +178,7 @@ _ROOT_KEYS = {
     "models_directory",
     "output_file",
     "algorithm",
+    "training",
     "optuna",
     "models",
 }
@@ -331,7 +347,7 @@ def _resolve_feature_keys(model_cfg, location, default_feature_key):
     return keys
 
 
-def _validate_models(raw, models_directory, default_feature_key):
+def _validate_models(raw, models_directory, default_feature_key, training=None):
     if not isinstance(raw, dict) or not raw:
         raise ValueError("'models' must be a non-empty mapping of model_name -> search config")
     models = AttrDict()
@@ -345,7 +361,9 @@ def _validate_models(raw, models_directory, default_feature_key):
                 f"Model configuration '{model_name}' has no matching file: {model_file}"
             )
 
-        entry = dict(model_cfg)
+        # Global training defaults first; a per-model value (scalar or search
+        # list) overrides the global one for this model only.
+        entry = merge_training_defaults(model_cfg, training)
         feature_keys = _resolve_feature_keys(entry, f"models.{model_name}", default_feature_key)
         per_model_trials = entry.get("n_trials")
         if per_model_trials is not None:
@@ -388,13 +406,15 @@ def load_hps_config(config_path):
         raise ValueError(f"Configuration field 'models_directory' is not a directory: {models_directory}")
 
     algorithm = _validate_algorithm(_require_mapping(raw, "algorithm", "root"))
+    training = validate_training_config(raw.get("training"))
     return AttrDict(
         data_path=_require_path(raw["data_path"], "data_path"),
         models_directory=models_directory,
         output_file=_require_str(raw["output_file"], "output_file"),
         algorithm=algorithm,
+        training=training,
         optuna=_validate_optuna(_require_mapping(raw, "optuna", "root")),
-        models=_validate_models(raw["models"], models_directory, algorithm.feature_key),
+        models=_validate_models(raw["models"], models_directory, algorithm.feature_key, training),
     )
 
 
@@ -1272,10 +1292,60 @@ def run_model_search(
 #  Entry point
 # ---------------------------------------------------------------------------
 
+def _log_model_summary(config, results):
+    """Print the final per-model summary of the search.
+
+    For every configured model: the best combination of the searched (i.e.
+    non-fixed) parameters, the number of executed Optuna steps, the total model
+    time and the average time per Optuna step.
+    """
+    log_section("Hyperparameter Search Summary")
+    entries = results.get("models", {})
+    for model_name in config.models:
+        entry = entries.get(model_name)
+        log_subsection(model_name)
+        if not entry:
+            log_config("status", "no results recorded")
+            continue
+
+        best = entry.get("best_trial")
+        searched = entry.get("search_space") or {}
+        if best is None:
+            best_params = "(no successful trial)"
+        elif not searched:
+            best_params = "(all parameters fixed)"
+        else:
+            best_params = json.dumps(best.get("params", {}), default=str, sort_keys=True)
+
+        trials = entry.get("trials") or []
+        steps = entry.get("executed_trials")
+        if steps is None:
+            steps = len(trials)
+        durations = [
+            trial["duration_seconds"]
+            for trial in trials
+            if trial.get("duration_seconds") is not None
+        ]
+        total = entry.get("duration_seconds")
+        if durations:
+            per_step = sum(durations) / len(durations)
+        elif total is not None and steps:
+            per_step = total / steps
+        else:
+            per_step = None
+
+        log_config("status", entry.get("status", "unknown"))
+        log_config("best params (searched)", best_params)
+        log_config("optuna steps", steps)
+        log_config("total time", fmt_seconds(total) if total is not None else "n/a")
+        log_config("time per step", fmt_seconds(per_step) if per_step is not None else "n/a")
+
+
 def run_hps(config_path, clean=False):
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     config = load_hps_config(config_path)
     algorithm = config.algorithm
+    training = config.training
     optuna_cfg = config.optuna
 
     log_section("Hyperparameter Search (AutoUAD / NPD)")
@@ -1290,6 +1360,16 @@ def run_hps(config_path, clean=False):
     log_config("max_debates", algorithm.max_debates)
     log_config("feature_key", algorithm.feature_key)
     log_config("n_trials", optuna_cfg.n_trials)
+    log_config(
+        "training (global)",
+        (
+            f"n_epochs_lr_reduce={training.n_epochs_lr_reduce}, "
+            f"n_epochs_early_stop={training.n_epochs_early_stop}, "
+            f"lr_reduce_improvement_pct={training.lr_reduce_improvement_pct}, "
+            f"early_stop_improvement_pct={training.early_stop_improvement_pct}, "
+            f"lr_reduce_factor={training.lr_reduce_factor}, min_lr={training.min_lr}"
+        ),
+    )
     log_config(
         "early_stopping",
         (
@@ -1320,6 +1400,7 @@ def run_hps(config_path, clean=False):
             f"skipping {sorted(completed_before)}"
         )
     if not pending_models:
+        _log_model_summary(config, results)
         log_section("Hyperparameter Search Finished")
         log_info(
             f"All {len(config.models)} configured model(s) are already completed in "
@@ -1385,6 +1466,14 @@ def run_hps(config_path, clean=False):
                 "early_stopping_min_improvement_pct": (
                     optuna_cfg.early_stopping_min_improvement_pct
                 ),
+            },
+            "training_params": {
+                "n_epochs_lr_reduce": training.n_epochs_lr_reduce,
+                "lr_reduce_improvement_pct": training.lr_reduce_improvement_pct,
+                "lr_reduce_factor": training.lr_reduce_factor,
+                "min_lr": training.min_lr,
+                "n_epochs_early_stop": training.n_epochs_early_stop,
+                "early_stop_improvement_pct": training.early_stop_improvement_pct,
             },
             "models": {},
         }
@@ -1570,6 +1659,7 @@ def run_hps(config_path, clean=False):
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
         _write_results(output_path, results)
+        _log_model_summary(config, results)
         log_section("Hyperparameter Search Finished")
         log_info(f"Total elapsed: {fmt_seconds(time() - overall_t0)}")
         log_info(f"Results JSON: {output_path}")

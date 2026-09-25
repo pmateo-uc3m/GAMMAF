@@ -45,7 +45,7 @@ _DIR = Path(__file__).resolve().parent
 sys.path.append(str(_DIR.parent))
 sys.path.insert(0, str(_DIR))
 
-from LoggingUtils import log_done, log_info, log_section, log_warn, print_epoch_log
+from LoggingUtils import log_done, log_info, log_section, log_warn, print_epoch_log, LRPlateauReducer
 from EvaluationConfigCheck import load_defense_model_config
 
 from BlindGuard import TrainDataProcessor
@@ -225,16 +225,40 @@ class TAMLoop:
         xs = [torch.from_numpy(x) for x, _ in samples]
         raws = [torch.from_numpy(a) for a in raw_adjs]
 
+        # Held-out graphs for validation-based LR reduction and model selection.
+        split_seed = int(self.config.split_seed)
+        val_split = float(self.config.val_split)
+        n_samples = len(samples)
+        perm = np.random.default_rng(split_seed).permutation(n_samples)
+        if n_samples >= 2 and 0 < val_split < 1:
+            n_val = min(max(1, int(round(n_samples * val_split))), n_samples - 1)
+            val_idx = perm[:n_val]
+            train_idx = perm[n_val:]
+        else:
+            train_idx = perm
+            val_idx = np.array([], dtype=int)
+        log_info(f"Train samples: {len(train_idx)}, Validation samples: {len(val_idx)}")
+
         total_nets = self.num_trees * self.num_cuts
         for t in range(self.num_trees):
             for k in range(self.num_cuts):
                 net = LAMNet(input_dim, self.emb_dim).to(self.device)
                 optimizer = torch.optim.Adam(net.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
+                lr_reducer = LRPlateauReducer(
+                    optimizer,
+                    patience=self.config.n_epochs_lr_reduce,
+                    factor=self.config.lr_reduce_factor,
+                    min_lr=self.config.min_lr,
+                    min_improvement_pct=self.config.lr_reduce_improvement_pct,
+                    early_stop_patience=self.config.n_epochs_early_stop,
+                    early_stop_improvement_pct=self.config.early_stop_improvement_pct,
+                )
+                best_model_state = None
                 adjs = trunc[t][k]
                 for epoch in range(self.num_epochs):
                     net.train()
                     total = 0.0
-                    for idx in range(len(samples)):
+                    for idx in train_idx:
                         x = xs[idx].to(self.device)
                         raw_adj = raws[idx].to(self.device)
                         adj_norm = _sym_normalize(torch.from_numpy(adjs[idx]).to(self.device))
@@ -244,10 +268,40 @@ class TAMLoop:
                         loss.backward()
                         optimizer.step()
                         total += loss.item()
-                    avg = total / max(1, len(samples))
-                    if epoch % max(1, self.num_epochs // 10) == 0 or epoch == self.num_epochs - 1:
-                        log_info(f"  LAMNet [{t * self.num_cuts + k + 1}/{total_nets}] "
-                                 f"epoch {epoch + 1}/{self.num_epochs} loss {avg:.6f}")
+                    avg = total / max(1, len(train_idx))
+
+                    net.eval()
+                    val_total = 0.0
+                    with torch.no_grad():
+                        for idx in val_idx:
+                            x = xs[idx].to(self.device)
+                            raw_adj = raws[idx].to(self.device)
+                            adj_norm = _sym_normalize(torch.from_numpy(adjs[idx]).to(self.device))
+                            h, feat1, _ = net(x, adj_norm)
+                            val_total += (
+                                -local_affinity(h, raw_adj).sum() + self.lamda * reg_loss(feat1, raw_adj)
+                            ).item()
+                    val_avg = val_total / max(1, len(val_idx))
+                    selection_loss = val_avg if len(val_idx) > 0 else avg
+
+                    is_best, reduced, should_stop = lr_reducer.step(selection_loss)
+                    if is_best:
+                        best_model_state = {name: value.detach().cpu().clone() for name, value in net.state_dict().items()}
+                    print_epoch_log(
+                        epoch + 1, self.num_epochs, avg, val_avg, lr_reducer.lr, is_best,
+                        extra=f"LAMNet [{t * self.num_cuts + k + 1}/{total_nets}]",
+                    )
+                    if should_stop:
+                        log_warn(
+                            f"Early stopping triggered at epoch {epoch + 1} for "
+                            f"LAMNet [{t * self.num_cuts + k + 1}/{total_nets}] "
+                            f"(no improvement for {self.config.n_epochs_early_stop} epochs)"
+                        )
+                        break
+
+                if best_model_state is not None:
+                    net.load_state_dict({name: value.to(self.device) for name, value in best_model_state.items()})
+                    log_done(f"LAMNet [{t * self.num_cuts + k + 1}/{total_nets}] best validation loss: {lr_reducer.best_loss:.6f}")
                 net.eval()
                 self.models.append((t, k, net))
 

@@ -46,7 +46,7 @@ _DIR = Path(__file__).resolve().parent
 sys.path.append(str(_DIR.parent))
 sys.path.insert(0, str(_DIR))
 
-from LoggingUtils import log_done, log_info, log_section, log_warn, print_epoch_log
+from LoggingUtils import log_done, log_info, log_section, log_warn, print_epoch_log, LRPlateauReducer
 from EvaluationConfigCheck import load_defense_model_config
 
 # Reuse BlindGuard's training-data loader so DOMINANT consumes the exact same
@@ -280,7 +280,15 @@ class DOMINANTLoop:
                                 collate_fn=lambda batch: batch)
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
-        best_val_loss = float("inf")
+        lr_reducer = LRPlateauReducer(
+            optimizer,
+            patience=self.config.n_epochs_lr_reduce,
+            factor=self.config.lr_reduce_factor,
+            min_lr=self.config.min_lr,
+            min_improvement_pct=self.config.lr_reduce_improvement_pct,
+            early_stop_patience=self.config.n_epochs_early_stop,
+            early_stop_improvement_pct=self.config.early_stop_improvement_pct,
+        )
         best_model_state = None
 
         for epoch in range(self.epochs):
@@ -301,16 +309,17 @@ class DOMINANTLoop:
             train_loss = total / max(1, n_seen)
 
             val_loss = self._evaluate(val_loader)
-            is_best = val_loss < best_val_loss
+            is_best, reduced, should_stop = lr_reducer.step(val_loss)
             if is_best:
-                best_val_loss = val_loss
                 best_model_state = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
-            current_lr = optimizer.param_groups[0]["lr"]
-            print_epoch_log(epoch + 1, self.epochs, train_loss, val_loss, current_lr, is_best)
+            print_epoch_log(epoch + 1, self.epochs, train_loss, val_loss, lr_reducer.lr, is_best)
+            if should_stop:
+                log_warn(f"Early stopping triggered at epoch {epoch + 1} (no improvement for {self.config.n_epochs_early_stop} epochs)")
+                break
 
         if best_model_state is not None:
             self.model.load_state_dict({k: v.to(self.device) for k, v in best_model_state.items()})
-            log_done(f"Training complete. Best model restored with validation loss: {best_val_loss:.6f}")
+            log_done(f"Training complete. Best model restored with validation loss: {lr_reducer.best_loss:.6f}")
         else:
             log_warn("Training complete. No validation improvement snapshot was captured.")
 

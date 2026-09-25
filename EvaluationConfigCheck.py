@@ -54,6 +54,7 @@ _ROOT_KEYS = {
     "text_processor_device",
     "defense_model_train_configs",
     "hyperparameter_search",
+    "training",
 }
 _ROOT_REQUIRED = {
     "models_directory",
@@ -506,12 +507,21 @@ def _normalize_model_config(entry: dict[str, Any]) -> AttrDict:
         config["lr"] = config["learning_rate"]
     if "epochs" not in config and "num_epochs" in config:
         config["epochs"] = config["num_epochs"]
-    config.setdefault("early_stop", 10)
-    config.setdefault("lr_patience_max", 5)
-    if "lr_reduce_factor" not in config and "lr_patience_factor" in config:
+    if "lr_patience_factor" in config and "lr_reduce_factor" not in config:
         config["lr_reduce_factor"] = config["lr_patience_factor"]
+    if "lr_patience_max" in config and "n_epochs_lr_reduce" not in config:
+        config["n_epochs_lr_reduce"] = config["lr_patience_max"]
+    if "lr_improvement_pct" in config and "lr_reduce_improvement_pct" not in config:
+        config["lr_reduce_improvement_pct"] = config["lr_improvement_pct"]
+    if "early_stop" in config and "n_epochs_early_stop" not in config:
+        config["n_epochs_early_stop"] = config["early_stop"]
+    config.setdefault("n_epochs_lr_reduce", 5)
+    config.setdefault("lr_reduce_improvement_pct", 1.0)
     config.setdefault("lr_reduce_factor", 0.5)
-    config.setdefault("min_lr", 1e-8)
+    config.setdefault("min_lr", 1e-6)
+    config.setdefault("n_epochs_early_stop", 12)
+    config.setdefault("early_stop_improvement_pct", config["lr_reduce_improvement_pct"])
+    config.setdefault("val_split", 0.2)
     config.setdefault("prop_steps", 2)
     config.setdefault("persistence_decay", 0.5)
     config.setdefault("base_weight", 0.2)
@@ -549,7 +559,84 @@ def _normalize_model_config(entry: dict[str, Any]) -> AttrDict:
     return config
 
 
-def _validate_model_configs(raw: Any, train_pkl_path: str | None) -> AttrDict:
+_TRAINING_KEYS = {
+    "n_epochs_lr_reduce",
+    "lr_reduce_improvement_pct",
+    "lr_reduce_factor",
+    "min_lr",
+    "n_epochs_early_stop",
+    "early_stop_improvement_pct",
+}
+
+_TRAINING_DEFAULTS = {
+    "n_epochs_lr_reduce": 5,
+    "lr_reduce_improvement_pct": 1.0,
+    "lr_reduce_factor": 0.5,
+    "min_lr": 1e-6,
+    "n_epochs_early_stop": 12,
+    "early_stop_improvement_pct": 1.0,
+}
+
+
+def _require_number(value: Any, name: str, minimum: float | None = None,
+                    maximum: float | None = None) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"Configuration field '{name}' must be a number")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"Configuration field '{name}' must be >= {minimum}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"Configuration field '{name}' must be <= {maximum}")
+    return float(value)
+
+
+def validate_training_config(raw: Any) -> AttrDict:
+    """Validate the optional global ``training`` section.
+
+    These values are the defaults for every defense model's training loop;
+    a model's own config section overrides any of them for that model only.
+    """
+    if raw is None:
+        return AttrDict(_TRAINING_DEFAULTS)
+    if not isinstance(raw, dict):
+        raise ValueError("Configuration field 'training' must be a mapping")
+    _reject_unknown(raw, _TRAINING_KEYS, "training")
+
+    training = AttrDict(_TRAINING_DEFAULTS)
+    if "n_epochs_lr_reduce" in raw:
+        training["n_epochs_lr_reduce"] = _require_int(
+            raw["n_epochs_lr_reduce"], "training.n_epochs_lr_reduce", minimum=1
+        )
+    if "n_epochs_early_stop" in raw:
+        training["n_epochs_early_stop"] = _require_int(
+            raw["n_epochs_early_stop"], "training.n_epochs_early_stop", minimum=1
+        )
+    if "lr_reduce_improvement_pct" in raw:
+        training["lr_reduce_improvement_pct"] = _require_number(
+            raw["lr_reduce_improvement_pct"], "training.lr_reduce_improvement_pct", minimum=0.0
+        )
+    if "early_stop_improvement_pct" in raw:
+        training["early_stop_improvement_pct"] = _require_number(
+            raw["early_stop_improvement_pct"], "training.early_stop_improvement_pct", minimum=0.0
+        )
+    if "lr_reduce_factor" in raw:
+        training["lr_reduce_factor"] = _require_number(
+            raw["lr_reduce_factor"], "training.lr_reduce_factor", minimum=0.0, maximum=1.0
+        )
+    if "min_lr" in raw:
+        training["min_lr"] = _require_number(raw["min_lr"], "training.min_lr", minimum=0.0)
+    return training
+
+
+def merge_training_defaults(model_cfg: dict[str, Any], training: AttrDict | None) -> dict[str, Any]:
+    """Fill a model config's missing training keys from the global section."""
+    merged = dict(model_cfg)
+    if training:
+        for key, value in training.items():
+            merged.setdefault(key, value)
+    return merged
+
+
+def _validate_model_configs(raw: Any, train_pkl_path: str | None, training: AttrDict | None = None) -> AttrDict:
     if not isinstance(raw, dict) or not raw:
         raise ValueError(
             "'defense_model_train_configs' must be a non-empty mapping of "
@@ -567,7 +654,7 @@ def _validate_model_configs(raw: Any, train_pkl_path: str | None) -> AttrDict:
 
         normalized_entries = []
         for index, entry in enumerate(entries):
-            config = _normalize_model_config(entry)
+            config = _normalize_model_config(merge_training_defaults(entry, training))
             if "pkl_train" not in config:
                 if not train_pkl_path:
                     raise ValueError(
@@ -668,6 +755,7 @@ def load_evaluation_config(config_path: str | Path) -> AttrDict:
     evaluation = _validate_evaluation_section(
         _require_mapping(raw, "evaluation", "root")
     )
+    training = validate_training_config(raw.get("training"))
 
     config = AttrDict(
         models_directory=models_directory,
@@ -678,9 +766,10 @@ def load_evaluation_config(config_path: str | Path) -> AttrDict:
         evaluation=evaluation,
         datasets=_validate_datasets(raw["datasets"], evaluation, hps),
         defense_model_train_configs=_validate_model_configs(
-            raw["defense_model_train_configs"], train_pkl_path
+            raw["defense_model_train_configs"], train_pkl_path, training
         ),
         hyperparameter_search=hps,
+        training=training,
     )
     config.update(_validate_text_processor(raw))
     return config
