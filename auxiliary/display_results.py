@@ -3,13 +3,32 @@ import json
 import sys
 from pathlib import Path
 
-ROUND_METRICS = ["ASR", "UnFlagASR", "ADR", "AIR", "FPR", "F1", "AUROC"]
+ROUND_METRICS = ["ASR", "UnFlagASR", "ADR", "AIR", "FPR", "F1", "AUROC_gt", "AUROC_beh"]
+LEGACY_ROUND_METRICS = ["AUROC"]
 AVAILABLE_METRICS = (
     ROUND_METRICS
-    + [f"{metric}_ci95" for metric in ROUND_METRICS]
-    + ["pooled_AUROC"]
+    + LEGACY_ROUND_METRICS
+    + [f"{metric}_ci95" for metric in ROUND_METRICS + LEGACY_ROUND_METRICS]
+    + ["pooled_AUROC_gt", "pooled_AUROC_beh", "pooled_AUROC"]
 )
-_FOUR_DECIMALS = {"F1", "AUROC", "pooled_AUROC"}
+_FOUR_DECIMALS = {
+    "F1",
+    "AUROC_gt",
+    "AUROC_beh",
+    "pooled_AUROC_gt",
+    "pooled_AUROC_beh",
+    "AUROC",
+    "pooled_AUROC",
+}
+
+
+def _round_metric(round_rates, metric):
+    value = round_rates.get(metric)
+    if value is None and metric == "AUROC_gt":
+        value = round_rates.get("AUROC")
+    if value is None and metric == "pooled_AUROC_gt":
+        value = round_rates.get("pooled_AUROC")
+    return value
 
 
 def _fmt(value, kind=None):
@@ -191,6 +210,9 @@ def _display_tables(payloads, metrics, model_filter, dataset_filter, topology_fi
             if not _is_selected(topology, topology_filter):
                 continue
 
+            overall_auroc_gt = topology_result.get("overall_AUROC_gt")
+            if overall_auroc_gt is None:
+                overall_auroc_gt = topology_result.get("overall_AUROC")
             overall_rows.append(
                 [
                     model,
@@ -199,7 +221,8 @@ def _display_tables(payloads, metrics, model_filter, dataset_filter, topology_fi
                     _fmt(topology_result.get("total_questions"), "int"),
                     _fmt(topology_result.get("correct_answers"), "int"),
                     _fmt(topology_result.get("overall_accuracy"), "pct"),
-                    _fmt(topology_result.get("overall_AUROC"), "f4"),
+                    _fmt(overall_auroc_gt, "f4"),
+                    _fmt(topology_result.get("overall_AUROC_beh"), "f4"),
                 ]
             )
 
@@ -215,15 +238,15 @@ def _display_tables(payloads, metrics, model_filter, dataset_filter, topology_fi
                     count = round_counts.get(str(index), round_counts.get(index))
                 round_rows.append(
                     [model, tag, topology, number]
-                    + [_fmt(round_rates.get(metric), _metric_kind(metric)) for metric in metrics]
+                    + [_fmt(_round_metric(round_rates, metric), _metric_kind(metric)) for metric in metrics]
                     + [_fmt(count, "int")]
                 )
 
     print("  Overall")
     render_table(
-        ["Model", "Dataset", "Topology", "Questions", "Correct", "Accuracy", "AUROC"],
+        ["Model", "Dataset", "Topology", "Questions", "Correct", "Accuracy", "AUROC_gt", "AUROC_beh"],
         overall_rows,
-        aligns=["l", "l", "l", "r", "r", "r", "r"],
+        aligns=["l", "l", "l", "r", "r", "r", "r", "r"],
     )
     print()
     print("  Per-round metrics")

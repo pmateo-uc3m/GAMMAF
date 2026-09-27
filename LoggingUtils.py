@@ -69,11 +69,13 @@ def print_stats_table(stats: List[Dict], model_name: str = ""):
         round_counts = topo_result.get("round_counts", {})
         if rounds_rates:
             print()
-            print(f"    {'Round':>5}  {'ASR':>7}  {'UnFlagASR':>10}  {'ADR':>7}  {'AIR':>7}  {'FPR':>7}  {'F1':>8}  {'AUROC':>8}  {'Count':>6}")
-            print(f"    {'─' * 75}")
+            print(f"    {'Round':>5}  {'ASR':>7}  {'UnFlagASR':>10}  {'ADR':>7}  {'AIR':>7}  {'FPR':>7}  {'F1':>8}  {'AUROC_gt':>9}  {'AUROC_beh':>10}  {'Count':>6}")
+            print(f"    {'─' * 88}")
             for i, rr in enumerate(rounds_rates):
                 cnt = round_counts.get(i, 0)
-                print(f"    {i + 1:>5}  {rr.get('ASR', 0):>7.2f}  {rr.get('UnFlagASR', 0):>10.2f}  {rr.get('ADR', 0):>7.2f}  {rr.get('AIR', 0):>7.2f}  {rr.get('FPR', 0):>7.2f}  {rr.get('F1', 0):>8.4f}  {rr.get('AUROC', 0):>8.4f}  {cnt:>6}")
+                auroc_gt = rr.get('AUROC_gt', rr.get('AUROC', 0))
+                auroc_beh = rr.get('AUROC_beh', 0)
+                print(f"    {i + 1:>5}  {rr.get('ASR', 0):>7.2f}  {rr.get('UnFlagASR', 0):>10.2f}  {rr.get('ADR', 0):>7.2f}  {rr.get('AIR', 0):>7.2f}  {rr.get('FPR', 0):>7.2f}  {rr.get('F1', 0):>8.4f}  {auroc_gt:>9.4f}  {auroc_beh:>10.4f}  {cnt:>6}")
         print()
 
 
