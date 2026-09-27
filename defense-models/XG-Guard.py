@@ -37,29 +37,45 @@ class DataProcessor:
         if "data" in data:
             data = data["data"]
             
+        def prepare_round(round_messages):
+            """Validate and compact one round's embeddings in place.
+
+            Returns False when any agent lacks usable st/tk embeddings. Raw
+            Python float lists are replaced by float32 arrays as they are
+            visited so the unpickled training data does not stay in memory
+            next to the graph copies (mirrors the HPS loader fix).
+            """
+            for msg in round_messages:
+                st_embedding = msg.get("st_embedding")
+                if st_embedding is None or len(st_embedding) == 0:
+                    return False
+                if not isinstance(st_embedding, np.ndarray) or st_embedding.dtype != np.float32:
+                    msg["st_embedding"] = np.asarray(st_embedding, dtype=np.float32)
+
+                token_embeddings = msg.get("tk_embedding")
+                if token_embeddings is None or len(token_embeddings) == 0:
+                    return False
+                if not isinstance(token_embeddings, np.ndarray) or token_embeddings.dtype != np.float32:
+                    msg["tk_embedding"] = np.asarray(token_embeddings, dtype=np.float32)
+            return True
+
         def convert_round_to_geo_graph(round_messages, attacker_idxes, edge_idx_tensor):
             node_features_s = []
             x_i_prime = [] # Mean token embeddings per agent (can be tensor)
             x_i_j_prime = [] # Contextualized raw token embeddings per agent
             for msg in round_messages:
-                if isinstance(msg, dict):
-                    st_embedding = msg.get("st_embedding")
-                    node_features_s.append(
-                        st_embedding
-                        )
-                    token_embeddings_list = msg.get("tk_embedding")
-                    contextualized_tokens = []
-                    for token_emb in token_embeddings_list:
-                        contextualized_tokens.append(
-                            np.array(token_emb) + np.array(msg.get("st_embedding"))
-                        )
-                    x_i_prime.append(np.array(contextualized_tokens).mean(axis=0)) # Mean pool to get fixed-size representation
-                    x_i_j_prime.append(contextualized_tokens)
+                st_embedding = msg["st_embedding"]
+                node_features_s.append(st_embedding)
+                contextualized_tokens = [
+                    token_emb + st_embedding for token_emb in msg["tk_embedding"]
+                ]
+                x_i_prime.append(np.mean(contextualized_tokens, axis=0)) # Mean pool to get fixed-size representation
+                x_i_j_prime.append(contextualized_tokens)
                         
             # COnextualized tokens is like x'_i_j
 
-            node_features_s = np.array(node_features_s)
-            x_i_prime = np.array(x_i_prime)
+            node_features_s = np.asarray(node_features_s, dtype=np.float32)
+            x_i_prime = np.asarray(x_i_prime, dtype=np.float32)
             
             x_s = torch.FloatTensor(node_features_s)
             
@@ -105,13 +121,15 @@ class DataProcessor:
             results = []
             
             for round in debate_data['debate_rounds']:
-                messages = [{"st_embedding": msg.get("st_embedding"), "tk_embedding": msg.get("tk_embedding")} for msg in round]
-                graph_s, graph_t = convert_round_to_geo_graph(messages, attacker_idxes, edge_index_tensor)
+                if not prepare_round(round):
+                    return None
+                graph_s, graph_t = convert_round_to_geo_graph(round, attacker_idxes, edge_index_tensor)
                 results.append((graph_s, graph_t))
                 
             return results
             
         processed_data = []
+        skipped_debates = 0
         for idx, entry in enumerate(data):
             # Legacy format: one record with many debates under 'results'.
             if isinstance(entry, dict) and 'results' in entry:
@@ -127,11 +145,16 @@ class DataProcessor:
                     if debate_adj is None or not isinstance(debate, dict) or 'debate_rounds' not in debate:
                         continue
 
+                    debate_results = convert_to_geo_graph(debate, debate_adj)
+                    if debate_results is None:
+                        skipped_debates += 1
+                        continue
+
                     o = {
                         'topology_name': topology_name,
                         'adj_matrix': debate_adj,
                         'debate_id': f"{topology_name}_{debate_idx}",
-                        'results': [convert_to_geo_graph(debate, debate_adj)],
+                        'results': [debate_results],
                     }
                     processed_data.append(o)
                 continue
@@ -147,14 +170,25 @@ class DataProcessor:
             if debate_adj is None or 'debate_rounds' not in entry:
                 continue
 
+            debate_results = convert_to_geo_graph(entry, debate_adj)
+            if debate_results is None:
+                skipped_debates += 1
+                continue
+
             o = {
                 'topology_name': topology_name,
                 'adj_matrix': debate_adj,
                 'debate_id': entry.get('debate_id', f"{topology_name}_{idx}"),
-                'results': [convert_to_geo_graph(entry, debate_adj)],
+                'results': [debate_results],
             }
             processed_data.append(o)
             
+        if skipped_debates:
+            log_info(
+                f"Skipped {skipped_debates} debate(s) with missing or empty "
+                f"st_embedding/tk_embedding"
+            )
+
         self.data = processed_data
         return self.data
     
@@ -545,15 +579,21 @@ class Loop:
             edge_index_tensor = torch.LongTensor([[], []])
         
         # Extract embeddings
-        st_embeddings = np.array([agent['st_embedding'] for agent in round_data])
-        tk_embeddings = [agent['tk_embedding'] for agent in round_data]
+        st_embeddings = np.asarray([agent['st_embedding'] for agent in round_data], dtype=np.float32)
+        tk_embeddings = []
         
-        # Create x_t (mean-pooled token embeddings per agent)
+        # Create x_t (mean-pooled token embeddings per agent). Agents whose
+        # message produced no tokens (e.g. empty TA tool-call responses) get a
+        # single zero token so the token branch can still score them.
         x_t_list = []
-        for tk_emb in tk_embeddings:
-            mean_tokens = np.array(tk_emb).mean(axis=0)  # Mean over tokens
-            x_t_list.append(mean_tokens)
-        x_t = np.array(x_t_list)
+        for agent in round_data:
+            tk_emb = agent.get('tk_embedding')
+            if tk_emb is None or len(tk_emb) == 0:
+                tk_emb = [np.zeros(st_embeddings.shape[1], dtype=np.float32)]
+            tk_emb = np.asarray(tk_emb, dtype=np.float32)
+            tk_embeddings.append(tk_emb)
+            x_t_list.append(tk_emb.mean(axis=0))  # Mean over tokens
+        x_t = np.asarray(x_t_list, dtype=np.float32)
         
         # Create graph objects
         x_s = torch.FloatTensor(st_embeddings)
