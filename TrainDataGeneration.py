@@ -38,6 +38,10 @@ Output pickle schema::
         "dataset_tags": [config tags in generation order],
     }
 
+Alongside the pickle a small JSON sidecar ``<output_file>.idx_metadata.json``
+is written with the same ``idx_metadata`` / ``idx_metadata_flat`` content, so
+downstream stages can read the train indexes without loading the full pickle.
+
 Each debate additionally carries ``dataset_tag`` and ``dataset_index`` so a
 debate can always be traced back to the dataset instance it was generated from.
 """
@@ -71,6 +75,18 @@ def to_jsonable(obj):
         except Exception:
             return obj
     return obj
+
+
+def _write_index_sidecar(output_filepath, idx_metadata, flat_indexes):
+    """Write the train-index sidecar next to the generated pickle."""
+    sidecar_filepath = f"{output_filepath}.idx_metadata.json"
+    payload = {
+        "idx_metadata": to_jsonable(idx_metadata),
+        "idx_metadata_flat": to_jsonable(flat_indexes),
+    }
+    with open(sidecar_filepath, "w", encoding="utf-8") as sidecar_file:
+        json.dump(payload, sidecar_file, indent=2)
+    return sidecar_filepath
 
 
 def is_valid_debate(debate_data):
@@ -534,6 +550,8 @@ def main():
     with open(output_filepath, 'wb') as f:
         pickle.dump(output, f)
     log_info(f"Processed text data saved to {output_filepath}")
+    sidecar_filepath = _write_index_sidecar(output_filepath, idx_metadata, legacy_flat)
+    log_info(f"Train index sidecar saved to {sidecar_filepath}")
 
     elapsed_seconds = time() - t0
     log_info(f"Total execution time: {fmt_seconds(elapsed_seconds)}")

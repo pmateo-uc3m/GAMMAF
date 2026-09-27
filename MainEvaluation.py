@@ -10,11 +10,11 @@ Multi-dataset defense benchmarking for GAMMAF:
   tag the orchestrator excludes (a) the indexes used to *train on that same
   tag* and (b) the indexes selected by the HPS pool for that same tag, so
   training/eval leakage is impossible.
-* **Per-dataset results**: evaluation results are saved in separate files per
-  dataset tag (``<output_dir>/<tag>/<model>.json``); the configured
-  ``output_file`` holds a summary mapping tags/models to those files plus a
-  ``runs`` section with the full statistics of every completed model+dataset
-  combination.
+* **Single summary output**: all statistics are saved into the configured
+  ``output_file`` (its ``runs`` section holds the full statistics of every
+  completed model+dataset combination).  Per-dataset result files are written
+  only as temporary files under ``<output_dir>/.tmp/<tag>/<model>.json`` while
+  the run is in progress and are deleted at the end of the run.
 * **Crash-safe resume**: every completed model+dataset combination is written
   atomically to the results file as soon as it finishes.  Re-running the same
   config skips already-completed combinations and re-runs only the missing
@@ -70,6 +70,7 @@ import inspect
 import json
 import os
 import pickle
+import shutil
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -275,15 +276,48 @@ def _safe_filename(name: str) -> str:
 #  Exclusion indexes
 # ---------------------------------------------------------------------------
 
-def _load_train_indexes_per_tag(pkl_path):
-    """Load ``idx_metadata`` from a training pickle as ``{tag: [indexes]}``.
+def _per_tag_indexes_from_metadata(idx_metadata):
+    """Normalise an ``idx_metadata`` value to ``{tag: [indexes]}`` (or ``None``)."""
+    if isinstance(idx_metadata, dict):
+        result = {}
+        for tag, indexes in idx_metadata.items():
+            if indexes is None:
+                continue
+            result[str(tag)] = sorted({int(i) for i in indexes})
+        return result
+    if isinstance(idx_metadata, (list, tuple)):
+        return {"*": sorted({int(i) for i in idx_metadata})}
+    return None
 
-    Supports the multi-dataset schema (``idx_metadata`` dict) and the legacy
-    flat list schema (stored under the wildcard key ``"*"``).
+
+def _load_train_indexes_per_tag(pkl_path):
+    """Load the train indexes for a training pickle as ``{tag: [indexes]}``.
+
+    The JSON sidecar ``<pkl_path>.idx_metadata.json`` (written next to the
+    pickle by ``TrainDataGeneration.py``) is read when present; only if it is
+    missing or unreadable is the training pickle itself loaded as a legacy
+    fallback.  Supports the multi-dataset schema (``idx_metadata`` dict) and
+    the legacy flat list schema (stored under the wildcard key ``"*"``).
     """
     if not pkl_path:
         return {}
     path = Path(pkl_path)
+    sidecar_path = Path(f"{path}.idx_metadata.json")
+    if sidecar_path.exists():
+        data = _read_json_file(sidecar_path)
+        if isinstance(data, dict) and "idx_metadata" in data:
+            idx_metadata = data.get("idx_metadata")
+        else:
+            idx_metadata = data
+        result = _per_tag_indexes_from_metadata(idx_metadata)
+        if result is not None:
+            log_info(f"Loaded train indexes from sidecar: {sidecar_path}")
+            return result
+        log_warn(
+            f"Could not read train indexes from {sidecar_path}; "
+            "falling back to the training pickle."
+        )
+
     if not path.exists():
         log_warn(f"Training pickle not found: {pkl_path}. No training indexes will be excluded.")
         return {}
@@ -296,15 +330,8 @@ def _load_train_indexes_per_tag(pkl_path):
         return {}
 
     idx_metadata = data.get("idx_metadata") if isinstance(data, dict) else None
-    result = {}
-    if isinstance(idx_metadata, dict):
-        for tag, indexes in idx_metadata.items():
-            if indexes is None:
-                continue
-            result[str(tag)] = sorted({int(i) for i in indexes})
-    elif isinstance(idx_metadata, (list, tuple)):
-        result["*"] = sorted({int(i) for i in idx_metadata})
-    return result
+    result = _per_tag_indexes_from_metadata(idx_metadata)
+    return result if result is not None else {}
 
 
 def _indexes_for_entry(indexes_by_tag, entry):
@@ -377,8 +404,15 @@ def _load_hps_indexes_for_entry(entry):
     return set()
 
 
+_TEMP_RESULTS_DIRNAME = ".tmp"
+
+
+def _temp_results_dir(output_path: Path) -> Path:
+    return output_path.parent / _TEMP_RESULTS_DIRNAME
+
+
 def _per_tag_result_path(output_path: Path, tag: str, model_name: str) -> Path:
-    return output_path.parent / _safe_filename(tag) / f"{_safe_filename(model_name)}.json"
+    return _temp_results_dir(output_path) / _safe_filename(tag) / f"{_safe_filename(model_name)}.json"
 
 
 # ---------------------------------------------------------------------------
@@ -446,21 +480,24 @@ def _completed_combo_payload(summary: dict, model_name: str, tag: str):
     """Payload of a model+dataset combo that finished cleanly, else ``None``.
 
     A combo counts as completed only when the runs bookkeeping records it as
-    completed *and* its per-dataset result file still exists and parses.  A
-    crash in the middle of a combo therefore never marks it completed: it is
-    simply re-run on the next invocation.  Summaries written by the older
-    format (``per_dataset_results`` only) are accepted as a fallback.
+    completed with its full statistics embedded; this survives the deletion of
+    the temporary per-dataset files at the end of a run.  A crash in the middle
+    of a combo therefore never marks it completed: it is simply re-run on the
+    next invocation.  Summaries written by the older format
+    (``per_dataset_results`` + per-dataset files) are accepted as a fallback.
     """
     run = summary.get("runs", {}).get(model_name)
-    path = None
     if isinstance(run, dict):
         dataset = run.get("datasets", {}).get(tag)
         if isinstance(dataset, dict) and dataset.get("status") == "completed":
-            path = dataset.get("result_file")
-    if path is None:
-        legacy = summary.get("per_dataset_results", {})
-        entry = legacy.get(tag, {}) if isinstance(legacy, dict) else {}
-        path = entry.get(model_name) if isinstance(entry, dict) else None
+            if isinstance(dataset.get("results"), list):
+                return dataset
+            payload = _read_json_file(dataset.get("result_file"))
+            if isinstance(payload, dict) and "results" in payload:
+                return payload
+    legacy = summary.get("per_dataset_results", {})
+    entry = legacy.get(tag, {}) if isinstance(legacy, dict) else {}
+    path = entry.get(model_name) if isinstance(entry, dict) else None
     payload = _read_json_file(path)
     if not isinstance(payload, dict) or "results" not in payload:
         return None
@@ -577,6 +614,10 @@ def _run_standard(config, parsed_args):
         if report_path.exists():
             report_path.unlink()
             log_info(f"Deleted existing report: {report_path.name}")
+        temp_dir = _temp_results_dir(output_path)
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            log_info(f"Deleted existing temporary results: {temp_dir}")
 
     summary = _read_summary(output_path)
     summary.setdefault("script", "MainEvaluation.py")
@@ -827,6 +868,10 @@ def _run_standard(config, parsed_args):
             print()
             print_timing_report(timing, total_elapsed)
             log_info(f"Timing report saved to {report_path}")
+
+        temp_dir = _temp_results_dir(output_path)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        log_info(f"Removed temporary per-dataset results: {temp_dir}")
 
 
 # ---------------------------------------------------------------------------

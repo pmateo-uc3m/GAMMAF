@@ -464,13 +464,14 @@ class LiveDebateOrchestration:
         })
         
         consensus = False
+        is_ta = str(getattr(self.dataloader, "TAG", "")).upper() == "TA"
         for i in range(1, self.config.debate.max_rounds):
-            if self.config.debate.check_consensus_only_unflagged:
+            if not is_ta and self.config.debate.check_consensus_only_unflagged:
                 unflagged_responses = [resp for resp, flag in zip(last_round_responses, flags) if flag == 0]
                 if self.check_consensus(unflagged_responses):
                     consensus = True
                     break
-            else:
+            elif not is_ta:
                 if self.check_consensus(last_round_responses):
                     consensus = True
                     break
@@ -560,8 +561,9 @@ class LiveDebateOrchestration:
         })
         
         consensus = False
+        is_ta = str(getattr(self.dataloader, "TAG", "")).upper() == "TA"
         for i in range(1, self.config.debate.max_rounds):
-            if self.check_consensus(last_round_responses):
+            if not is_ta and self.check_consensus(last_round_responses):
                 consensus = True
                 break
             
@@ -868,6 +870,9 @@ class LiveDebateOrchestration:
         max_workers = max(1, int(self.config.llm.max_concurrent_inference))
         safe_cache = {}
         phase1_futures = []
+        loader_tag = str(getattr(self.dataloader, "TAG", "")).upper()
+        apply_early_stop_padding = loader_tag not in {"TA", "MA"}
+        apply_locf_padding = loader_tag == "MA"
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for topo_name, trace in traces.items():
@@ -952,6 +957,7 @@ class LiveDebateOrchestration:
                 early_stop = len(debate_trace) < self.config.debate.max_rounds
                 question_correct = question.get('is_correct', False)
                 n_bening = len(gt_flags) - sum(gt_flags)
+                last_normed = None
                 for r_idx, r in enumerate(debate_trace):
                     if r is None or not isinstance(r, dict):
                         continue
@@ -986,7 +992,8 @@ class LiveDebateOrchestration:
                         normed = (a - lo) / (hi - lo) if hi > lo else np.zeros_like(a)
                     else:
                         normed = np.zeros(len(gt_flags))
-                    anomaly_scores_dict.setdefault(r_idx, []).extend(normed.tolist())
+                    last_normed = normed.tolist()
+                    anomaly_scores_dict.setdefault(r_idx, []).extend(last_normed)
                     groundtruth_labels_dict.setdefault(r_idx, []).extend(gt_flags)
 
                     rounds_rates.append({
@@ -1014,7 +1021,15 @@ class LiveDebateOrchestration:
                                 )
                             f.write("=" * 72 + "\n")
                             f.write("\n")
-                if early_stop and question_consensus:
+                if apply_locf_padding and early_stop and question_consensus:
+                    if rounds_rates:
+                        last_round_metrics = dict(rounds_rates[-1])
+                        for i in range(len(rounds_rates), self.config.debate.max_rounds):
+                            rounds_rates.append(dict(last_round_metrics))
+                            if last_normed is not None:
+                                anomaly_scores_dict.setdefault(i, []).extend(last_normed)
+                            groundtruth_labels_dict.setdefault(i, []).extend(gt_flags)
+                elif apply_early_stop_padding and early_stop and question_consensus:
                     if question_correct:
                         for i in range(len(rounds_rates), self.config.debate.max_rounds):
                             rounds_rates.append({
