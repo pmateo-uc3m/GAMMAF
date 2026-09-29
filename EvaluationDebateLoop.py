@@ -99,7 +99,11 @@ class LiveDebateOrchestration:
             self.dataloader = questions_loader(**make_loader_kwargs(
                 questions_loader,
                 ma_dataset_path=entry.ma_dataset_path,
-                num_questions=max(entry.num_questions, entry.num_questions_on_random_topo),
+                num_questions=max(
+                    entry.num_questions,
+                    entry.num_questions_on_random_topo,
+                    int(getattr(entry, "num_questions_loaded_topo", 0) or 0),
+                ),
                 random_seed=entry.questions_random_seed,
                 indexes=self.train_indexes,
             ))
@@ -145,6 +149,38 @@ class LiveDebateOrchestration:
     @property
     def supports_tool_calls(self) -> bool:
         return bool(getattr(self.dataloader, "SUPPORTS_TOOL_CALLS", False))
+
+    @property
+    def loaded_topologies(self):
+        return getattr(self.entry, "loaded_topologies", None)
+
+    def _question_budget(self, topology_name: str) -> int:
+        """Questions to run for one topology (loaded topologies have their own budget)."""
+        if self.loaded_topologies:
+            return int(self.entry.num_questions_loaded_topo)
+        if topology_name == "random" and self.config.debate.new_random_each_question:
+            return int(self.entry.num_questions_on_random_topo)
+        return int(self.entry.num_questions)
+
+    def _active_topologies(self, topologies_dict):
+        """Resolve the topology set for a run (loaded topologies are used as-is)."""
+        if self.loaded_topologies:
+            return dict(topologies_dict)
+        if self.config.debate.new_random_each_question:
+            topologies_dict = {
+                topo_name: topo
+                for topo_name, topo in topologies_dict.items()
+                if "random" not in topo_name
+            }
+            topologies_dict["random"] = None
+        return topologies_dict
+
+    def _draws_random_topology(self, topology_name: str) -> bool:
+        return (
+            not self.loaded_topologies
+            and topology_name == "random"
+            and self.config.debate.new_random_each_question
+        )
 
     def _resolve_agent_class(self):
         agent_class = getattr(self, "_agent_class", None)
@@ -612,15 +648,9 @@ class LiveDebateOrchestration:
         return r
     
     def run_debate_with_defense(self, questions: List[dict], defense_model, topologies_dict, malicious_consensus = True):
-        if self.config.debate.new_random_each_question:
-            topologies_dict = {topo_name: topo for topo_name, topo in topologies_dict.items() if "random" not in topo_name}
-            topologies_dict["random"] = None  # We will generate random topology on the fly for each question if this flag is set
+        topologies_dict = self._active_topologies(topologies_dict)
         traces = {topo_name: [] for topo_name in topologies_dict}
-        total_tasks = sum(
-            self.entry.num_questions_on_random_topo if (topo_name == "random" and self.config.debate.new_random_each_question)
-            else self.entry.num_questions
-            for topo_name in topologies_dict.keys()
-        )
+        total_tasks = sum(self._question_budget(topo_name) for topo_name in topologies_dict.keys())
         failure_counts = Counter()
         failure_examples = []
 
@@ -632,7 +662,7 @@ class LiveDebateOrchestration:
             choices = question_data.get('choices')
             ground_truth = question_data.get('answer', question_data.get('correct_answer', ''))
             answer_rng = np.random.default_rng(self.answer_seed + 100000 + index)
-            if topo_name == "random" and self.config.debate.new_random_each_question:
+            if self._draws_random_topology(topo_name):
                 task_rng = np.random.default_rng(self.config.debate.random_topo_seed + index)
                 density = task_rng.uniform(self.config.debate.density_range_for_random_topo[0], self.config.debate.density_range_for_random_topo[1])
                 adjacency_matrix = generate_random_topologies(self.config.debate.num_agents, density, task_rng)
@@ -667,10 +697,7 @@ class LiveDebateOrchestration:
         future_to_key = {
             executor.submit(process_single_question, idx, q_data, topo_name): (idx, topo_name)
             for topo_name in topologies_dict.keys()
-            for idx, q_data in enumerate(
-                questions[:self.entry.num_questions_on_random_topo] if (topo_name == "random" and self.config.debate.new_random_each_question)
-                else questions[:self.entry.num_questions]
-            )
+            for idx, q_data in enumerate(questions[: self._question_budget(topo_name)])
         }
         
         try:
@@ -704,15 +731,9 @@ class LiveDebateOrchestration:
         return traces
 
     def run_debate_no_defense(self, questions: List[dict], topologies_dict, malicious_consensus = True):
-        if self.config.debate.new_random_each_question:
-            topologies_dict = {topo_name: topo for topo_name, topo in topologies_dict.items() if "random" not in topo_name}
-            topologies_dict["random"] = None  # We will generate random topology on the fly for each question if this flag is set
+        topologies_dict = self._active_topologies(topologies_dict)
         traces = {topo_name: [] for topo_name in topologies_dict}
-        total_tasks = sum(
-            self.entry.num_questions_on_random_topo if (topo_name == "random" and self.config.debate.new_random_each_question)
-            else self.entry.num_questions
-            for topo_name in topologies_dict.keys()
-        )
+        total_tasks = sum(self._question_budget(topo_name) for topo_name in topologies_dict.keys())
         failure_counts = Counter()
         failure_examples = []
 
@@ -723,7 +744,7 @@ class LiveDebateOrchestration:
             question = question_data.get('question') or question_data.get('instruction') or ''
             choices = question_data.get('choices')
             answer_rng = np.random.default_rng(self.answer_seed + 200000 + index)
-            if topo_name == "random" and self.config.debate.new_random_each_question:
+            if self._draws_random_topology(topo_name):
                 task_rng = np.random.default_rng(self.config.debate.random_topo_seed + index)
                 density = task_rng.uniform(self.config.debate.density_range_for_random_topo[0], self.config.debate.density_range_for_random_topo[1])
                 adjacency_matrix = generate_random_topologies(self.config.debate.num_agents, density, task_rng)
@@ -734,7 +755,7 @@ class LiveDebateOrchestration:
             if choices is not None:
                 wrong_answer_idx = int(answer_rng.choice([i for i in range(0,4) if i!=ground_truth]))
                 mal_answer = chr(wrong_answer_idx + 65)
-                
+
             r = self.debate_question_no_defense(
                 question,
                 ground_truth,
@@ -755,10 +776,7 @@ class LiveDebateOrchestration:
         future_to_key = {
             executor.submit(process_single_question, idx, q_data, topo_name): (idx, topo_name)
             for topo_name in topologies_dict.keys()
-            for idx, q_data in enumerate(
-                questions[:self.entry.num_questions_on_random_topo] if (topo_name == "random" and self.config.debate.new_random_each_question)
-                else questions[:self.entry.num_questions]
-            )
+            for idx, q_data in enumerate(questions[: self._question_budget(topo_name)])
         }
         
         try:

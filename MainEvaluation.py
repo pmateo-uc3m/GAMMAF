@@ -206,6 +206,18 @@ def resolve_topologies(config):
     return generated
 
 
+def _topologies_for_entry(entry, default_topologies):
+    """Dataset-level loaded topologies take precedence over the resolved default set."""
+    loaded = getattr(entry, "loaded_topologies", None)
+    if loaded:
+        log_info(
+            f"Dataset '{entry.tag}': using {len(loaded)} loaded topology(ies) from "
+            f"{entry.load_topology_file}"
+        )
+        return dict(loaded)
+    return default_topologies
+
+
 def get_models_from_path(path, embedded_model_configs):
     models = {}
     folder = Path(path)
@@ -696,7 +708,9 @@ def _run_standard(config, parsed_args):
                         excluded_indexes=sorted(hps_indexes),
                     )
                     questions = orchestrator.dataloader.get_formatted_questions()
-                    baseline_traces = orchestrator.run_debate_no_defense(questions, topologies)
+                    baseline_traces = orchestrator.run_debate_no_defense(
+                        questions, _topologies_for_entry(entry, topologies)
+                    )
                     baseline_stats = orchestrator.parse_stats_single_model(baseline_traces)
                     used_indexes = [int(i) for i in list(getattr(orchestrator.dataloader, "indexes", []))]
                     payload = {
@@ -793,7 +807,7 @@ def _run_standard(config, parsed_args):
                         effective_name,
                         model_instance,
                         entry,
-                        topologies,
+                        _topologies_for_entry(entry, topologies),
                         config,
                         train_indexes_by_tag,
                         output_path,

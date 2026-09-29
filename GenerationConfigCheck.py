@@ -23,7 +23,7 @@ from typing import Any
 
 import yaml
 
-from Utils import AttrDict
+from Utils import AttrDict, load_topologies_file
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +78,8 @@ _DATASET_KEYS = {
     "questions_random_seed",
     "ma_dataset_path",
     "prompts_file",
+    "load_topology_file",
+    "num_questions_loaded_topo",
 }
 
 _DATASET_TAG_ALIASES = {
@@ -294,7 +296,7 @@ def _validate_debate(raw: dict[str, Any]) -> AttrDict:
     )
 
 
-def _validate_datasets(raw: Any) -> list[AttrDict]:
+def _validate_datasets(raw: Any, num_agents: int | None = None) -> list[AttrDict]:
     if not isinstance(raw, list) or not raw:
         raise ValueError("Configuration field 'datasets' must be a non-empty list")
 
@@ -333,6 +335,27 @@ def _validate_datasets(raw: Any) -> list[AttrDict]:
         if prompts_file is not None:
             _require_path(prompts_file, f"{location}.prompts_file")
 
+        load_topology_file = item.get("load_topology_file")
+        num_questions_loaded_topo = item.get("num_questions_loaded_topo")
+        loaded_topologies = None
+        if load_topology_file is not None:
+            _require_path(load_topology_file, f"{location}.load_topology_file")
+            if num_questions_loaded_topo is None:
+                raise ValueError(
+                    f"'{location}.num_questions_loaded_topo' is required when "
+                    f"'load_topology_file' is set"
+                )
+            num_questions_loaded_topo = _require_int(
+                num_questions_loaded_topo, f"{location}.num_questions_loaded_topo", minimum=1
+            )
+            loaded_topologies = load_topologies_file(
+                load_topology_file, num_agents, f"{location}.load_topology_file"
+            )
+        elif num_questions_loaded_topo is not None:
+            num_questions_loaded_topo = _require_int(
+                num_questions_loaded_topo, f"{location}.num_questions_loaded_topo", minimum=1
+            )
+
         loader_tag = resolve_loader_tag(tag, item.get("loader_tag"))
 
         entries.append(
@@ -345,6 +368,9 @@ def _validate_datasets(raw: Any) -> list[AttrDict]:
                 questions_random_seed=int(item["questions_random_seed"]),
                 ma_dataset_path=ma_dataset_path,
                 prompts_file=prompts_file,
+                load_topology_file=load_topology_file,
+                num_questions_loaded_topo=num_questions_loaded_topo,
+                loaded_topologies=loaded_topologies,
             )
         )
     return entries
@@ -396,10 +422,14 @@ def load_generation_config(config_path: str | Path) -> AttrDict:
     workers = _require_int(raw.get("text_process_workers", 0), "text_process_workers", minimum=0)
     verbose = _require_bool(raw.get("verbose", False), "verbose")
 
+    llm = _validate_llm(_require_mapping(raw, "llm", "root"))
+    debate = _validate_debate(_require_mapping(raw, "debate", "root"))
+    datasets = _validate_datasets(raw["datasets"], debate.num_agents)
+
     config = AttrDict(
-        llm=_validate_llm(_require_mapping(raw, "llm", "root")),
-        debate=_validate_debate(_require_mapping(raw, "debate", "root")),
-        datasets=_validate_datasets(raw["datasets"]),
+        llm=llm,
+        debate=debate,
+        datasets=datasets,
         output_dir=output_dir,
         output_file=output_file,
         process_text=process_text,
@@ -434,7 +464,9 @@ def build_debate_config(
         random_topo_seed=config.debate.random_topo_seed,
         density_range_for_random_topo=list(config.debate.density_range_for_random_topo),
         topology=adjacency,
-        is_random_topology=(topology_name == "random"),
+        is_random_topology=bool(
+            topology_name == "random" and not getattr(entry, "loaded_topologies", None)
+        ),
         topology_name=topology_name,
         num_questions=num_questions,
         questions_random_seed=questions_random_seed,

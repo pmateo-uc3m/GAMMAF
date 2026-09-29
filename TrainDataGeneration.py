@@ -295,9 +295,24 @@ def _generate_for_dataset(dataset_entry, config, processor):
         f"seed={base_question_seed}"
     )
 
-    topologies = generate_topologies(config.debate.num_agents)
-    if n_questions_random_topo > 0:
-        topologies['random'] = [[0] * config.debate.num_agents for _ in range(config.debate.num_agents)]
+    loaded_topologies = getattr(dataset_entry, "loaded_topologies", None)
+    if loaded_topologies:
+        topologies = dict(loaded_topologies)
+        questions_per_topology = {
+            name: int(dataset_entry.num_questions_loaded_topo) for name in topologies
+        }
+        log_info(
+            f"Loaded {len(topologies)} topology(ies) from {dataset_entry.load_topology_file}; "
+            f"{dataset_entry.num_questions_loaded_topo} question(s) per topology"
+        )
+    else:
+        topologies = generate_topologies(config.debate.num_agents)
+        if n_questions_random_topo > 0:
+            topologies['random'] = [[0] * config.debate.num_agents for _ in range(config.debate.num_agents)]
+        questions_per_topology = {
+            name: (n_questions_random_topo if name == "random" else n_questions_fixed)
+            for name in topologies
+        }
 
     dataset_results = []
     used_global_indexes = []
@@ -308,9 +323,7 @@ def _generate_for_dataset(dataset_entry, config, processor):
     for i, (topo_name, adj_matrix) in enumerate(topologies.items(), start=1):
         # Use unique seed per topology so each gets different questions.
         topology_seed = base_question_seed + (i - 1)
-        questions_for_topology = (
-            n_questions_random_topo if topo_name == "random" else n_questions_fixed
-        )
+        questions_for_topology = questions_per_topology[topo_name]
 
         log_section(
             f"[{tag_label}] Topology {i}/{total_topologies}: {topo_name.upper()}"

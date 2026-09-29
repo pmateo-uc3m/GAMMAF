@@ -33,7 +33,7 @@ from typing import Any
 
 import yaml
 
-from Utils import AttrDict
+from Utils import AttrDict, load_topologies_file
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +93,8 @@ _DATASET_KEYS = {
     "ma_dataset_path",
     "prompts_file",
     "hps_indexes",
+    "load_topology_file",
+    "num_questions_loaded_topo",
 }
 
 _EVALUATION_KEYS = {
@@ -419,7 +421,8 @@ def _validate_evaluation_section(raw: dict[str, Any]) -> AttrDict:
     )
 
 
-def _validate_datasets(raw: Any, evaluation: AttrDict, hps: AttrDict | None) -> list[AttrDict]:
+def _validate_datasets(raw: Any, evaluation: AttrDict, hps: AttrDict | None,
+                       num_agents: int | None = None) -> list[AttrDict]:
     if not isinstance(raw, list) or not raw:
         raise ValueError("Configuration field 'datasets' must be a non-empty list")
 
@@ -462,6 +465,27 @@ def _validate_datasets(raw: Any, evaluation: AttrDict, hps: AttrDict | None) -> 
         if hps_indexes is not None:
             _require_str(hps_indexes, f"{location}.hps_indexes")
 
+        load_topology_file = item.get("load_topology_file")
+        num_questions_loaded_topo = item.get("num_questions_loaded_topo")
+        loaded_topologies = None
+        if load_topology_file is not None:
+            _require_path(load_topology_file, f"{location}.load_topology_file")
+            if num_questions_loaded_topo is None:
+                raise ValueError(
+                    f"'{location}.num_questions_loaded_topo' is required when "
+                    f"'load_topology_file' is set"
+                )
+            num_questions_loaded_topo = _require_int(
+                num_questions_loaded_topo, f"{location}.num_questions_loaded_topo", minimum=1
+            )
+            loaded_topologies = load_topologies_file(
+                load_topology_file, num_agents, f"{location}.load_topology_file"
+            )
+        elif num_questions_loaded_topo is not None:
+            num_questions_loaded_topo = _require_int(
+                num_questions_loaded_topo, f"{location}.num_questions_loaded_topo", minimum=1
+            )
+
         if evaluation.questions_class_name:
             loader_cls = load_class_from_path(
                 evaluation.questions_path, evaluation.questions_class_name
@@ -494,6 +518,9 @@ def _validate_datasets(raw: Any, evaluation: AttrDict, hps: AttrDict | None) -> 
                 prompts_file=prompts_file,
                 hps_indexes=hps_indexes,
                 hps_index_path=hps_index_path,
+                load_topology_file=load_topology_file,
+                num_questions_loaded_topo=num_questions_loaded_topo,
+                loaded_topologies=loaded_topologies,
             )
         )
     return entries
@@ -760,15 +787,16 @@ def load_evaluation_config(config_path: str | Path) -> AttrDict:
         _require_mapping(raw, "evaluation", "root")
     )
     training = validate_training_config(raw.get("training"))
+    debate = _validate_debate(_require_mapping(raw, "debate", "root"))
 
     config = AttrDict(
         models_directory=models_directory,
         output_file=output_file,
         train_pkl_path=train_pkl_path,
         llm=_validate_llm(_require_mapping(raw, "llm", "root")),
-        debate=_validate_debate(_require_mapping(raw, "debate", "root")),
+        debate=debate,
         evaluation=evaluation,
-        datasets=_validate_datasets(raw["datasets"], evaluation, hps),
+        datasets=_validate_datasets(raw["datasets"], evaluation, hps, debate.num_agents),
         defense_model_train_configs=_validate_model_configs(
             raw["defense_model_train_configs"], train_pkl_path, training
         ),

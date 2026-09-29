@@ -1,11 +1,71 @@
+import json
 import re
 import time
+from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableLambda
 from LoggingUtils import log_info, log_warn, log_error
+
+
+def load_topologies_file(path, num_agents=None, label: str = "load_topology_file"):
+    """Load and validate a topology JSON file.
+
+    The file must contain a non-empty list of mappings with:
+      * ``name``     -- unique non-empty string identifying the topology;
+      * ``topology`` -- square adjacency matrix of 0/1 integers (list of lists).
+
+    When ``num_agents`` is given, every matrix side must match it.  Returns an
+    ordered ``{name: matrix}`` mapping (file order preserved).
+    """
+    file_path = Path(path)
+    try:
+        with file_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in '{label}' ({file_path}): {exc}") from exc
+
+    if not isinstance(data, list) or not data:
+        raise ValueError(
+            f"'{label}' ({file_path}) must contain a non-empty JSON list of "
+            f"{{'name', 'topology'}} entries"
+        )
+
+    topologies = {}
+    for index, item in enumerate(data):
+        location = f"{label}[{index}]"
+        if not isinstance(item, dict):
+            raise ValueError(f"{location} must be a mapping with 'name' and 'topology'")
+        name = item.get("name")
+        matrix = item.get("topology")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{location}.name must be a non-empty string")
+        name = name.strip()
+        if name in topologies:
+            raise ValueError(f"Duplicate topology name '{name}' in '{label}' ({file_path})")
+        if not isinstance(matrix, list) or not matrix or not all(isinstance(row, list) for row in matrix):
+            raise ValueError(f"{location}.topology must be a non-empty list of rows")
+        size = len(matrix)
+        for row_index, row in enumerate(matrix):
+            if len(row) != size:
+                raise ValueError(
+                    f"{location} topology '{name}' is not square: row {row_index} has "
+                    f"{len(row)} entries, expected {size}"
+                )
+            for value in row:
+                if isinstance(value, bool) or not isinstance(value, int) or value not in (0, 1):
+                    raise ValueError(
+                        f"{location} topology '{name}' must contain only binary 0/1 integers"
+                    )
+        if num_agents is not None and size != int(num_agents):
+            raise ValueError(
+                f"{location} topology '{name}' has {size} agents but "
+                f"debate.num_agents is {num_agents}"
+            )
+        topologies[name] = [[int(value) for value in row] for row in matrix]
+    return topologies
 
 
 class AttrDict(dict):

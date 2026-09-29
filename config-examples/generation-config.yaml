@@ -23,6 +23,13 @@ datasets:
     questions_random_seed: 1
     ma_dataset_path: null
     prompts_file: null # Overrides the loader's PROMPTS_FILE when set
+    # Optional: run on topologies loaded from a JSON list of
+    # {"name": <unique string>, "topology": <square 0/1 adjacency list of lists>}
+    # entries instead of the generated chain/star/tree (+random) set.
+    # `num_questions_loaded_topo` is then required and applies to every loaded
+    # topology; each matrix side must equal debate.num_agents.
+    # load_topology_file: null
+    # num_questions_loaded_topo: null
 
   # The same loader can be run again with a different tag and config; both
   # runs are generated and saved under their own tag:

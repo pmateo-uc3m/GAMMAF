@@ -34,6 +34,14 @@ datasets:
     ma_dataset_path: null
     prompts_file: null # Overrides the loader's PROMPTS_FILE when set
     hps_indexes: null
+    # Optional: evaluate on topologies loaded from a JSON list of
+    # {"name": <unique string>, "topology": <square 0/1 adjacency list of lists>}
+    # entries instead of the resolved chain/star/tree (+random) set.
+    # `num_questions_loaded_topo` is then required and applies to every loaded
+    # topology; each matrix side must equal debate.num_agents. When set, these
+    # per-dataset topologies take precedence over evaluation.topologies_file.
+    # load_topology_file: null
+    # num_questions_loaded_topo: null
 
   # The same loader can be evaluated again with a different tag and config;
   # both runs are evaluated and saved under their own tag:
