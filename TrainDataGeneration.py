@@ -301,8 +301,10 @@ def _generate_for_dataset(dataset_entry, config, processor):
         questions_per_topology = {
             name: int(dataset_entry.num_questions_loaded_topo) for name in topologies
         }
+        matrix_counts = {name: len(matrices) for name, matrices in topologies.items()}
         log_info(
-            f"Loaded {len(topologies)} topology(ies) from {dataset_entry.load_topology_file}; "
+            f"Loaded {len(topologies)} topology(ies) from {dataset_entry.load_topology_file} "
+            f"(matrices per topology: {matrix_counts}); "
             f"{dataset_entry.num_questions_loaded_topo} question(s) per topology"
         )
     else:
@@ -320,16 +322,28 @@ def _generate_for_dataset(dataset_entry, config, processor):
     dataset_valid_debates = 0
     total_topologies = len(topologies)
 
-    for i, (topo_name, adj_matrix) in enumerate(topologies.items(), start=1):
+    for i, (topo_name, topology_value) in enumerate(topologies.items(), start=1):
         # Use unique seed per topology so each gets different questions.
         topology_seed = base_question_seed + (i - 1)
         questions_for_topology = questions_per_topology[topo_name]
+
+        if loaded_topologies:
+            topology_matrices = list(topology_value)
+            adj_matrix = topology_matrices[0]
+        else:
+            topology_matrices = None
+            adj_matrix = topology_value
 
         log_section(
             f"[{tag_label}] Topology {i}/{total_topologies}: {topo_name.upper()}"
         )
         log_info(f"Seed: {topology_seed}")
         log_info(f"Planned questions: {questions_for_topology}")
+        if topology_matrices is not None and len(topology_matrices) > 1:
+            log_info(
+                f"{len(topology_matrices)} adjacency matrices available; each debate "
+                f"samples one using random_topo_seed"
+            )
 
         runtime_config = build_debate_config(
             config,
@@ -338,6 +352,7 @@ def _generate_for_dataset(dataset_entry, config, processor):
             adj_matrix,
             questions_for_topology,
             topology_seed,
+            topology_matrices=topology_matrices,
         )
 
         debate_orchestration = DebateOrchestration(runtime_config)

@@ -71,6 +71,24 @@ def resolve_random_density(debate_config, rng) -> float:
     return float(average_neighbors) / (num_agents - 1)
 
 
+def select_topology_matrix(topology_matrices, fallback, random_topo_seed, question_index=None):
+    """Pick the adjacency matrix for one debate.
+
+    A topology entry loaded from a JSON file may carry several adjacency
+    matrices; one is sampled uniformly, seeded by ``random_topo_seed`` plus the
+    debate's question index so the choice is deterministic per question.  With
+    no list (generated topologies) or a single matrix, the fallback is used.
+    """
+    if not topology_matrices:
+        return fallback
+    matrices = list(topology_matrices)
+    if len(matrices) == 1:
+        return matrices[0]
+    seed = int(random_topo_seed) + (int(question_index) if question_index is not None else 0)
+    rng = np.random.default_rng(seed)
+    return matrices[int(rng.integers(0, len(matrices)))]
+
+
 def generate_random_topologies(num_agents: int, density: float, rng):
     max_edges = num_agents * (num_agents - 1)
     target_edges = int(density * max_edges)
@@ -519,7 +537,15 @@ class DebateOrchestration:
                 rng=rng
             )
             
-        topology = self.topology if not self.random_flag else adjacency_matrix
+        if self.random_flag:
+            topology = adjacency_matrix
+        else:
+            topology = select_topology_matrix(
+                getattr(self.config, "topology_matrices", None),
+                self.topology,
+                self.config.random_topo_seed,
+                question_index,
+            )
         # If mal_answer is empty and we have malicious agents, generate a random wrong answer
         # This is needed because malicious agent prompts require {wrong_answer} key
         if not mal_answer and malicious_indexes:

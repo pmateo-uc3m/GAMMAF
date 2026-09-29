@@ -21,6 +21,7 @@ from collections import defaultdict, Counter
 from DebateDataGenerationLoop import (
     generate_random_topologies,
     resolve_random_density,
+    select_topology_matrix,
     build_topology_string,
     build_malicious_agents_string,
     build_flags_string,
@@ -668,7 +669,12 @@ class LiveDebateOrchestration:
                 density = resolve_random_density(self.config.debate, task_rng)
                 adjacency_matrix = generate_random_topologies(self.config.debate.num_agents, density, task_rng)
             else:
-                adjacency_matrix = topologies_dict[topo_name]
+                adjacency_matrix = select_topology_matrix(
+                    topologies_dict[topo_name] if self.loaded_topologies else None,
+                    topologies_dict[topo_name],
+                    self.config.debate.random_topo_seed,
+                    index,
+                )
             mal_answer = ""
             if choices is not None:
                 wrong_answer_idx = int(answer_rng.choice([i for i in range(0,4) if i!=ground_truth]))
@@ -750,7 +756,12 @@ class LiveDebateOrchestration:
                 density = resolve_random_density(self.config.debate, task_rng)
                 adjacency_matrix = generate_random_topologies(self.config.debate.num_agents, density, task_rng)
             else:
-                adjacency_matrix = topologies_dict[topo_name]
+                adjacency_matrix = select_topology_matrix(
+                    topologies_dict[topo_name] if self.loaded_topologies else None,
+                    topologies_dict[topo_name],
+                    self.config.debate.random_topo_seed,
+                    index,
+                )
             ground_truth = question_data.get('answer', question_data.get('correct_answer', ''))
             mal_answer = ""
             if choices is not None:

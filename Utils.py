@@ -10,15 +10,34 @@ from langchain_core.runnables import RunnableLambda
 from LoggingUtils import log_info, log_warn, log_error
 
 
+def _looks_like_adjacency(value) -> bool:
+    """True when ``value`` has the shape of one adjacency matrix (list of int rows)."""
+    if not isinstance(value, list) or not value:
+        return False
+    for row in value:
+        if not isinstance(row, list) or not row:
+            return False
+        for entry in row:
+            if isinstance(entry, bool) or not isinstance(entry, int):
+                return False
+    return True
+
+
 def load_topologies_file(path, num_agents=None, label: str = "load_topology_file"):
     """Load and validate a topology JSON file.
 
     The file must contain a non-empty list of mappings with:
       * ``name``     -- unique non-empty string identifying the topology;
-      * ``topology`` -- square adjacency matrix of 0/1 integers (list of lists).
+      * ``topology`` -- either one square adjacency matrix of 0/1 integers
+                        (list of lists) or a non-empty list of such matrices.
+                        ``topologies`` is accepted as an alias key.
+
+    When an entry holds several matrices, debates set up under that name sample
+    one matrix uniformly using the configured random-topology seed.
 
     When ``num_agents`` is given, every matrix side must match it.  Returns an
-    ordered ``{name: matrix}`` mapping (file order preserved).
+    ordered ``{name: [matrix, ...]}`` mapping (file order preserved); entries
+    with a single matrix are stored as a one-element list.
     """
     file_path = Path(path)
     try:
@@ -39,32 +58,62 @@ def load_topologies_file(path, num_agents=None, label: str = "load_topology_file
         if not isinstance(item, dict):
             raise ValueError(f"{location} must be a mapping with 'name' and 'topology'")
         name = item.get("name")
-        matrix = item.get("topology")
         if not isinstance(name, str) or not name.strip():
             raise ValueError(f"{location}.name must be a non-empty string")
         name = name.strip()
         if name in topologies:
             raise ValueError(f"Duplicate topology name '{name}' in '{label}' ({file_path})")
-        if not isinstance(matrix, list) or not matrix or not all(isinstance(row, list) for row in matrix):
-            raise ValueError(f"{location}.topology must be a non-empty list of rows")
-        size = len(matrix)
-        for row_index, row in enumerate(matrix):
-            if len(row) != size:
-                raise ValueError(
-                    f"{location} topology '{name}' is not square: row {row_index} has "
-                    f"{len(row)} entries, expected {size}"
-                )
-            for value in row:
-                if isinstance(value, bool) or not isinstance(value, int) or value not in (0, 1):
-                    raise ValueError(
-                        f"{location} topology '{name}' must contain only binary 0/1 integers"
-                    )
-        if num_agents is not None and size != int(num_agents):
+
+        if "topology" in item and "topologies" in item:
             raise ValueError(
-                f"{location} topology '{name}' has {size} agents but "
-                f"debate.num_agents is {num_agents}"
+                f"{location} must set only one of 'topology' or 'topologies'"
             )
-        topologies[name] = [[int(value) for value in row] for row in matrix]
+        if "topology" in item:
+            raw = item["topology"]
+        elif "topologies" in item:
+            raw = item["topologies"]
+        else:
+            raise ValueError(
+                f"{location} must contain 'topology' (an adjacency matrix or a "
+                f"non-empty list of adjacency matrices)"
+            )
+
+        if _looks_like_adjacency(raw):
+            matrices = [raw]
+        elif (
+            isinstance(raw, list)
+            and raw
+            and all(_looks_like_adjacency(matrix) for matrix in raw)
+        ):
+            matrices = list(raw)
+        else:
+            raise ValueError(
+                f"{location}.topology must be an adjacency matrix or a non-empty "
+                f"list of adjacency matrices"
+            )
+
+        normalized = []
+        for matrix_index, matrix in enumerate(matrices):
+            size = len(matrix)
+            for row_index, row in enumerate(matrix):
+                if len(row) != size:
+                    raise ValueError(
+                        f"{location} topology '{name}'#{matrix_index} is not square: row "
+                        f"{row_index} has {len(row)} entries, expected {size}"
+                    )
+                for value in row:
+                    if value not in (0, 1):
+                        raise ValueError(
+                            f"{location} topology '{name}'#{matrix_index} must contain "
+                            f"only binary 0/1 integers"
+                        )
+            if num_agents is not None and size != int(num_agents):
+                raise ValueError(
+                    f"{location} topology '{name}'#{matrix_index} has {size} agents but "
+                    f"debate.num_agents is {num_agents}"
+                )
+            normalized.append([[int(value) for value in row] for row in matrix])
+        topologies[name] = normalized
     return topologies
 
 

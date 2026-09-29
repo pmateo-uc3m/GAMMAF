@@ -41,9 +41,12 @@ datasets:
     # Optional: evaluate on topologies loaded from a JSON list of
     # {"name": <unique string>, "topology": <square 0/1 adjacency list of lists>}
     # entries instead of the resolved chain/star/tree (+random) set.
-    # `num_questions_loaded_topo` is then required and applies to every loaded
-    # topology; each matrix side must equal debate.num_agents. When set, these
-    # per-dataset topologies take precedence over evaluation.topologies_file.
+    # `topology` may also be a list of adjacency matrices ("topologies" is an
+    # alias key); when it is, each debate samples one uniformly using
+    # debate.random_topo_seed. `num_questions_loaded_topo` is required and
+    # applies to every loaded topology; each matrix side must equal
+    # debate.num_agents. When set, these per-dataset topologies take precedence
+    # over evaluation.topologies_file.
     # load_topology_file: null
     # num_questions_loaded_topo: null
 

@@ -467,6 +467,7 @@ def build_debate_config(
     adjacency: list[list[int]],
     num_questions: int,
     questions_random_seed: int,
+    topology_matrices: list | None = None,
 ) -> AttrDict:
     """Build the per-topology runtime config consumed by DebateOrchestration."""
     return AttrDict(
@@ -488,6 +489,7 @@ def build_debate_config(
         ),
         average_neighbors=config.debate.average_neighbors,
         topology=adjacency,
+        topology_matrices=topology_matrices,
         is_random_topology=bool(
             topology_name == "random" and not getattr(entry, "loaded_topologies", None)
         ),
