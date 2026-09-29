@@ -2,12 +2,17 @@
 
 The per-turn ``format_data`` dictionaries built in
 ``generate_round_1_concurrent`` and ``generate_debate_round_concurrent``
-carry three optional placeholder keys:
+carry these optional placeholder keys:
 
     ``topology_string``          -- descriptive adjacency of the step's topology
+    ``malicious_indexes``        -- raw list of malicious agent indexes
     ``malicious_agents_string``  -- indexes of the malicious agents
+    ``flags``                    -- raw defense-model flags (empty during generation)
     ``flags_string``             -- indexes flagged by the defense model (always
                                     empty during generation; no defense runs here)
+    ``anomaly_scores``           -- raw defense-model anomaly scores (empty during
+                                    generation)
+    ``anomaly_scores_string``    -- rounded rendering of the scores (empty here)
 
 Prompts that do not reference these keys format exactly as before
 (``str.format`` ignores unused keys).
@@ -79,6 +84,25 @@ def generate_random_topologies(num_agents: int, density: float, rng):
 # topology / agent state at each debate step.  They contain no instructions
 # or guidance, only a description of the adjacency plus simple index lists.
 # ---------------------------------------------------------------------------
+
+
+def build_anomaly_scores_string(scores, digits: int = 4) -> str:
+    """``{anomaly_scores_string}``: e.g. ``[0.1234, -0.0567]`` (``[]`` when empty)."""
+    if scores is None:
+        return "[]"
+    try:
+        values = list(scores)
+    except TypeError:
+        values = [scores]
+    rendered = []
+    for score in values:
+        try:
+            rendered.append(f"{float(score):.{digits}f}")
+        except (TypeError, ValueError):
+            rendered.append(str(score))
+    if not rendered:
+        return "[]"
+    return "[" + ", ".join(rendered) + "]"
 
 
 def _index_list_to_string(indexes) -> str:
@@ -290,7 +314,10 @@ class DebateOrchestration:
                 "malicious_indexes" : malicious_indexes,
                 "topology_string" : build_topology_string(topology),
                 "malicious_agents_string" : build_malicious_agents_string(malicious_indexes),
+                "flags" : [],
                 "flags_string" : build_flags_string(None),
+                "anomaly_scores" : [],
+                "anomaly_scores_string" : build_anomaly_scores_string(None),
             }
             if round_num is not None:
                 format_data["round_num"] = round_num
@@ -371,7 +398,10 @@ class DebateOrchestration:
                 "malicious_indexes" : malicious_indexes,
                 "topology_string" : build_topology_string(topology),
                 "malicious_agents_string" : build_malicious_agents_string(resolved_malicious_indexes),
+                "flags" : [],
                 "flags_string" : build_flags_string(None),
+                "anomaly_scores" : [],
+                "anomaly_scores_string" : build_anomaly_scores_string(None),
             }
             format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:

@@ -89,6 +89,23 @@ def _write_index_sidecar(output_filepath, idx_metadata, flat_indexes):
     return sidecar_filepath
 
 
+def _response_is_empty(agent_resp) -> bool:
+    """True only when a response carries neither a message nor an answer.
+
+    A response with at least one non-empty field (or with embeddings already
+    computed) is kept; empty individual fields do not invalidate a debate.
+    """
+    if not isinstance(agent_resp, dict):
+        return True
+    if 'st_embedding' in agent_resp:
+        return False
+    answer = agent_resp.get("answer")
+    message = agent_resp.get("message")
+    answer_empty = answer is None or (isinstance(answer, str) and not answer.strip())
+    message_empty = message is None or (isinstance(message, str) and not message.strip())
+    return answer_empty and message_empty
+
+
 def is_valid_debate(debate_data):
     """
     Checks if a debate result is complete and valid.
@@ -105,24 +122,8 @@ def is_valid_debate(debate_data):
             return False
 
         for agent_resp in round_data:
-            # Check answer validity
-            ans = agent_resp.get("answer")
-            if ans is None:
+            if _response_is_empty(agent_resp):
                 return False
-            if isinstance(ans, str) and not ans.strip():
-                return False
-
-            # Check message validity (or presence of embeddings)
-            message = agent_resp.get("message")
-            has_embeddings = 'st_embedding' in agent_resp
-
-            # If we have embeddings, we assume message was valid before processing
-            # If we don't have embeddings, message must be valid
-            if not has_embeddings:
-                if message is None:
-                    return False
-                if isinstance(message, str) and not message.strip():
-                    return False
 
     return True
 
@@ -152,19 +153,8 @@ def get_debate_invalid_reasons(debate_data):
                 reasons.append(f"round_{round_idx}_agent_{agent_idx}_not_dict")
                 continue
 
-            ans = agent_resp.get("answer")
-            if ans is None:
-                reasons.append(f"round_{round_idx}_agent_{agent_idx}_missing_answer")
-            elif isinstance(ans, str) and not ans.strip():
-                reasons.append(f"round_{round_idx}_agent_{agent_idx}_empty_answer")
-
-            message = agent_resp.get("message")
-            has_embeddings = "st_embedding" in agent_resp
-            if not has_embeddings:
-                if message is None:
-                    reasons.append(f"round_{round_idx}_agent_{agent_idx}_missing_message")
-                elif isinstance(message, str) and not message.strip():
-                    reasons.append(f"round_{round_idx}_agent_{agent_idx}_empty_message")
+            if _response_is_empty(agent_resp):
+                reasons.append(f"round_{round_idx}_agent_{agent_idx}_empty_response")
 
     return reasons
 

@@ -40,6 +40,7 @@ class RoundProcessor:
         return min(limits)
 
     def _encode_text(self, text, st_model, tokenizer, model):
+        text = text if isinstance(text, str) else ""
         max_length = self._model_max_length(tokenizer, model, st_model)
         special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
         chunk_size = max_length - special_tokens
@@ -107,7 +108,7 @@ class RoundProcessor:
                 r = {
                     key: agent[key] for key in agent if key != 'message'
                 }
-                text = agent['message']
+                text = agent.get('message') or ""
 
                 st_embed, token_embeddings = self._encode_text(text, st_model, hf_tokenizer, hf_model)
 
@@ -116,3 +117,75 @@ class RoundProcessor:
 
                 embedded_round.append(r)
             return embedded_round
+
+
+class SentenceOnlyRoundProcessor:
+    """Round processor that stores only pooled sentence embeddings.
+
+    Keeps the chunking/averaging semantics of ``RoundProcessor`` but skips the
+    token-level embeddings, which dominate dataset size and process memory at
+    high agent counts.  Defense models that consume only ``st_embedding``
+    (CASPIAN, PREM) can use this processor.
+    """
+
+    def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu'):
+        self.device = device
+        self.model_id = "sentence-transformers/all-MiniLM-L6-v2"
+        self.chunk_overlap = 32
+        self._local = threading.local()
+
+    def _get_local_model(self):
+        if not hasattr(self._local, '_init'):
+            with _EMBEDDING_MODEL_LOCK:
+                if not hasattr(self._local, '_init'):
+                    self._local.st_model = SentenceTransformer(self.model_id, device=self.device)
+                    self._local._init = True
+        return self._local.st_model
+
+    def _encode_text(self, text, st_model):
+        text = text if isinstance(text, str) else ""
+        tokenizer = st_model.tokenizer
+        max_length = int(getattr(st_model, 'max_seq_length', None) or 256)
+        tokenizer_limit = getattr(tokenizer, 'model_max_length', None)
+        if tokenizer_limit is not None and tokenizer_limit < 100000:
+            max_length = min(max_length, int(tokenizer_limit))
+        special_tokens = tokenizer.num_special_tokens_to_add(pair=False)
+        chunk_size = max_length - special_tokens
+        if chunk_size < 1:
+            raise ValueError(f"Text encoder maximum length {max_length} cannot fit special tokens")
+        overlap = min(self.chunk_overlap, chunk_size - 1)
+
+        token_ids = tokenizer(
+            text,
+            add_special_tokens=False,
+            truncation=False,
+            return_attention_mask=False,
+            verbose=False,
+        )["input_ids"]
+        if not token_ids:
+            token_chunks = [[]]
+        else:
+            step = chunk_size - overlap
+            token_chunks = [token_ids[start:start + chunk_size] for start in range(0, len(token_ids), step)]
+
+        chunks = [tokenizer.decode(ids, skip_special_tokens=True) or " " for ids in token_chunks]
+        chunk_weights = np.asarray([max(1, len(ids)) for ids in token_chunks], dtype=np.float32)
+
+        chunk_embeddings = np.asarray(st_model.encode(
+            chunks,
+            device=self.device,
+            convert_to_numpy=True,
+            show_progress_bar=False,
+        ), dtype=np.float32)
+        if chunk_embeddings.ndim == 1:
+            chunk_embeddings = chunk_embeddings[None, :]
+        return np.average(chunk_embeddings, axis=0, weights=chunk_weights)
+
+    def process_round(self, round_data):
+        st_model = self._get_local_model()
+        embedded_round = []
+        for agent in round_data:
+            result = {key: agent[key] for key in agent if key != 'message'}
+            result['st_embedding'] = self._encode_text(agent.get('message') or "", st_model)
+            embedded_round.append(result)
+        return embedded_round

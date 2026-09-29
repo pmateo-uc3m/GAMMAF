@@ -23,6 +23,7 @@ from DebateDataGenerationLoop import (
     build_topology_string,
     build_malicious_agents_string,
     build_flags_string,
+    build_anomaly_scores_string,
 )
 
 from sklearn.metrics import roc_auc_score
@@ -212,7 +213,10 @@ class LiveDebateOrchestration:
                 "malicious_indexes" : malicious_indexes,
                 "topology_string" : build_topology_string(topology),
                 "malicious_agents_string" : build_malicious_agents_string(malicious_indexes),
+                "flags" : [],
                 "flags_string" : build_flags_string(None),
+                "anomaly_scores" : [],
+                "anomaly_scores_string" : build_anomaly_scores_string(None),
             }
             if round_num is not None:
                 format_data["round_num"] = round_num
@@ -270,6 +274,7 @@ class LiveDebateOrchestration:
         mal_answer = "",
         question_format_data: dict | None = None,
         flags: list[int] | None = None,
+        anomaly_scores: list[float] | None = None,
     ):
         def single_agent_debate_round(agent: DebateAgent):
             neighbors =[
@@ -292,7 +297,10 @@ class LiveDebateOrchestration:
                 "malicious_indexes" : malicious_indexes,
                 "topology_string" : build_topology_string(adjacency_matrix),
                 "malicious_agents_string" : build_malicious_agents_string(malicious_indexes),
+                "flags" : list(flags) if flags is not None else [],
                 "flags_string" : build_flags_string(flags),
+                "anomaly_scores" : [float(score) for score in anomaly_scores] if anomaly_scores is not None else [],
+                "anomaly_scores_string" : build_anomaly_scores_string(anomaly_scores),
             }
             format_data = self._merge_prompt_format_data(format_data, question_format_data)
             if mal_answer:
@@ -486,6 +494,7 @@ class LiveDebateOrchestration:
                 mal_answer=mal_answer,
                 question_format_data=question_format_data,
                 flags=flags,
+                anomaly_scores=anomaly_scores,
             )
             
             debate_embeddings = self.text_processor.process_round(last_round_responses)
