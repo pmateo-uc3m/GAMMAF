@@ -81,6 +81,7 @@ _DEBATE_KEYS = {
     "new_random_each_question",
     "random_topo_seed",
     "density_range_for_random_topo",
+    "average_neighbors",
     "clean_debates",
 }
 
@@ -307,7 +308,6 @@ def _validate_debate(raw: dict[str, Any]) -> AttrDict:
         "max_rounds",
         "consensus_threshold",
         "random_topo_seed",
-        "density_range_for_random_topo",
     )
     for key in required:
         if key not in raw:
@@ -327,21 +327,35 @@ def _validate_debate(raw: dict[str, Any]) -> AttrDict:
     _require_int(raw["malicious_seed"], "debate.malicious_seed")
     _require_int(raw["random_topo_seed"], "debate.random_topo_seed")
 
-    density = raw["density_range_for_random_topo"]
-    if (
-        not isinstance(density, list)
-        or len(density) != 2
-        or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in density)
-    ):
+    density = raw.get("density_range_for_random_topo")
+    average_neighbors = raw.get("average_neighbors")
+    if density is None and average_neighbors is None:
         raise ValueError(
-            "Configuration field 'debate.density_range_for_random_topo' must be a "
-            "[min, max] list of numbers"
+            "Configuration must set either 'debate.density_range_for_random_topo' or "
+            "'debate.average_neighbors' (density takes precedence when both are set)"
         )
-    if not (0 <= density[0] <= density[1] <= 1):
-        raise ValueError(
-            "Configuration field 'debate.density_range_for_random_topo' must satisfy "
-            "0 <= min <= max <= 1"
-        )
+    if density is not None:
+        if (
+            not isinstance(density, list)
+            or len(density) != 2
+            or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in density)
+        ):
+            raise ValueError(
+                "Configuration field 'debate.density_range_for_random_topo' must be a "
+                "[min, max] list of numbers"
+            )
+        if not (0 <= density[0] <= density[1] <= 1):
+            raise ValueError(
+                "Configuration field 'debate.density_range_for_random_topo' must satisfy "
+                "0 <= min <= max <= 1"
+            )
+    if average_neighbors is not None:
+        _require_positive(average_neighbors, "debate.average_neighbors")
+        if float(average_neighbors) > int(raw["num_agents"]) - 1:
+            raise ValueError(
+                "Configuration field 'debate.average_neighbors' must be <= "
+                "debate.num_agents - 1"
+            )
 
     return AttrDict(
         num_agents=int(raw["num_agents"]),
@@ -360,7 +374,12 @@ def _validate_debate(raw: dict[str, Any]) -> AttrDict:
             raw.get("new_random_each_question", True), "debate.new_random_each_question"
         ),
         random_topo_seed=int(raw["random_topo_seed"]),
-        density_range_for_random_topo=[float(density[0]), float(density[1])],
+        density_range_for_random_topo=(
+            [float(density[0]), float(density[1])] if density is not None else None
+        ),
+        average_neighbors=(
+            float(average_neighbors) if average_neighbors is not None else None
+        ),
         clean_debates=_require_bool(
             raw.get("clean_debates", False), "debate.clean_debates"
         ),

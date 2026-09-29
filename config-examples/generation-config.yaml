@@ -14,6 +14,10 @@ debate:
   consensus_threshold: 1.0
   random_topo_seed: 24
   density_range_for_random_topo: [0.3, 0.7]
+  # Alternative to a density range: keep the average number of neighbours per
+  # node fixed. Used only when `density_range_for_random_topo` is absent or null
+  # (density wins when both are set). density = average_neighbors / (num_agents - 1).
+  # average_neighbors: 4
 
 datasets:
   - tag: MMLU

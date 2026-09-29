@@ -50,6 +50,27 @@ def _require_env(name: str) -> str:
     return value
 
 
+def resolve_random_density(debate_config, rng) -> float:
+    """Density for one random topology.
+
+    ``density_range_for_random_topo`` wins when set; otherwise the density is
+    derived from ``average_neighbors`` as ``average_neighbors / (num_agents - 1)``
+    so the expected number of neighbours per node matches the configured value.
+    """
+    density_range = getattr(debate_config, "density_range_for_random_topo", None)
+    if density_range:
+        return float(rng.uniform(density_range[0], density_range[1]))
+    average_neighbors = getattr(debate_config, "average_neighbors", None)
+    if average_neighbors is None:
+        raise ValueError(
+            "Random topology requires 'density_range_for_random_topo' or 'average_neighbors'"
+        )
+    num_agents = int(debate_config.num_agents)
+    if num_agents < 2:
+        raise ValueError("'average_neighbors' requires at least 2 agents")
+    return float(average_neighbors) / (num_agents - 1)
+
+
 def generate_random_topologies(num_agents: int, density: float, rng):
     max_edges = num_agents * (num_agents - 1)
     target_edges = int(density * max_edges)
@@ -491,7 +512,7 @@ class DebateOrchestration:
         
         if self.random_flag:
             rng = np.random.default_rng(self.config.random_topo_seed + (question_index if question_index is not None else 0))
-            density = rng.uniform(self.config.density_range_for_random_topo[0], self.config.density_range_for_random_topo[1])
+            density = resolve_random_density(self.config, rng)
             adjacency_matrix = generate_random_topologies(
                 num_agents=self.config.num_agents,
                 density=density,

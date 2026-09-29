@@ -20,6 +20,7 @@ from collections import defaultdict, Counter
 # also provides ``generate_random_topologies``.
 from DebateDataGenerationLoop import (
     generate_random_topologies,
+    resolve_random_density,
     build_topology_string,
     build_malicious_agents_string,
     build_flags_string,
@@ -664,7 +665,7 @@ class LiveDebateOrchestration:
             answer_rng = np.random.default_rng(self.answer_seed + 100000 + index)
             if self._draws_random_topology(topo_name):
                 task_rng = np.random.default_rng(self.config.debate.random_topo_seed + index)
-                density = task_rng.uniform(self.config.debate.density_range_for_random_topo[0], self.config.debate.density_range_for_random_topo[1])
+                density = resolve_random_density(self.config.debate, task_rng)
                 adjacency_matrix = generate_random_topologies(self.config.debate.num_agents, density, task_rng)
             else:
                 adjacency_matrix = topologies_dict[topo_name]
@@ -746,7 +747,7 @@ class LiveDebateOrchestration:
             answer_rng = np.random.default_rng(self.answer_seed + 200000 + index)
             if self._draws_random_topology(topo_name):
                 task_rng = np.random.default_rng(self.config.debate.random_topo_seed + index)
-                density = task_rng.uniform(self.config.debate.density_range_for_random_topo[0], self.config.debate.density_range_for_random_topo[1])
+                density = resolve_random_density(self.config.debate, task_rng)
                 adjacency_matrix = generate_random_topologies(self.config.debate.num_agents, density, task_rng)
             else:
                 adjacency_matrix = topologies_dict[topo_name]

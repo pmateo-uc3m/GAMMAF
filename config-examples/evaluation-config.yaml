@@ -21,6 +21,10 @@ debate:
   new_random_each_question: true
   random_topo_seed: 24
   density_range_for_random_topo: [0.3, 0.7]
+  # Alternative to a density range: keep the average number of neighbours per
+  # node fixed. Used only when `density_range_for_random_topo` is absent or null
+  # (density wins when both are set). density = average_neighbors / (num_agents - 1).
+  # average_neighbors: 4
   # Drop debates in which some agent emitted a response with both <answer> and
   # <message> empty (tool-call responses, e.g. TA, are always kept).
   clean_debates: false
