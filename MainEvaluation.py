@@ -427,6 +427,39 @@ def _per_tag_result_path(output_path: Path, tag: str, model_name: str) -> Path:
     return _temp_results_dir(output_path) / _safe_filename(tag) / f"{_safe_filename(model_name)}.json"
 
 
+def _scores_artifact_dir(output_path: Path) -> Path:
+    return output_path.parent / f"{output_path.stem}-scores"
+
+
+def _scores_artifact_path(output_path: Path, tag: str, model_name: str) -> Path:
+    return _scores_artifact_dir(output_path) / _safe_filename(tag) / f"{_safe_filename(model_name)}.json"
+
+
+def _build_scores_artifact(model_label, entry, used_indexes, records, max_rounds):
+    items = []
+    for record in records:
+        item = dict(record)
+        position = item.get("question_index")
+        if isinstance(position, int) and 0 <= position < len(used_indexes):
+            item["loader_index"] = used_indexes[position]
+        else:
+            item["loader_index"] = None
+        items.append(item)
+    return {
+        "model": model_label,
+        "dataset_tag": entry["tag"],
+        "loader_tag": entry["loader_tag"],
+        "used_indexes": used_indexes,
+        "n_used_indexes": len(used_indexes),
+        "topologies": sorted(
+            {item["topology"] for item in items if item.get("topology") is not None}
+        ),
+        "max_rounds": max_rounds,
+        "created_at": _now(),
+        "items": items,
+    }
+
+
 # ---------------------------------------------------------------------------
 #  Summary persistence
 # ---------------------------------------------------------------------------
@@ -531,7 +564,7 @@ def _register_result(summary, model_name, payload, per_tag_path, duration_second
 
     run = _run_entry(summary, model_name)
     run["model"] = label
-    run["datasets"][tag] = {
+    dataset_entry = {
         "status": "completed",
         "model": label,
         "loader_tag": payload.get("loader_tag"),
@@ -540,6 +573,9 @@ def _register_result(summary, model_name, payload, per_tag_path, duration_second
         "duration_seconds": duration_seconds,
         "results": payload.get("results"),
     }
+    if payload.get("per_item_file"):
+        dataset_entry["per_item_file"] = payload["per_item_file"]
+    run["datasets"][tag] = dataset_entry
 
 
 def _refresh_completed_runs(summary, eval_tags):
@@ -587,7 +623,14 @@ def _evaluate_model_on_tag(
     traces = orchestrator.run_evaluation_single_defense_model_all_topos(
         model_instance, topologies
     )
-    stats = orchestrator.parse_stats_single_model(traces)
+    collect_scores = bool(getattr(config.evaluation, "save_scores_artifact", False))
+    if collect_scores:
+        stats, per_item_records = orchestrator.parse_stats_single_model(
+            traces, collect_per_item=True
+        )
+    else:
+        stats = orchestrator.parse_stats_single_model(traces)
+        per_item_records = []
     used_indexes = [int(i) for i in list(getattr(orchestrator.dataloader, "indexes", []))]
 
     payload = {
@@ -600,6 +643,20 @@ def _evaluate_model_on_tag(
         "n_used_indexes": len(used_indexes),
         "results": stats,
     }
+    if collect_scores:
+        scores_path = _scores_artifact_path(output_path, entry["tag"], model_label)
+        _atomic_write_json(
+            scores_path,
+            _build_scores_artifact(
+                model_label,
+                entry,
+                used_indexes,
+                per_item_records,
+                getattr(config.debate, "max_rounds", None),
+            ),
+        )
+        payload["per_item_file"] = str(scores_path)
+        log_info(f"Per-item score artifact saved to {scores_path}")
     per_tag_path = _per_tag_result_path(output_path, entry["tag"], model_label)
     _atomic_write_json(per_tag_path, payload)
     log_info(f"Per-dataset results saved to {per_tag_path}")
@@ -630,6 +687,10 @@ def _run_standard(config, parsed_args):
         if temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
             log_info(f"Deleted existing temporary results: {temp_dir}")
+        scores_dir = _scores_artifact_dir(output_path)
+        if scores_dir.exists():
+            shutil.rmtree(scores_dir, ignore_errors=True)
+            log_info(f"Deleted existing score artifacts: {scores_dir}")
 
     summary = _read_summary(output_path)
     summary.setdefault("script", "MainEvaluation.py")
@@ -711,7 +772,14 @@ def _run_standard(config, parsed_args):
                     baseline_traces = orchestrator.run_debate_no_defense(
                         questions, _topologies_for_entry(entry, topologies)
                     )
-                    baseline_stats = orchestrator.parse_stats_single_model(baseline_traces)
+                    collect_scores = bool(getattr(config.evaluation, "save_scores_artifact", False))
+                    if collect_scores:
+                        baseline_stats, baseline_per_item = orchestrator.parse_stats_single_model(
+                            baseline_traces, collect_per_item=True
+                        )
+                    else:
+                        baseline_stats = orchestrator.parse_stats_single_model(baseline_traces)
+                        baseline_per_item = []
                     used_indexes = [int(i) for i in list(getattr(orchestrator.dataloader, "indexes", []))]
                     payload = {
                         "dataset_tag": entry.tag,
@@ -723,6 +791,20 @@ def _run_standard(config, parsed_args):
                         "n_used_indexes": len(used_indexes),
                         "results": baseline_stats,
                     }
+                    if collect_scores:
+                        scores_path = _scores_artifact_path(output_path, entry.tag, baseline_name)
+                        _atomic_write_json(
+                            scores_path,
+                            _build_scores_artifact(
+                                baseline_name,
+                                entry,
+                                used_indexes,
+                                baseline_per_item,
+                                getattr(config.debate, "max_rounds", None),
+                            ),
+                        )
+                        payload["per_item_file"] = str(scores_path)
+                        log_info(f"Per-item score artifact saved to {scores_path}")
                     per_tag_path = _per_tag_result_path(output_path, entry.tag, baseline_name)
                     _atomic_write_json(per_tag_path, payload)
                     elapsed = time() - t0

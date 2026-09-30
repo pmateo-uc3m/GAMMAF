@@ -107,6 +107,7 @@ _EVALUATION_KEYS = {
     "top_k_defense",
     "no_defense_baseline",
     "save_traces",
+    "save_scores_artifact",
     "debug_mode",
     "static_adjacency_mode",
     "topologies_file",
@@ -431,6 +432,9 @@ def _validate_evaluation_section(raw: dict[str, Any]) -> AttrDict:
             raw["no_defense_baseline"], "evaluation.no_defense_baseline"
         ),
         save_traces=_require_bool(raw["save_traces"], "evaluation.save_traces"),
+        save_scores_artifact=_require_bool(
+            raw.get("save_scores_artifact", False), "evaluation.save_scores_artifact"
+        ),
         debug_mode=_require_bool(raw["debug_mode"], "evaluation.debug_mode"),
         static_adjacency_mode=_require_bool(
             raw["static_adjacency_mode"], "evaluation.static_adjacency_mode"

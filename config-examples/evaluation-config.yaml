@@ -68,6 +68,10 @@ evaluation:
   top_k_defense: 2
   no_defense_baseline: true
   save_traces: false
+  # Write one per-model/dataset artifact with per-question, per-round metric
+  # values under <output-stem>-scores/. Needed for paired between-method
+  # comparisons (auxiliary/compare_methods.py). Default: false.
+  save_scores_artifact: false
   debug_mode: false
   static_adjacency_mode: false
   topologies_file: null

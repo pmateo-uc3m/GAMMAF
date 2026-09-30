@@ -345,6 +345,7 @@ class DebateOrchestration:
     ):
                 
         def single_agent_round_1(agent: DebateAgent):
+            accomplices = [i for i in (malicious_indexes or []) if i != agent.agent_id]
             format_data={
                 "agent_id" : agent.agent_id,
                 "question" : question,
@@ -353,6 +354,8 @@ class DebateOrchestration:
                 "malicious_indexes" : malicious_indexes,
                 "topology_string" : build_topology_string(topology),
                 "malicious_agents_string" : build_malicious_agents_string(malicious_indexes),
+                "accomplices" : accomplices,
+                "accomplices_string" : build_malicious_agents_string(accomplices),
                 "flags" : [],
                 "flags_string" : build_flags_string(None),
                 "anomaly_scores" : [],
@@ -427,6 +430,7 @@ class DebateOrchestration:
                 if malicious_indexes is not None
                 else [a.agent_id for a in agents if getattr(a, "is_malicious", False)]
             )
+            accomplices = [i for i in resolved_malicious_indexes if i != agent.agent_id]
             format_data={
                 "agent_id" : agent.agent_id,
                 "question" : question,
@@ -437,6 +441,8 @@ class DebateOrchestration:
                 "malicious_indexes" : malicious_indexes,
                 "topology_string" : build_topology_string(topology),
                 "malicious_agents_string" : build_malicious_agents_string(resolved_malicious_indexes),
+                "accomplices" : accomplices,
+                "accomplices_string" : build_malicious_agents_string(accomplices),
                 "flags" : [],
                 "flags_string" : build_flags_string(None),
                 "anomaly_scores" : [],
