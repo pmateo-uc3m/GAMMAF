@@ -11,7 +11,7 @@ This repository contains the source code for our [paper](https://arxiv.org/abs/2
 
 Main components: a data-generation pipeline, a defense-benchmarking pipeline, an unsupervised hyperparameter search, pluggable task datasets, pluggable text-to-embedding processors, and pluggable defense models.
 
-<img width="100%" alt="functionDiagram_more" src="https://github.com/user-attachments/assets/23b3b611-1c28-4f5d-ba85-04b186d78afb" />
+[completediagram-major.pdf](https://github.com/user-attachments/files/33101099/completediagram-major.pdf)
 
 ### Project structure
 
