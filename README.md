@@ -1,4 +1,4 @@
-<img width="600" height="326" alt="logo_small" src="https://github.com/user-attachments/assets/5db6ea9f-b247-420b-a5a1-2fa0098a67c0" />
+<img width="5843" height="3175" alt="logo" src="https://github.com/user-attachments/assets/b32d042a-6ec2-4d3a-af6b-fbfe09c5e4f8" />
 
 # GAMMAF: Graph-Based Anomaly Monitoring Benchmarking for LLM Multi-Agent Systems
 
