@@ -1,0 +1,475 @@
+{
+  "script": "HyperParameterSearch.py",
+  "algorithm": "AutoUAD (NPD-guided, real training graphs)",
+  "config_file": "/project_antwerp/repos/GAMMAF/exp2/N40/hps-config.yaml",
+  "created_at": "2026-09-30T00:03:00.746827+00:00",
+  "updated_at": "2026-09-30T00:06:56.001549+00:00",
+  "data": {
+    "data_path": "exp2/N40/data/mmlupro-train.pkl",
+    "dataset_tags": [
+      "MMLUPRO"
+    ],
+    "feature_key": "st_embedding",
+    "n_debates": 300,
+    "n_rounds": 725,
+    "n_agents": 29000,
+    "feature_dim": 384,
+    "topology_distribution": {
+      "random": 300
+    },
+    "dataset_distribution": {
+      "MMLUPRO": 300
+    },
+    "max_debates": null,
+    "n_skipped_debates": 0
+  },
+  "algorithm_params": {
+    "validation_split_ratio": 0.3,
+    "epsilon": 1e-09,
+    "split_seed": 42,
+    "gaussian_seed": 42,
+    "max_debates": null,
+    "split_unit": "debate",
+    "split_stratification": [
+      "topology_name",
+      "dataset_tag"
+    ],
+    "normalization": "global",
+    "x_gen_structures": "validation_graphs"
+  },
+  "optuna_params": {
+    "n_trials": 10,
+    "sampler_seed": 42,
+    "timeout": null,
+    "early_stopping_patience": 5,
+    "early_stopping_min_improvement_pct": 1.0
+  },
+  "training_params": {
+    "n_epochs_lr_reduce": 5,
+    "lr_reduce_improvement_pct": 0.5,
+    "lr_reduce_factor": 0.5,
+    "min_lr": 1e-06,
+    "n_epochs_early_stop": 12,
+    "early_stop_improvement_pct": 0.5
+  },
+  "models": {
+    "PREM": {
+      "model_name": "PREM",
+      "status": "completed",
+      "feature_keys": [
+        "st_embedding"
+      ],
+      "n_trials": 10,
+      "effective_trial_cap": 10,
+      "executed_trials": 7,
+      "search_space_size": 24,
+      "run_seed": 42,
+      "split_seed": 42,
+      "gaussian_seed": 42,
+      "search_space": {
+        "emb_dim": [
+          64,
+          128,
+          256
+        ],
+        "alpha": [
+          0.5,
+          1.0
+        ],
+        "gamma": [
+          0.5,
+          1.0
+        ],
+        "learning_rate": [
+          0.0001,
+          0.001
+        ]
+      },
+      "fixed_params": {
+        "seed": 42,
+        "device": null,
+        "input_dim": 384,
+        "prop_steps": 2,
+        "num_epochs": 20,
+        "batch_size": 256,
+        "val_split": 0.2,
+        "weight_decay": 0.0001,
+        "top_k": 12,
+        "topologies": null,
+        "n_epochs_lr_reduce": 5,
+        "lr_reduce_improvement_pct": 0.5,
+        "lr_reduce_factor": 0.5,
+        "min_lr": 1e-06,
+        "n_epochs_early_stop": 12,
+        "early_stop_improvement_pct": 0.5
+      },
+      "early_stopping": {
+        "enabled": true,
+        "patience": 5,
+        "min_improvement_pct": 1.0,
+        "stopped_early": true,
+        "stalled_trials": 5,
+        "best_value": 26.47303120008766
+      },
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "value": 12.638283908338403,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 43,
+          "duration_seconds": 7.626
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "value": 26.47303120008766,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.001
+          },
+          "seed": 44,
+          "duration_seconds": 6.621
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "value": 15.400117474583377,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 1.0,
+            "gamma": 1.0,
+            "learning_rate": 0.0001
+          },
+          "seed": 45,
+          "duration_seconds": 6.04
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "value": 12.044386071488825,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.0001
+          },
+          "seed": 46,
+          "duration_seconds": 6.187
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "value": 18.310409941536136,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 47,
+          "duration_seconds": 7.145
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "value": 8.497866772414778,
+          "params": {
+            "emb_dim": 64,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 48,
+          "duration_seconds": 6.074
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "value": 19.644913564602152,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.001
+          },
+          "seed": 49,
+          "duration_seconds": 6.125
+        }
+      ],
+      "best_trial": {
+        "number": 1,
+        "value": 26.47303120008766,
+        "params": {
+          "emb_dim": 256,
+          "alpha": 0.5,
+          "gamma": 1.0,
+          "learning_rate": 0.001
+        },
+        "seed": 44
+      },
+      "final_model": {
+        "params": {
+          "emb_dim": 256,
+          "alpha": 0.5,
+          "gamma": 1.0,
+          "learning_rate": 0.001
+        },
+        "saved_path": null
+      },
+      "started_at": "2026-09-30T00:03:01.866012+00:00",
+      "duration_seconds": 53.108,
+      "data": {
+        "n_debates": 300,
+        "n_rounds": 725,
+        "n_agents": 29000,
+        "n_train_debates": 210,
+        "n_val_debates": 90,
+        "n_train_agents": 20200,
+        "n_val_agents": 8800,
+        "topology_distribution": {
+          "random": 300
+        },
+        "dataset_distribution": {
+          "MMLUPRO": 300
+        },
+        "split_seed": 42,
+        "gaussian_seed": 42
+      }
+    },
+    "CASPIAN": {
+      "model_name": "CASPIAN",
+      "status": "completed",
+      "feature_keys": [
+        "st_embedding"
+      ],
+      "n_trials": 10,
+      "effective_trial_cap": 10,
+      "executed_trials": 10,
+      "search_space_size": 36,
+      "run_seed": 42,
+      "split_seed": 42,
+      "gaussian_seed": 42,
+      "search_space": {
+        "base_weight": [
+          0.1,
+          0.2,
+          0.4
+        ],
+        "reciprocity_weight": [
+          0.1,
+          0.2
+        ],
+        "persistence_weight": [
+          0.4,
+          0.8
+        ],
+        "pair_weight": [
+          0.5,
+          1.0,
+          1.5
+        ]
+      },
+      "fixed_params": {
+        "seed": 42,
+        "device": null,
+        "top_k": 12,
+        "cluster_weight": 1.0,
+        "deviation_weight": 0.3,
+        "topologies": null,
+        "n_epochs_lr_reduce": 5,
+        "lr_reduce_improvement_pct": 0.5,
+        "lr_reduce_factor": 0.5,
+        "min_lr": 1e-06,
+        "n_epochs_early_stop": 12,
+        "early_stop_improvement_pct": 0.5
+      },
+      "early_stopping": {
+        "enabled": true,
+        "patience": 5,
+        "min_improvement_pct": 1.0,
+        "stopped_early": false,
+        "stalled_trials": 4,
+        "best_value": 0.0010420266126600624
+      },
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "value": 0.00011774150294942296,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 0.5
+          },
+          "seed": 43,
+          "duration_seconds": 18.079
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "value": 8.34560934749404e-05,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.8,
+            "pair_weight": 0.5
+          },
+          "seed": 44,
+          "duration_seconds": 17.896
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "value": 0.0004430998162188043,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 45,
+          "duration_seconds": 18.348
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "value": 0.0004430998162188043,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 46,
+          "duration_seconds": 17.652
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "value": 0.0004380210269402047,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 47,
+          "duration_seconds": 17.689
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "value": 0.0010420266126600624,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.5
+          },
+          "seed": 48,
+          "duration_seconds": 18.439
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "value": 0.0006162448655230622,
+          "params": {
+            "base_weight": 0.4,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.5
+          },
+          "seed": 49,
+          "duration_seconds": 18.457
+        },
+        {
+          "number": 7,
+          "state": "COMPLETE",
+          "value": 0.0003464394402363077,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.8,
+            "pair_weight": 1.0
+          },
+          "seed": 50,
+          "duration_seconds": 18.26
+        },
+        {
+          "number": 8,
+          "state": "COMPLETE",
+          "value": 0.0003161223370600838,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.8,
+            "pair_weight": 1.0
+          },
+          "seed": 51,
+          "duration_seconds": 18.29
+        },
+        {
+          "number": 9,
+          "state": "COMPLETE",
+          "value": 5.448879522559226e-05,
+          "params": {
+            "base_weight": 0.4,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.8,
+            "pair_weight": 0.5
+          },
+          "seed": 52,
+          "duration_seconds": 17.915
+        }
+      ],
+      "best_trial": {
+        "number": 5,
+        "value": 0.0010420266126600624,
+        "params": {
+          "base_weight": 0.1,
+          "reciprocity_weight": 0.1,
+          "persistence_weight": 0.4,
+          "pair_weight": 1.5
+        },
+        "seed": 48
+      },
+      "final_model": {
+        "params": {
+          "base_weight": 0.1,
+          "reciprocity_weight": 0.1,
+          "persistence_weight": 0.4,
+          "pair_weight": 1.5
+        },
+        "saved_path": null
+      },
+      "started_at": "2026-09-30T00:03:54.547358+00:00",
+      "duration_seconds": 182.104,
+      "data": {
+        "n_debates": 300,
+        "n_rounds": 725,
+        "n_agents": 29000,
+        "n_train_debates": 210,
+        "n_val_debates": 90,
+        "n_train_agents": 20200,
+        "n_val_agents": 8800,
+        "topology_distribution": {
+          "random": 300
+        },
+        "dataset_distribution": {
+          "MMLUPRO": 300
+        },
+        "split_seed": 42,
+        "gaussian_seed": 42
+      }
+    }
+  }
+}

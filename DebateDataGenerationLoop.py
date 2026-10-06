@@ -51,12 +51,6 @@ def _require_env(name: str) -> str:
 
 
 def resolve_random_density(debate_config, rng) -> float:
-    """Density for one random topology.
-
-    ``density_range_for_random_topo`` wins when set; otherwise the density is
-    derived from ``average_neighbors`` as ``average_neighbors / (num_agents - 1)``
-    so the expected number of neighbours per node matches the configured value.
-    """
     density_range = getattr(debate_config, "density_range_for_random_topo", None)
     if density_range:
         return float(rng.uniform(density_range[0], density_range[1]))
@@ -72,13 +66,6 @@ def resolve_random_density(debate_config, rng) -> float:
 
 
 def select_topology_matrix(topology_matrices, fallback, random_topo_seed, question_index=None):
-    """Pick the adjacency matrix for one debate.
-
-    A topology entry loaded from a JSON file may carry several adjacency
-    matrices; one is sampled uniformly, seeded by ``random_topo_seed`` plus the
-    debate's question index so the choice is deterministic per question.  With
-    no list (generated topologies) or a single matrix, the fallback is used.
-    """
     if not topology_matrices:
         return fallback
     matrices = list(topology_matrices)
@@ -114,15 +101,6 @@ def generate_random_topologies(num_agents: int, density: float, rng):
         adj[u, v] = 1
 
     return adj.tolist()
-
-
-# ---------------------------------------------------------------------------
-# Prompt placeholder helpers (additive)
-#
-# These helpers derive the optional prompt placeholders from the live
-# topology / agent state at each debate step.  They contain no instructions
-# or guidance, only a description of the adjacency plus simple index lists.
-# ---------------------------------------------------------------------------
 
 
 def build_anomaly_scores_string(scores, digits: int = 4) -> str:
@@ -163,11 +141,6 @@ def build_malicious_agents_string(malicious_indexes) -> str:
 
 
 def build_flags_string(flags) -> str:
-    """``{flags_string}``: agent indexes currently flagged at this step.
-
-    ``flags`` may be ``None`` or an all-zero sequence before any flagging has
-    happened (e.g. round 1), which renders as ``[]``.
-    """
     if flags is None:
         return "[]"
     flagged = []

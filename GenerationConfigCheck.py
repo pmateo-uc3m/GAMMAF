@@ -25,11 +25,6 @@ import yaml
 
 from Utils import AttrDict, load_topologies_file
 
-
-# ---------------------------------------------------------------------------
-#  Schema
-# ---------------------------------------------------------------------------
-
 _ROOT_KEYS = {
     "llm",
     "debate",
@@ -90,10 +85,6 @@ _DATASET_TAG_ALIASES = {
     "MSMARCOCONTAMINATED": "MA",
 }
 
-
-# ---------------------------------------------------------------------------
-#  Validation helpers
-# ---------------------------------------------------------------------------
 
 def _load_yaml(config_path: str | Path) -> dict[str, Any]:
     path = Path(config_path)
@@ -160,11 +151,6 @@ def _require_path(value: Any, name: str) -> str:
         raise ValueError(f"Configured path does not exist: {name}={value}")
     return value
 
-
-# ---------------------------------------------------------------------------
-#  Loader resolution
-# ---------------------------------------------------------------------------
-
 def _normalize_tag(tag: str) -> str:
     return "".join(ch for ch in str(tag).upper() if ch.isalnum())
 
@@ -208,11 +194,6 @@ def resolve_loader_tag(config_tag: str, explicit_loader_tag: str | None = None) 
         f"Could not resolve dataset tag '{config_tag}' to a DatasetManager loader. "
         f"Available loader TAGs: {sorted(classes)}"
     )
-
-
-# ---------------------------------------------------------------------------
-#  Section validation
-# ---------------------------------------------------------------------------
 
 def _validate_llm(raw: dict[str, Any]) -> AttrDict:
     _reject_unknown(raw, _LLM_KEYS, "llm")
@@ -419,10 +400,6 @@ def _validate_text_processor(raw: dict[str, Any], process_text: bool) -> AttrDic
         text_processor_device=device,
     )
 
-
-# ---------------------------------------------------------------------------
-#  Public API
-# ---------------------------------------------------------------------------
 
 def load_generation_config(config_path: str | Path) -> AttrDict:
     """Load, validate and normalise a generation configuration."""

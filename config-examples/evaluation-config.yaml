@@ -65,6 +65,9 @@ evaluation:
   python_seed: 28
   numpy_seed: 28
   answer_seed: 28
+  # Global top-k used by every defense model during the live evaluation. It is
+  # passed to each model as `top_k` and overrides that model's own configured
+  # `top_k` in `defense_model_train_configs`.
   top_k_defense: 2
   no_defense_baseline: true
   save_traces: false

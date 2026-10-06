@@ -36,10 +36,6 @@ import yaml
 from Utils import AttrDict, load_topologies_file
 
 
-# ---------------------------------------------------------------------------
-#  Schema
-# ---------------------------------------------------------------------------
-
 _ROOT_KEYS = {
     "models_directory",
     "output_file",
@@ -131,9 +127,6 @@ _DATASET_TAG_ALIASES = {
 }
 
 
-# ---------------------------------------------------------------------------
-#  Validation helpers
-# ---------------------------------------------------------------------------
 
 def _load_yaml(config_path: str | Path) -> dict[str, Any]:
     path = Path(config_path)
@@ -205,11 +198,6 @@ def _safe_filename(name: str) -> str:
     cleaned = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in str(name))
     return cleaned.strip("_") or "unnamed"
 
-
-# ---------------------------------------------------------------------------
-#  Loader resolution (questions loader classes)
-# ---------------------------------------------------------------------------
-
 def _normalize_tag(tag: str) -> str:
     return "".join(ch for ch in str(tag).upper() if ch.isalnum())
 
@@ -277,11 +265,6 @@ def resolve_loader_tag_from_path(
         f"Could not resolve dataset tag '{dataset_tag}' to a questions loader in "
         f"{file_path}. Available loader TAGs: {sorted(classes)}"
     )
-
-
-# ---------------------------------------------------------------------------
-#  Section validation
-# ---------------------------------------------------------------------------
 
 def _validate_llm(raw: dict[str, Any]) -> AttrDict:
     _reject_unknown(raw, _LLM_KEYS, "llm")
@@ -644,11 +627,6 @@ def _require_number(value: Any, name: str, minimum: float | None = None,
 
 
 def validate_training_config(raw: Any) -> AttrDict:
-    """Validate the optional global ``training`` section.
-
-    These values are the defaults for every defense model's training loop;
-    a model's own config section overrides any of them for that model only.
-    """
     if raw is None:
         return AttrDict(_TRAINING_DEFAULTS)
     if not isinstance(raw, dict):
@@ -784,10 +762,6 @@ def _validate_text_processor(raw: dict[str, Any]) -> AttrDict:
     )
 
 
-# ---------------------------------------------------------------------------
-#  Public loading API
-# ---------------------------------------------------------------------------
-
 def load_evaluation_config(config_path: str | Path) -> AttrDict:
     """Load, validate and normalise a Main Evaluation configuration."""
     raw = _load_yaml(config_path)
@@ -831,18 +805,8 @@ def load_evaluation_config(config_path: str | Path) -> AttrDict:
 
 
 def load_defense_model_config(config_path: str | Path) -> AttrDict:
-    """Load and normalise a single defense-model configuration file.
-
-    Used by the defense models themselves (their ``Master`` classes) so that
-    no model performs config loading, aliasing or defaulting on its own.
-    """
     return _normalize_model_config(_load_yaml(config_path))
-
-
-# ---------------------------------------------------------------------------
-#  Hyperparameter-search expansion
-# ---------------------------------------------------------------------------
-
+    
 HPS_INTERNAL_KEYS = {"hyperparameter_search"}
 
 STRUCTURAL_LIST_NAMES = {

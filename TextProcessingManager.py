@@ -113,20 +113,13 @@ class RoundProcessor:
                 st_embed, token_embeddings = self._encode_text(text, st_model, hf_tokenizer, hf_model)
 
                 r['st_embedding'] = st_embed
-                r['tk_embedding'] = token_embeddings
+                r['tk_embedding'] = np.asarray(token_embeddings, dtype=np.float32)
 
                 embedded_round.append(r)
             return embedded_round
 
 
 class SentenceOnlyRoundProcessor:
-    """Round processor that stores only pooled sentence embeddings.
-
-    Keeps the chunking/averaging semantics of ``RoundProcessor`` but skips the
-    token-level embeddings, which dominate dataset size and process memory at
-    high agent counts.  Defense models that consume only ``st_embedding``
-    (CASPIAN, PREM) can use this processor.
-    """
 
     def __init__(self, device='cuda' if torch.cuda.is_available() else 'cpu'):
         self.device = device

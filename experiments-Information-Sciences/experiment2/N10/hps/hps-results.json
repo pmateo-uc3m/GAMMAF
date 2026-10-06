@@ -1,0 +1,475 @@
+{
+  "script": "HyperParameterSearch.py",
+  "algorithm": "AutoUAD (NPD-guided, real training graphs)",
+  "config_file": "/project_antwerp/repos/GAMMAF/exp2/N10/hps-config.yaml",
+  "created_at": "2026-09-28T13:43:04.571831+00:00",
+  "updated_at": "2026-09-28T13:43:33.166974+00:00",
+  "data": {
+    "data_path": "exp2/N10/data/mmlupro-train.pkl",
+    "dataset_tags": [
+      "MMLUPRO"
+    ],
+    "feature_key": "st_embedding",
+    "n_debates": 264,
+    "n_rounds": 566,
+    "n_agents": 5660,
+    "feature_dim": 384,
+    "topology_distribution": {
+      "random": 264
+    },
+    "dataset_distribution": {
+      "MMLUPRO": 264
+    },
+    "max_debates": null,
+    "n_skipped_debates": 0
+  },
+  "algorithm_params": {
+    "validation_split_ratio": 0.3,
+    "epsilon": 1e-09,
+    "split_seed": 42,
+    "gaussian_seed": 42,
+    "max_debates": null,
+    "split_unit": "debate",
+    "split_stratification": [
+      "topology_name",
+      "dataset_tag"
+    ],
+    "normalization": "global",
+    "x_gen_structures": "validation_graphs"
+  },
+  "optuna_params": {
+    "n_trials": 10,
+    "sampler_seed": 42,
+    "timeout": null,
+    "early_stopping_patience": 5,
+    "early_stopping_min_improvement_pct": 1.0
+  },
+  "training_params": {
+    "n_epochs_lr_reduce": 5,
+    "lr_reduce_improvement_pct": 0.5,
+    "lr_reduce_factor": 0.5,
+    "min_lr": 1e-06,
+    "n_epochs_early_stop": 12,
+    "early_stop_improvement_pct": 0.5
+  },
+  "models": {
+    "PREM": {
+      "model_name": "PREM",
+      "status": "completed",
+      "feature_keys": [
+        "st_embedding"
+      ],
+      "n_trials": 10,
+      "effective_trial_cap": 10,
+      "executed_trials": 7,
+      "search_space_size": 24,
+      "run_seed": 42,
+      "split_seed": 42,
+      "gaussian_seed": 42,
+      "search_space": {
+        "emb_dim": [
+          64,
+          128,
+          256
+        ],
+        "alpha": [
+          0.5,
+          1.0
+        ],
+        "gamma": [
+          0.5,
+          1.0
+        ],
+        "learning_rate": [
+          0.0001,
+          0.001
+        ]
+      },
+      "fixed_params": {
+        "seed": 42,
+        "device": null,
+        "input_dim": 384,
+        "prop_steps": 2,
+        "num_epochs": 20,
+        "batch_size": 256,
+        "val_split": 0.2,
+        "weight_decay": 0.0001,
+        "top_k": 3,
+        "topologies": null,
+        "n_epochs_lr_reduce": 5,
+        "lr_reduce_improvement_pct": 0.5,
+        "lr_reduce_factor": 0.5,
+        "min_lr": 1e-06,
+        "n_epochs_early_stop": 12,
+        "early_stop_improvement_pct": 0.5
+      },
+      "early_stopping": {
+        "enabled": true,
+        "patience": 5,
+        "min_improvement_pct": 1.0,
+        "stopped_early": true,
+        "stalled_trials": 5,
+        "best_value": 22.062103923578583
+      },
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "value": 3.5927384758431202,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 43,
+          "duration_seconds": 3.901
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "value": 22.062103923578583,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.001
+          },
+          "seed": 44,
+          "duration_seconds": 1.667
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "value": 5.704723937980635,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 1.0,
+            "gamma": 1.0,
+            "learning_rate": 0.0001
+          },
+          "seed": 45,
+          "duration_seconds": 1.654
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "value": 4.1417753572091485,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.0001
+          },
+          "seed": 46,
+          "duration_seconds": 1.746
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "value": 7.246659463536586,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 47,
+          "duration_seconds": 1.865
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "value": 2.800451872705163,
+          "params": {
+            "emb_dim": 64,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 48,
+          "duration_seconds": 2.001
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "value": 16.11105686825265,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.001
+          },
+          "seed": 49,
+          "duration_seconds": 1.712
+        }
+      ],
+      "best_trial": {
+        "number": 1,
+        "value": 22.062103923578583,
+        "params": {
+          "emb_dim": 256,
+          "alpha": 0.5,
+          "gamma": 1.0,
+          "learning_rate": 0.001
+        },
+        "seed": 44
+      },
+      "final_model": {
+        "params": {
+          "emb_dim": 256,
+          "alpha": 0.5,
+          "gamma": 1.0,
+          "learning_rate": 0.001
+        },
+        "saved_path": null
+      },
+      "started_at": "2026-09-28T13:43:04.767078+00:00",
+      "duration_seconds": 16.654,
+      "data": {
+        "n_debates": 264,
+        "n_rounds": 566,
+        "n_agents": 5660,
+        "n_train_debates": 185,
+        "n_val_debates": 79,
+        "n_train_agents": 3980,
+        "n_val_agents": 1680,
+        "topology_distribution": {
+          "random": 264
+        },
+        "dataset_distribution": {
+          "MMLUPRO": 264
+        },
+        "split_seed": 42,
+        "gaussian_seed": 42
+      }
+    },
+    "CASPIAN": {
+      "model_name": "CASPIAN",
+      "status": "completed",
+      "feature_keys": [
+        "st_embedding"
+      ],
+      "n_trials": 10,
+      "effective_trial_cap": 10,
+      "executed_trials": 10,
+      "search_space_size": 36,
+      "run_seed": 42,
+      "split_seed": 42,
+      "gaussian_seed": 42,
+      "search_space": {
+        "base_weight": [
+          0.1,
+          0.2,
+          0.4
+        ],
+        "reciprocity_weight": [
+          0.1,
+          0.2
+        ],
+        "persistence_weight": [
+          0.4,
+          0.8
+        ],
+        "pair_weight": [
+          0.5,
+          1.0,
+          1.5
+        ]
+      },
+      "fixed_params": {
+        "seed": 42,
+        "device": null,
+        "top_k": 3,
+        "cluster_weight": 1.0,
+        "deviation_weight": 0.3,
+        "topologies": null,
+        "n_epochs_lr_reduce": 5,
+        "lr_reduce_improvement_pct": 0.5,
+        "lr_reduce_factor": 0.5,
+        "min_lr": 1e-06,
+        "n_epochs_early_stop": 12,
+        "early_stop_improvement_pct": 0.5
+      },
+      "early_stopping": {
+        "enabled": true,
+        "patience": 5,
+        "min_improvement_pct": 1.0,
+        "stopped_early": false,
+        "stalled_trials": 4,
+        "best_value": 0.0008269178244822803
+      },
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "value": 7.931081726997927e-05,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 0.5
+          },
+          "seed": 43,
+          "duration_seconds": 1.051
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "value": 6.149793333616133e-05,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.8,
+            "pair_weight": 0.5
+          },
+          "seed": 44,
+          "duration_seconds": 1.126
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "value": 0.0003193400967644237,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 45,
+          "duration_seconds": 1.152
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "value": 0.0003193400967644237,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 46,
+          "duration_seconds": 1.141
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "value": 0.0002985865159234876,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 47,
+          "duration_seconds": 1.045
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "value": 0.0008269178244822803,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.5
+          },
+          "seed": 48,
+          "duration_seconds": 1.108
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "value": 0.0003361479319483406,
+          "params": {
+            "base_weight": 0.4,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.5
+          },
+          "seed": 49,
+          "duration_seconds": 1.182
+        },
+        {
+          "number": 7,
+          "state": "COMPLETE",
+          "value": 0.0002879336495647161,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.8,
+            "pair_weight": 1.0
+          },
+          "seed": 50,
+          "duration_seconds": 1.347
+        },
+        {
+          "number": 8,
+          "state": "COMPLETE",
+          "value": 0.00024412145605738972,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.8,
+            "pair_weight": 1.0
+          },
+          "seed": 51,
+          "duration_seconds": 1.2
+        },
+        {
+          "number": 9,
+          "state": "COMPLETE",
+          "value": 2.941075731866176e-05,
+          "params": {
+            "base_weight": 0.4,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.8,
+            "pair_weight": 0.5
+          },
+          "seed": 52,
+          "duration_seconds": 1.1
+        }
+      ],
+      "best_trial": {
+        "number": 5,
+        "value": 0.0008269178244822803,
+        "params": {
+          "base_weight": 0.1,
+          "reciprocity_weight": 0.1,
+          "persistence_weight": 0.4,
+          "pair_weight": 1.5
+        },
+        "seed": 48
+      },
+      "final_model": {
+        "params": {
+          "base_weight": 0.1,
+          "reciprocity_weight": 0.1,
+          "persistence_weight": 0.4,
+          "pair_weight": 1.5
+        },
+        "saved_path": null
+      },
+      "started_at": "2026-09-28T13:43:21.336569+00:00",
+      "duration_seconds": 11.923,
+      "data": {
+        "n_debates": 264,
+        "n_rounds": 566,
+        "n_agents": 5660,
+        "n_train_debates": 185,
+        "n_val_debates": 79,
+        "n_train_agents": 3980,
+        "n_val_agents": 1680,
+        "topology_distribution": {
+          "random": 264
+        },
+        "dataset_distribution": {
+          "MMLUPRO": 264
+        },
+        "split_seed": 42,
+        "gaussian_seed": 42
+      }
+    }
+  }
+}

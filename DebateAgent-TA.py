@@ -163,12 +163,6 @@ class TAAgent:
         raise last_exception
 
     def _build_fake_tool_call(self, format_data: dict) -> AIMessage:
-        """Build the AIMessage representing the pre-executed tool call.
-
-        The user tool is the first entry of ``available_tools`` (the
-        InjecAgent pipeline appends the user tool before attacker tools);
-        fall back to the first tool definition in ``tools_description``.
-        """
         tool_name = ""
         available_tools = format_data.get("available_tools") or []
         if isinstance(available_tools, list):

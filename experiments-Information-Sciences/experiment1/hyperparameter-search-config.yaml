@@ -1,0 +1,135 @@
+# Hyperparameter search config (HyperParameterSearch.py)
+# Unsupervised AutoUAD/NPD search over defense-model hyperparameters.
+
+data_path: exp1/generation/exp1-train-data.pkl
+models_directory: defense-models
+output_file: exp1/model-tuning/hps-results.json
+
+algorithm:
+  validation_split_ratio: 0.3   # fraction of debates held out for validation
+  epsilon: 1.0e-9               # numerical stabilizer in the NPD denominator
+  split_seed: 23421                # seed of the debate split (and max_debates choice)
+  gaussian_seed: 314511             # seed of the synthetic Gaussian proxy X_gen
+  max_debates: null             # optional cap on the number of debates (null = all)
+  feature_key: st_embedding     # default primary key (used when a model sets no feature_keys)
+  save_final_models_dir: null   # optional dir for the retrained final model checkpoints
+
+# Optuna settings.
+optuna:
+  n_trials: 70
+  sampler_seed: 3323441
+  timeout: null
+  early_stopping_patience: 5
+  early_stopping_min_improvement_pct: 3
+
+# Global model-training defaults (per-model overrides allowed in each section).
+# LR reduction after 5 stagnant epochs; training stops after 12 stagnant epochs,
+# so the LR reduction gets a chance to help before training is stopped.
+training:
+  n_epochs_lr_reduce: 7
+  lr_reduce_improvement_pct: 1.0
+  lr_reduce_factor: 0.5
+  min_lr: 1.0e-8
+  n_epochs_early_stop: 15
+  early_stop_improvement_pct: 1.0
+
+models:
+  BlindGuard:
+    seed: 9809798
+    device: cuda
+    anomaly_rate: 0.3
+    anomaly_scale: 0.5
+    anomalize_data: true
+    no_balance: false
+    input_dim: 1152
+    hidden_dim: [64, 128, 256]
+    emb_dim: [32, 64, 128]
+    batch_size: 256
+    val_split: 0.2
+    num_epochs: 60
+    temperature: [0.05, 0.07, 0.1, 0.3, 0.5]
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    top_k: 2
+    topologies: null
+
+  # 2 x 2 LAMNet ensemble (4 nets) kept fixed: searching the ensemble size made
+  # a single trial train up to 25 nets x 40 epochs, which is far beyond the
+  # budget and was not needed to reach good validation loss. The search now
+  # varies embedding width, truncation trade-off and step size over 4 nets.
+  TAM:
+    n_trials: 10                                 # per-model budget (calibrated: ~30 min)
+    seed: 2738273
+    device: cuda
+    emb_dim: [128, 256]
+    num_trees: [2, 3]
+    num_cuts: [2, 3]
+    lamda: [0.05, 0.1, 0.5, 0.95]
+    learning_rate: 0.0001
+    weight_decay: 0.0001
+    num_epochs: 15
+    val_split: 0.2
+    topologies: null
+
+  CASPIAN:
+    seed: 341341341
+    device: cuda
+    top_k: 2
+    base_weight: [0.1, 0.2, 0.4]
+    reciprocity_weight: [0.1, 0.2]
+    cluster_weight: [0.5, 1.0, 1.5]
+    persistence_weight: [0.4, 0.8, 1.2]
+    pair_weight: [0.5, 1.0, 1.5]
+    deviation_weight: 0.3
+
+  XG-Guard:
+    feature_keys: [st_embedding, tk_embedding]  # multi-key model
+    n_trials: 12                                 # per-model budget (calibrated: ~30 min)
+    seed: 908
+    device: cuda
+    feat_dim_s: 384
+    feat_dim_t: 384
+    hidden_dim: [128, 256, 512]
+    batch_size: [32, 64, 128]
+    val_split: 0.2
+    num_epochs: 15
+    learning_rate: [0.0001, 0.001]
+    weight_decay: 0.0001
+    alpha: [0.25, 0.5, 0.75]
+    topologies: null
+
+  # Graph autoencoder reconstructing attributes and structure.
+  # Search space (32): capacity, attribute-vs-structure balance (alpha),
+  # dropout regularization, step size and weight decay -- the quantities the
+  # reconstruction-error score and its training depend on.
+  DOMINANT:
+    n_trials: 25                                # per-model budget (calibrated: ~25 min)
+    seed: 75674
+    device: cuda
+    input_dim: 384
+    hidden_dim: [64, 128]
+    alpha: [0.25, 0.75]
+    dropout: [0.0, 0.3]
+    batch_size: 64
+    val_split: 0.2
+    num_epochs: 30
+    learning_rate: [0.0005, 0.001]
+    weight_decay: [0.0001, 0.0005]
+    top_k: 2
+    topologies: null
+
+  PREM:
+    seed: 67435634
+    device: cuda
+    input_dim: 384
+    emb_dim: [64, 128]
+    alpha: [0.5, 1.0]
+    gamma: [0.5, 1.0]
+    prop_steps: [1, 2]
+    batch_size: 64
+    val_split: 0.2
+    num_epochs: 30
+    learning_rate: [0.0005, 0.001]
+    weight_decay: 0.0001
+    top_k: 2
+    topologies: null

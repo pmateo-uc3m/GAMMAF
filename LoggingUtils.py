@@ -101,20 +101,6 @@ def print_epoch_log(epoch: int, total_epochs: int, train_loss: float, val_loss: 
 
 class LRPlateauReducer:
     """Reduce the learning rate and/or stop training on validation plateaus.
-
-    A validation loss counts as an improvement when it beats the best loss
-    seen so far by at least the corresponding percentual threshold.  After
-    ``patience`` consecutive epochs without such an improvement the learning
-    rate is multiplied by ``factor``, floored at ``min_lr``.  Independently,
-    after ``early_stop_patience`` consecutive epochs without an improvement of
-    at least ``early_stop_improvement_pct`` percent, ``step`` reports that
-    training should stop.  The early-stop counter is deliberately not reset by
-    an LR reduction, so the LR has a chance to act before training stops.
-
-    ``step(val_loss)`` returns ``(is_best, reduced, should_stop)``: ``is_best``
-    marks a new best validation loss (used for best-checkpoint selection),
-    ``reduced`` marks epochs on which the learning rate was lowered and
-    ``should_stop`` marks epochs on which training should be stopped.
     """
 
     def __init__(self, optimizer, patience: int = 5, factor: float = 0.5, min_lr: float = 1e-6,

@@ -90,13 +90,7 @@ def _select_evaluation_indexes(available_indexes, num_questions, rng):
 
 
 def make_loader_kwargs(loader_cls, ma_dataset_path=None, **base):
-    """Build kwargs for a questions loader.
 
-    Threads ``ma_dataset_path`` into the loader arguments when the loader class
-    supports it (currently ``MSMARCOLoader``).  Loaders may be loaded as
-    separate module instances, so the capability is detected via the
-    constructor signature rather than class identity.
-    """
     kwargs = dict(base)
     if ma_dataset_path and "dataset_path" in inspect.signature(
         loader_cls.__init__
@@ -369,11 +363,6 @@ class MSMARCOLoader(MMLULoader):
         )
 
     def _resolve_dataset_path(self, dataset_path: str | None) -> str:
-        """Resolve the dataset JSON path.
-
-        Precedence: explicit ``dataset_path`` argument, ``MA_DATASET_PATH``
-        environment variable, then the default Task_generation output.
-        """
         if dataset_path:
             return dataset_path
         env_path = os.getenv("MA_DATASET_PATH")
@@ -393,11 +382,6 @@ class MSMARCOLoader(MMLULoader):
         return data
 
     def _normalize_entry(self, item):
-        """Normalize one Task_generation entry to the internal question schema.
-
-        Expected fields: ``query`` / ``answers`` / ``safe_passages`` /
-        ``adv_passages``.  Returns ``None`` for malformed entries.
-        """
         if not isinstance(item, dict):
             return None
         if "query" not in item:
@@ -503,11 +487,6 @@ class InjecAgentLoader(MMLULoader):
         self.formatted_questions = self.format_questions()
  
     def _resolve_dataset_path(self, dataset_path: str | None) -> str:
-        """Resolve the dataset JSON path.
-
-        Precedence: explicit ``dataset_path`` argument, ``MA_DATASET_PATH``
-        environment variable, then the default Task_generation output.
-        """
         if dataset_path:
             return dataset_path
         else:
@@ -558,12 +537,6 @@ class InjecAgentLoader(MMLULoader):
 
     @staticmethod
     def _extract_attack_tool(item, available_tools):
-        """Resolve the attacker tool from the entry.
-
-        The raw InjecAgent schema carries it under ``Attacker Tools``; enriched
-        entries may expose it directly. If neither is present, fall back to the
-        last available tool (``AvailableTools`` is user tool + attacker tools).
-        """
         for key in ("Attacker Tools", "AttackerTools", "attacker_tools",
                     "Attack-tool", "attack_tool"):
             value = item.get(key)

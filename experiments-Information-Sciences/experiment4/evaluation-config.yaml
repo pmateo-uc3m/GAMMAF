@@ -1,0 +1,166 @@
+# exp4 evaluation config (MainEvaluation.py) -- informed malicious agents.
+#
+# Single evaluation config for all 16 runs: the eight scenarios are dataset
+# tags (scenario0..scenario7) that differ ONLY in their `prompts_file`; the two
+# defenses come from the repo's existing mechanism: `no_defense_baseline: true`
+# evaluates the undefended baseline for every tag, and the embedded XG-Guard
+# entry is trained once and evaluated on every tag. One invocation therefore
+# produces all 8 scenarios x 2 defenses = 16 runs.
+#
+# Pairing: all per-question randomness is derived from shared seeds, so for a
+# given question index every scenario and both defenses see the same question,
+# random topology, malicious agents and malicious target answer:
+#   questions_random_seed = 4040303 (same for all tags)
+#   malicious agents      = random.Random(malicious_seed + question_index)
+#   random topology       = numpy.default_rng(random_topo_seed + question_index)
+#   malicious target      = numpy.default_rng(answer_seed + 100000 + question_index)
+# See exp4/README.md and exp4/setup/build_question_setup.py.
+
+models_directory: defense-models
+output_file: exp4/results/summary.json
+train_pkl_path: exp1/generation/exp1-train-data.pkl
+
+llm:
+  timeout: 120
+  llm_max_retries: 3
+  max_concurrent_inference: 400
+
+debate:
+  num_agents: 10
+  num_malicious_agents: 3
+  malicious_seed: 4040101
+  max_rounds: 3
+  consensus_threshold: 1.0
+  check_consensus_only_unflagged: true
+  no_consensus_check: false
+  new_random_each_question: true
+  random_topo_seed: 4040202
+  density_range_for_random_topo: [0.3, 0.7]
+  clean_debates: false
+
+# 150 questions per scenario, all on random topologies. `num_questions: 0`
+# disables the named tree/chain/star topologies so only "random" runs.
+datasets:
+  - tag: scenario0
+    loader_tag: MMLUPRO
+    num_questions: 0
+    num_questions_on_random_topo: 100
+    questions_random_seed: 4040303
+    ma_dataset_path: null
+    prompts_file: exp4/prompts/scenario0.json
+    hps_indexes: null
+
+  - tag: scenario1
+    loader_tag: MMLUPRO
+    num_questions: 0
+    num_questions_on_random_topo: 100
+    questions_random_seed: 4040303
+    ma_dataset_path: null
+    prompts_file: exp4/prompts/scenario1.json
+    hps_indexes: null
+
+  - tag: scenario2
+    loader_tag: MMLUPRO
+    num_questions: 0
+    num_questions_on_random_topo: 100
+    questions_random_seed: 4040303
+    ma_dataset_path: null
+    prompts_file: exp4/prompts/scenario2.json
+    hps_indexes: null
+
+  - tag: scenario3
+    loader_tag: MMLUPRO
+    num_questions: 0
+    num_questions_on_random_topo: 100
+    questions_random_seed: 4040303
+    ma_dataset_path: null
+    prompts_file: exp4/prompts/scenario3.json
+    hps_indexes: null
+
+  - tag: scenario4
+    loader_tag: MMLUPRO
+    num_questions: 0
+    num_questions_on_random_topo: 100
+    questions_random_seed: 4040303
+    ma_dataset_path: null
+    prompts_file: exp4/prompts/scenario4.json
+    hps_indexes: null
+
+  - tag: scenario5
+    loader_tag: MMLUPRO
+    num_questions: 0
+    num_questions_on_random_topo: 100
+    questions_random_seed: 4040303
+    ma_dataset_path: null
+    prompts_file: exp4/prompts/scenario5.json
+    hps_indexes: null
+
+  - tag: scenario6
+    loader_tag: MMLUPRO
+    num_questions: 0
+    num_questions_on_random_topo: 100
+    questions_random_seed: 4040303
+    ma_dataset_path: null
+    prompts_file: exp4/prompts/scenario6.json
+    hps_indexes: null
+
+  - tag: scenario7
+    loader_tag: MMLUPRO
+    num_questions: 0
+    num_questions_on_random_topo: 100
+    questions_random_seed: 4040303
+    ma_dataset_path: null
+    prompts_file: exp4/prompts/scenario7.json
+    hps_indexes: null
+
+evaluation:
+  questions_path: DatasetManager.py
+  questions_class_name: null
+  python_seed: 4040404
+  numpy_seed: 4040505
+  answer_seed: 4040606
+  top_k_defense: 3
+  no_defense_baseline: false
+  save_traces: false
+  # Per-question artifacts (topology, seeds, malicious indexes, agent answers,
+  # per-round scores/flags) for the exp4 significance tests.
+  save_scores_artifact: true
+  debug_mode: false
+  static_adjacency_mode: false
+  topologies_file: null
+  topologies_from_pkl: null
+
+text_processor_path: TextProcessingManager.py
+text_processor_class_name: RoundProcessor
+text_processor_kwargs: {}
+text_processor_device: cuda
+
+training:
+  n_epochs_lr_reduce: 7
+  lr_reduce_improvement_pct: 1.0e-10
+  lr_reduce_factor: 0.5
+  min_lr: 1.0e-10
+  n_epochs_early_stop: 15
+  early_stop_improvement_pct: 0.0
+
+# XG-Guard only: the undefended baseline is covered by no_defense_baseline.
+# Parameters are the best trial of exp1/model-tuning/hps-results.json
+# (trial #2, lowest NPD 0.00019222774026232364): tuned params from
+# best_trial.params plus the winning trial's fixed params.
+defense_model_train_configs:
+  XG-Guard:
+    run_name: xgguard
+    pkl_train: exp1/generation/exp1-train-data.pkl
+    seed: 908
+    device: cuda
+    feat_dim_s: 384
+    feat_dim_t: 384
+    hidden_dim: 128
+    batch_size: 128
+    val_split: 0.2
+    num_epochs: 15
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    alpha: 0.75
+    top_k: 3
+    topologies: null

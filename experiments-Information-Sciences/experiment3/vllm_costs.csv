@@ -1,0 +1,6 @@
+num_agents,stage_type,llm_model,n_records,prompt_tokens,generation_tokens,total_tokens,request_success,inference_time_s,e2e_latency_s,stage_duration_s
+40,defense_train,openai/gpt-oss-20b,2,,,,,,,16.3477
+40,eval_live,openai/gpt-oss-20b,2,466349340.0,195205420.0,661554760.0,252620.0,11398135.2994,12106522.9594,30217.2413
+40,generation,openai/gpt-oss-20b,2,144617848.0,41458914.0,186076762.0,57895.0,3565646.4452,6482662.1638,8595.4994
+40,hps_scoring,openai/gpt-oss-20b,40,,,,,,,169.3094
+40,hps_train,openai/gpt-oss-20b,22,,,,,,,133.6561

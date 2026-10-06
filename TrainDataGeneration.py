@@ -78,7 +78,7 @@ def to_jsonable(obj):
 
 
 def _write_index_sidecar(output_filepath, idx_metadata, flat_indexes):
-    """Write the train-index sidecar next to the generated pickle."""
+    """Write the train-index next to the generated pickle."""
     sidecar_filepath = f"{output_filepath}.idx_metadata.json"
     payload = {
         "idx_metadata": to_jsonable(idx_metadata),
@@ -129,7 +129,6 @@ def is_valid_debate(debate_data):
 
 
 def get_debate_invalid_reasons(debate_data):
-    """Return a list of reason codes describing why a debate is invalid."""
     reasons = []
 
     if debate_data is None:
@@ -212,7 +211,6 @@ def generate_topologies(num_agents: int, random_config = None):
 
 
 def load_text_processor(config):
-    """Instantiate the configured text processor class."""
     processor_class_name = config.text_processor_class_name
     processor_path = config.text_processor_path
 
@@ -250,7 +248,6 @@ def process_single_debate(
     debate: Any,
     processor: RoundProcessor,
 ):
-    """Process one debate's rounds into embeddings; preserves invalid entries as-is."""
     # If debate is None, we skip processing (it will be filtered later if clean-data is on)
     if debate is None or not isinstance(debate, dict):
         return debate
@@ -267,18 +264,7 @@ def process_single_debate(
     return debate
 
 
-# ---------------------------------------------------------------------------
-# Generation
-# ---------------------------------------------------------------------------
-
 def _generate_for_dataset(dataset_entry, config, processor):
-    """Generate all topologies for ONE dataset entry.
-
-    Returns ``(dataset_results, used_dataset_indexes, stats)`` where
-    ``dataset_results`` is the list of ``{topology_name, topology, dataset_tag,
-    results}`` records, ``used_dataset_indexes`` are the dataset indexes that
-    actually survived cleaning, and ``stats`` holds the debate counters.
-    """
     resolved_tag = dataset_entry.loader_tag
     tag_label = dataset_entry.tag
     n_questions_fixed = dataset_entry.num_questions

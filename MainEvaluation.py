@@ -90,20 +90,12 @@ from LoggingUtils import (
 from Utils import AttrDict
 
 
-# ---------------------------------------------------------------------------
-#  Consolidated evaluation loop
-# ---------------------------------------------------------------------------
-
 from EvaluationDebateLoop import LiveDebateOrchestration
 from EvaluationConfigCheck import (
     load_evaluation_config,
     write_model_config,
 )
 
-
-# ---------------------------------------------------------------------------
-#  Topology helpers
-# ---------------------------------------------------------------------------
 
 def adjacency_matrix_symmetric(n, topology):
     if n < 1:
@@ -221,7 +213,12 @@ def _topologies_for_entry(entry, default_topologies):
 def get_models_from_path(path, embedded_model_configs):
     models = {}
     folder = Path(path)
-    for file in sorted(folder.glob("*.py")):
+    order = {name: index for index, name in enumerate(embedded_model_configs)}
+    files = sorted(
+        folder.glob("*.py"),
+        key=lambda file: (order.get(file.stem, len(order)), file.stem),
+    )
+    for file in files:
         module_name = file.stem
         spec = importlib.util.spec_from_file_location(module_name, file)
         module = importlib.util.module_from_spec(spec)
@@ -284,10 +281,6 @@ def _safe_filename(name: str) -> str:
     return cleaned.strip("_") or "unnamed"
 
 
-# ---------------------------------------------------------------------------
-#  Exclusion indexes
-# ---------------------------------------------------------------------------
-
 def _per_tag_indexes_from_metadata(idx_metadata):
     """Normalise an ``idx_metadata`` value to ``{tag: [indexes]}`` (or ``None``)."""
     if isinstance(idx_metadata, dict):
@@ -303,14 +296,7 @@ def _per_tag_indexes_from_metadata(idx_metadata):
 
 
 def _load_train_indexes_per_tag(pkl_path):
-    """Load the train indexes for a training pickle as ``{tag: [indexes]}``.
-
-    The JSON sidecar ``<pkl_path>.idx_metadata.json`` (written next to the
-    pickle by ``TrainDataGeneration.py``) is read when present; only if it is
-    missing or unreadable is the training pickle itself loaded as a legacy
-    fallback.  Supports the multi-dataset schema (``idx_metadata`` dict) and
-    the legacy flat list schema (stored under the wildcard key ``"*"``).
-    """
+    """Load the train indexes for a training pickle as ``{tag: [indexes]}``."""
     if not pkl_path:
         return {}
     path = Path(pkl_path)
@@ -369,12 +355,7 @@ def _indexes_for_entry(indexes_by_tag, entry):
 
 
 def _parse_per_tag_index_pickle(path):
-    """Read an HPS/Train index pickle and return ``(flat_indices, per_tag)``.
-
-    Accepted structures:
-      * ``{"indices": [...], ...}`` -> flat list
-      * ``{"indices_per_tag": {tag: [...]}, ...}`` -> per-tag map
-    """
+    """Read an HPS/Train index pickle and return ``(flat_indices, per_tag)``."""
     with open(path, "rb") as f:
         data = pickle.load(f)
 
@@ -459,11 +440,6 @@ def _build_scores_artifact(model_label, entry, used_indexes, records, max_rounds
         "items": items,
     }
 
-
-# ---------------------------------------------------------------------------
-#  Summary persistence
-# ---------------------------------------------------------------------------
-
 def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
@@ -522,15 +498,7 @@ def _run_entry(summary: dict, model_name: str) -> dict:
 
 
 def _completed_combo_payload(summary: dict, model_name: str, tag: str):
-    """Payload of a model+dataset combo that finished cleanly, else ``None``.
-
-    A combo counts as completed only when the runs bookkeeping records it as
-    completed with its full statistics embedded; this survives the deletion of
-    the temporary per-dataset files at the end of a run.  A crash in the middle
-    of a combo therefore never marks it completed: it is simply re-run on the
-    next invocation.  Summaries written by the older format
-    (``per_dataset_results`` + per-dataset files) are accepted as a fallback.
-    """
+    """Payload of a model+dataset combo that finished cleanly, else ``None``."""
     run = summary.get("runs", {}).get(model_name)
     if isinstance(run, dict):
         dataset = run.get("datasets", {}).get(tag)
@@ -590,10 +558,6 @@ def _refresh_completed_runs(summary, eval_tags):
     summary["completed_runs"] = completed
     return completed
 
-
-# ---------------------------------------------------------------------------
-#  Standard evaluation
-# ---------------------------------------------------------------------------
 
 def _evaluate_model_on_tag(
     model_label,
@@ -968,11 +932,6 @@ def _run_standard(config, parsed_args):
         temp_dir = _temp_results_dir(output_path)
         shutil.rmtree(temp_dir, ignore_errors=True)
         log_info(f"Removed temporary per-dataset results: {temp_dir}")
-
-
-# ---------------------------------------------------------------------------
-#  Entry point
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

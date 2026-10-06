@@ -169,10 +169,6 @@ from LoggingUtils import (
 from Utils import AttrDict
 
 
-# ---------------------------------------------------------------------------
-#  Configuration
-# ---------------------------------------------------------------------------
-
 _ROOT_KEYS = {
     "data_path",
     "models_directory",
@@ -417,11 +413,6 @@ def load_hps_config(config_path):
         models=_validate_models(raw["models"], models_directory, algorithm.feature_key, training),
     )
 
-
-# ---------------------------------------------------------------------------
-#  Data preparation
-# ---------------------------------------------------------------------------
-
 def _as_feature_vector(value):
     if value is None:
         return None
@@ -452,15 +443,7 @@ def _resolve_debate_adjacency(debate, record):
 
 
 def _compact_auxiliary(value):
-    """Return a compact numeric form of an auxiliary payload when possible.
-
-    The generation pkls store token embeddings as Python float lists, which
-    cost many times the memory of float32 arrays once unpickled; the defense
-    models only ever consume float32 tensors, so compacting here keeps the
-    loaded graphs (and the temporary training pkls written from them) small
-    without changing the values the models see.  Non-numeric payloads are kept
-    verbatim.
-    """
+    """Return a compact numeric form of an auxiliary payload when possible."""
     if isinstance(value, np.ndarray):
         return value.astype(np.float32, copy=False)
     try:
@@ -470,16 +453,6 @@ def _compact_auxiliary(value):
 
 
 def load_graph_data(data_path, feature_keys):
-    """Load the real debates of ``data_path`` as graphs.
-
-    Each graph keeps the debate adjacency, its topology name, dataset tag and
-    round/agent order.  Every agent payload carries the requested feature keys
-    plus the standard ``agent_id``/``answer``/``is_malicious`` fields.
-    ``feature_keys[0]`` is the primary key whose vectors form the tabular
-    matrix used by the AutoUAD/NPD algorithm; the remaining keys ride along.
-    Auxiliary payloads are compacted to float32 arrays where possible so a
-    multi-key load does not retain the raw Python float lists.
-    """
     primary_key = feature_keys[0]
     auxiliary_keys = list(feature_keys[1:])
 
@@ -546,9 +519,6 @@ def load_graph_data(data_path, feature_keys):
                         compacted = _compact_auxiliary(value)
                         agent_payload[key] = compacted
                         if compacted is not value:
-                            # Drop the raw Python float list from the source
-                            # payload immediately so the multi-key peak stays at
-                            # the unpickle size instead of payload + compact copy.
                             agent[key] = compacted
                         if key not in auxiliary_kinds:
                             auxiliary_kinds[key] = kind
@@ -625,15 +595,6 @@ def graph_statistics(graphs):
 
 
 def standardize_graphs(graphs, primary_key):
-    """Global feature standardization over all agents of all graphs.
-
-    One scaler is fit on the pooled agent vectors so every feature is
-    zero-mean/unit-variance across the dataset; the Gaussian proxy sampled
-    later from the training statistics relies on that global centering.
-    Per-graph standardization would center each graph locally, destroy the
-    global zero-mean property and suppress the within-graph deviations the
-    detectors score, so it is intentionally not used.
-    """
     if not graphs:
         raise ValueError("Hyperparameter search requires at least one graph")
     matrix = np.stack(
@@ -683,12 +644,6 @@ def split_graphs(graphs, validation_split_ratio, split_seed):
 
 
 def prepare_graph_search_data(graphs, feature_keys, validation_split_ratio, split_seed, gaussian_seed):
-    """Standardize globally, split debates, and build the Gaussian proxy.
-
-    ``X_val`` is the pooled held-out debate agents; ``X_gen`` is sampled from
-    the ``X_trn`` per-feature mean/variance (unchanged AutoUAD step) and is
-    later partitioned 1:1 over the validation graph structures.
-    """
     primary_key = feature_keys[0]
     standardized = standardize_graphs(graphs, primary_key)
     trn_graphs, val_graphs = split_graphs(standardized, validation_split_ratio, split_seed)
@@ -716,11 +671,6 @@ def compute_npd(s_val, s_gen, epsilon=1e-9):
     denominator = 2.0 * (s_gen.var() + s_val.var()) + epsilon
     return float(numerator / denominator)
 
-
-# ---------------------------------------------------------------------------
-#  Defense-model bridge (graphs -> model train/score)
-# ---------------------------------------------------------------------------
-
 def _synthetic_auxiliary_value(kind, vector):
     if kind == "sequence":
         return [np.asarray(vector, dtype=np.float32)]
@@ -728,13 +678,6 @@ def _synthetic_auxiliary_value(kind, vector):
 
 
 def build_real_rounds(graphs):
-    """Group real graphs into per-debate ``(round_data, adjacency)`` sequences.
-
-    Keeping the rounds inside their debate lets stateful models (e.g. CASPIAN)
-    see the debate's turn sequence, exactly as the live evaluation loop does,
-    while the concatenated per-agent scores keep the debate-major order of the
-    previous flat representation.
-    """
     debates = []
     for graph in graphs:
         rounds = [
@@ -869,13 +812,6 @@ def _predict_supports_trace_id(model):
 
 
 def score_rounds(model, debates):
-    """Score each debate as a unit and return the concatenated agent scores.
-
-    Every round is still scored with its own adjacency (the per-graph structure
-    is preserved), but a stateful model sees all rounds of a debate in order
-    before its state is released, mirroring the live evaluation loop's
-    ``begin_trace``/``end_trace`` handling.  Stateless models are unaffected.
-    """
     supports_trace = _predict_supports_trace_id(model)
     begin_trace = getattr(model, "begin_trace", None)
     end_trace = getattr(model, "end_trace", None)
@@ -918,11 +854,6 @@ def cleanup_model(model):
     except ImportError:
         pass
 
-
-# ---------------------------------------------------------------------------
-#  Search-space helpers
-# ---------------------------------------------------------------------------
-
 def _is_search_list(value):
     return (
         isinstance(value, list)
@@ -955,22 +886,12 @@ def search_space_size(search_space):
 
 
 def relative_improvement_pct(value, best_value):
-    """Percent improvement of ``value`` over ``best_value``.
-
-    Returns ``None`` when there is no baseline yet.  NPD is non-negative, so a
-    zero baseline is treated as no improvement unless the new value is strictly
-    positive.
-    """
     if best_value is None:
         return None
     if best_value <= 0.0:
         return float("inf") if value > best_value else 0.0
     return (value - best_value) / best_value * 100.0
 
-
-# ---------------------------------------------------------------------------
-#  Results persistence
-# ---------------------------------------------------------------------------
 
 def _now():
     return datetime.now(timezone.utc).isoformat()
@@ -1000,12 +921,6 @@ def _write_results(path, results):
 
 
 def _is_completed_model_entry(entry):
-    """True only for a model entry that finished cleanly.
-
-    Interrupted searches leave ``status`` at ``"running"`` and failures at
-    ``"failed"``; both are rerun from scratch.  A completed entry always carries
-    its winning trial and the retrained final model.
-    """
     if not isinstance(entry, dict) or entry.get("status") != "completed":
         return False
     if not isinstance(entry.get("final_model"), dict):
@@ -1042,21 +957,8 @@ def _sync_trials(entry, study, trial_seeds=None):
 
 
 def trial_seed_for(run_seed, trial_number):
-    """Deterministic per-trial training seed derived from one run seed.
-
-    The run seed alone controls the whole model optimization run: Optuna's
-    sampler seed, every trial's model-initialisation/shuffling/split RNGs and
-    the final retrain.  Deriving ``run_seed + 1 + trial_number`` gives each
-    Optuna step its own randomization while keeping the whole run reproducible
-    from the single seed (repeated parameter combinations therefore do not
-    produce bit-identical models/scores).
-    """
     return int(run_seed) + 1 + int(trial_number)
 
-
-# ---------------------------------------------------------------------------
-#  Per-model search
-# ---------------------------------------------------------------------------
 
 def _trial_progress(number, executed_trials):
     return f"Trial {number + 1}/{executed_trials}"
@@ -1250,13 +1152,7 @@ def run_model_search(
         f"[{model_name}] best NPD={entry['best_trial']['value']:.6f} params={best_params}; "
         "retraining on the full dataset"
     )
-    # Algorithm step 5: retrain the winning configuration on the full matrix so
-    # the final model uses all available data.  No NPD is reported for this
-    # retrained model: X_val was part of the final training set, so any
-    # post-retrain NPD would be an in-sample value that is not comparable to
-    # the trial NPDs (which are the selection metric).  The retrained model is
-    # reported through its params and optional checkpoint instead.  It is
-    # trained with the run seed (the single seed controlling the whole run).
+
     final_cfg = dict(fixed)
     final_cfg.update(best_params)
     final_cfg["seed"] = run_seed
@@ -1286,11 +1182,6 @@ def run_model_search(
         + (f" and saved to {saved_path}" if saved_path else " (no checkpoint requested)")
     )
     return entry
-
-
-# ---------------------------------------------------------------------------
-#  Entry point
-# ---------------------------------------------------------------------------
 
 def _log_model_summary(config, results):
     """Print the final per-model summary of the search.

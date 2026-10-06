@@ -1,0 +1,222 @@
+models_directory: defense-models
+train_pkl_path: exp1/generation/exp1-train-data.pkl
+output_file: exp1/evaluation/results/summary-exp1.json
+
+llm:
+  timeout: 200
+  llm_max_retries: 3
+  max_concurrent_inference: 1000
+
+debate:
+  num_agents: 10                       # matches the training graphs
+  num_malicious_agents: 3
+  malicious_seed: 123
+  max_rounds: 3
+  consensus_threshold: 1.0
+  check_consensus_only_unflagged: true
+  no_consensus_check: false
+  new_random_each_question: true
+  random_topo_seed: 24
+  density_range_for_random_topo: [0.5, 0.9]   # matches exp1 generation
+  clean_debates: false
+
+
+datasets:
+  - tag: MMLU
+    loader_tag: null
+    num_questions: 100
+    num_questions_on_random_topo: 100
+    questions_random_seed: 11341
+    ma_dataset_path: null
+    prompts_file: null
+    hps_indexes: null
+
+  - tag: MMLUPRO
+    loader_tag: null
+    num_questions: 100
+    num_questions_on_random_topo: 100
+    questions_random_seed: 112342
+    ma_dataset_path: null
+    prompts_file: null
+    hps_indexes: null
+
+  - tag: CSQA
+    loader_tag: null
+    num_questions: 100
+    num_questions_on_random_topo: 100
+    questions_random_seed: 1723691
+    ma_dataset_path: null
+    prompts_file: null
+    hps_indexes: null
+
+  - tag: GSM8K
+    loader_tag: null
+    num_questions: 100
+    num_questions_on_random_topo: 100
+    questions_random_seed: 909098
+    ma_dataset_path: null
+    prompts_file: null
+    hps_indexes: null
+
+  - tag: MA
+    loader_tag: null
+    num_questions: 100
+    num_questions_on_random_topo: 100
+    questions_random_seed: 1312
+    ma_dataset_path: MA/Task_generation/output/msmarco_contaminated_benchmark.json
+    prompts_file: null
+    hps_indexes: null
+
+  - tag: TA
+    loader_tag: null
+    num_questions: 100
+    num_questions_on_random_topo: 100
+    questions_random_seed: 132
+    ma_dataset_path: TA/TA-generation/output/TA-complete.json
+    prompts_file: null
+    hps_indexes: null
+
+evaluation:
+  questions_path: DatasetManager.py
+  questions_class_name: null
+  python_seed: 2824643
+  numpy_seed: 28121
+  answer_seed: 28341
+  top_k_defense: 3
+  no_defense_baseline: true           # defense-model benchmarking only
+  save_traces: false
+  # Write per-question/per-round metric artifacts for paired between-method
+  # significance tests (auxiliary/compare_methods.py).
+  save_scores_artifact: true
+  debug_mode: false
+  static_adjacency_mode: false
+  topologies_file: null
+  topologies_from_pkl: null            # generated tree/chain/star + random
+
+text_processor_path: TextProcessingManager.py
+text_processor_class_name: RoundProcessor
+text_processor_kwargs: {}
+text_processor_device: cpu
+
+# Global model-training defaults (same values used by the HPS sweep).
+training:
+  n_epochs_lr_reduce: 7
+  lr_reduce_improvement_pct: 1.0e-10
+  lr_reduce_factor: 0.5
+  min_lr: 1.0e-10
+  n_epochs_early_stop: 15
+  early_stop_improvement_pct: 0.0
+
+# One section per defense model. Hyperparameters are the best trial of the
+# exp1 HPS sweep (`hps-results.json` -> models.<name>.best_trial.params).
+# Every model trains on the same combined pkl (single training per model).
+defense_model_train_configs:
+  # best trial 2: hidden_dim 128, batch_size 128, lr 0.001, alpha 0.75
+  # (NPD 0.000192). HPS cost: ~205 s/trial -> expensive, keep a modest budget.
+  XG-Guard:
+    pkl_train: exp1/generation/exp1-train-data.pkl
+    seed: 908
+    device: cuda
+    feat_dim_s: 384
+    feat_dim_t: 384
+    hidden_dim: 128
+    batch_size: 128
+    val_split: 0.2
+    num_epochs: 50
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    alpha: 0.75
+    top_k: 3
+    topologies: null
+
+  # best trial 3: base 0.1 / reciprocity 0.1 / cluster 1.5 / persistence 0.4 /
+  # pair 1.5 (NPD 0.000635). Training-free detector.
+  CASPIAN:
+    pkl_train: exp1/generation/exp1-train-data.pkl
+    seed: 341341341
+    device: cuda
+    top_k: 3
+    base_weight: 0.1
+    reciprocity_weight: 0.1
+    cluster_weight: 1.5
+    persistence_weight: 0.4
+    pair_weight: 1.5
+    deviation_weight: 0.3
+
+  # best trial 0: emb_dim 128, alpha 1.0, gamma 0.5, prop_steps 2,
+  # lr 0.001 (NPD 17.9584). HPS cost: ~27 s/trial -> cheap, budget raised to
+  # 60 epochs.
+  PREM:
+    pkl_train: exp1/generation/exp1-train-data.pkl
+    seed: 67435634
+    device: cuda
+    input_dim: 384
+    emb_dim: 128
+    alpha: 1.0
+    gamma: 0.5
+    prop_steps: 2
+    batch_size: 64
+    val_split: 0.2
+    num_epochs: 60
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    top_k: 3
+    topologies: null
+
+  # best trial 6: hidden_dim 128, emb_dim 128, temperature 0.1 (NPD 18.6293)
+  # HPS cost: ~10 s/trial -> cheap, budget raised to 100 epochs.
+  BlindGuard:
+    pkl_train: exp1/generation/exp1-train-data.pkl
+    seed: 9809798
+    device: cuda
+    anomaly_rate: 0.3
+    anomaly_scale: 0.5
+    anomalize_data: true
+    no_balance: false
+    input_dim: 1152
+    hidden_dim: 128
+    emb_dim: 128
+    batch_size: 256
+    val_split: 0.2
+    num_epochs: 100
+    temperature: 0.1
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    top_k: 3
+    topologies: null
+
+  # best trial 7: emb_dim 128, num_trees 3, num_cuts 3, lamda 0.1 (NPD 0.01503)
+  # HPS cost: ~440 s/trial -> most expensive model, keep 15 epochs.
+  TAM:
+    pkl_train: exp1/generation/exp1-train-data.pkl
+    seed: 2738273
+    device: cuda
+    emb_dim: 128
+    num_trees: 3
+    num_cuts: 3
+    lamda: 0.1
+    learning_rate: 0.0001
+    weight_decay: 0.0001
+    num_epochs: 10
+    val_split: 0.2
+    top_k: 3
+    topologies: null
+
+  # best trial 11: hidden_dim 128, alpha 0.25, dropout 0.0, lr 0.001,
+  # weight_decay 0.0001 (NPD 0.72578). HPS cost: ~74 s/trial -> moderate,
+  # budget raised to 40 epochs.
+  DOMINANT:
+    pkl_train: exp1/generation/exp1-train-data.pkl
+    seed: 75674
+    device: cuda
+    input_dim: 384
+    hidden_dim: 128
+    alpha: 0.25
+    dropout: 0.0
+    batch_size: 64
+    val_split: 0.2
+    num_epochs: 20
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    top_k: 3
+    topologies: null

@@ -477,6 +477,13 @@ class LiveDebateOrchestration:
             entry["called_tools"] = resp.get("called_tools", [])
         return entry
     
+    def _resolve_top_k(self, defense_model):
+        """Pass ``evaluation.top_k_defense`` to the defense model as ``top_k``."""
+        if not hasattr(defense_model, 'config'):
+            defense_model.config = SimpleNamespace()
+        defense_model.config.top_k = self.config.evaluation.top_k_defense
+        return defense_model.config.top_k
+
     def debate_question(
         self,
         defense_model,
@@ -489,10 +496,7 @@ class LiveDebateOrchestration:
         question_format_data: dict | None = None,
         trace_id = None,
     ):
-        if not hasattr(defense_model, 'config'):
-            defense_model.config = SimpleNamespace()
-        if not hasattr(defense_model.config, 'top_k'):
-            defense_model.config.top_k = self.config.evaluation.top_k_defense
+        self._resolve_top_k(defense_model)
         threshold = getattr(defense_model, 'threshold', None)
         if threshold is None:
             threshold = getattr(defense_model, 'computed_threshold', None)
@@ -884,12 +888,7 @@ class LiveDebateOrchestration:
     
     @property
     def clean_debates(self) -> bool:
-        """Whether invalid debates should be dropped from the statistics.
-
-        ``clean_debates`` lives in the ``debate`` config section; the
-        top-level fallback and the safe ``getattr`` keep the loop working with
-        configs that predate the field (missing -> ``False``).
-        """
+        """Whether invalid debates should be dropped from the statistics."""
         debate_cfg = getattr(self.config, "debate", None)
         value = getattr(debate_cfg, "clean_debates", None) if debate_cfg is not None else None
         if value is None:
@@ -898,13 +897,7 @@ class LiveDebateOrchestration:
 
     @staticmethod
     def _is_empty_agent_response(resp):
-        """True only when an agent response carries no content at all.
-
-        A response counts as empty when both its ``<answer>`` and
-        ``<message>`` are empty. Tool-call responses (TA datasets) are never
-        empty: their content is the tool call even when both text fields are
-        blank.
-        """
+        """True only when an agent response carries no content at all."""
         if not isinstance(resp, dict):
             return False
         answer = str(resp.get("answer", "") or "").strip()
@@ -1339,19 +1332,6 @@ class LiveDebateOrchestration:
         all_stats = self.parse_all_stats(traces)
         return all_stats
 
-
-# ---------------------------------------------------------------------------
-#  Hyperparameter-search support (consolidated, R5)
-#
-#  This single file handles both the standard evaluation case and the HPS
-#  case.  HPS needs:
-#    * a fixed evaluation pool per dataset tag, excluding that tag's training
-#      indexes, persisted to disk so it is reused across runs/configs;
-#    * an orchestration object that reuses an externally built dataloader and
-#      an already-loaded text processor across configurations.
-#  Both are provided here; there is no separate ``-HPS`` module.
-# ---------------------------------------------------------------------------
-
 class _IdentityRNG:
     """Mimics ``np.random.default_rng`` but returns the population untouched."""
 
@@ -1371,14 +1351,6 @@ class _IdentityRNG:
 
 
 def _build_full_question_list(loader_cls, ma_dataset_path=None):
-    """Instantiate *loader_cls* returning the full question list (no sampling).
-
-    Both ``np.random.default_rng`` and the module-level
-    ``_select_evaluation_indexes`` (which raises when fewer tasks are available
-    than requested) are patched only for the duration of the loader
-    construction, so that previously-stored pool indices can be mapped back to
-    their exact questions.  The original functions are always restored.
-    """
     _orig_rng = np.random.default_rng
     _globals = getattr(getattr(loader_cls, "load_questions", None), "__globals__", None)
     _orig_select = _globals.get("_select_evaluation_indexes") if _globals else None
@@ -1520,12 +1492,6 @@ def build_hps_pool_loader(
 
 
 def draw_hps_run_subset(pool_questions, run_samples, seed, run_identity):
-    """Draw a reproducible per-run subset from a fixed HPS pool.
-
-    The seed is derived from the run's stable identity (model + effective
-    hyperparameter configuration) so every run draws a different subset while
-    the same seed reproduces the exact subset across executions.
-    """
     import hashlib
     import json as _json
 

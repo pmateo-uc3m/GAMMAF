@@ -1,0 +1,475 @@
+{
+  "script": "HyperParameterSearch.py",
+  "algorithm": "AutoUAD (NPD-guided, real training graphs)",
+  "config_file": "/project_antwerp/repos/GAMMAF/exp2/N20/hps-config.yaml",
+  "created_at": "2026-09-29T21:48:39.256122+00:00",
+  "updated_at": "2026-09-29T21:49:25.287570+00:00",
+  "data": {
+    "data_path": "exp2/N20/data/mmlupro-train.pkl",
+    "dataset_tags": [
+      "MMLUPRO"
+    ],
+    "feature_key": "st_embedding",
+    "n_debates": 300,
+    "n_rounds": 672,
+    "n_agents": 13440,
+    "feature_dim": 384,
+    "topology_distribution": {
+      "random": 300
+    },
+    "dataset_distribution": {
+      "MMLUPRO": 300
+    },
+    "max_debates": null,
+    "n_skipped_debates": 0
+  },
+  "algorithm_params": {
+    "validation_split_ratio": 0.3,
+    "epsilon": 1e-09,
+    "split_seed": 42,
+    "gaussian_seed": 42,
+    "max_debates": null,
+    "split_unit": "debate",
+    "split_stratification": [
+      "topology_name",
+      "dataset_tag"
+    ],
+    "normalization": "global",
+    "x_gen_structures": "validation_graphs"
+  },
+  "optuna_params": {
+    "n_trials": 10,
+    "sampler_seed": 42,
+    "timeout": null,
+    "early_stopping_patience": 5,
+    "early_stopping_min_improvement_pct": 1.0
+  },
+  "training_params": {
+    "n_epochs_lr_reduce": 5,
+    "lr_reduce_improvement_pct": 0.5,
+    "lr_reduce_factor": 0.5,
+    "min_lr": 1e-06,
+    "n_epochs_early_stop": 12,
+    "early_stop_improvement_pct": 0.5
+  },
+  "models": {
+    "PREM": {
+      "model_name": "PREM",
+      "status": "completed",
+      "feature_keys": [
+        "st_embedding"
+      ],
+      "n_trials": 10,
+      "effective_trial_cap": 10,
+      "executed_trials": 7,
+      "search_space_size": 24,
+      "run_seed": 42,
+      "split_seed": 42,
+      "gaussian_seed": 42,
+      "search_space": {
+        "emb_dim": [
+          64,
+          128,
+          256
+        ],
+        "alpha": [
+          0.5,
+          1.0
+        ],
+        "gamma": [
+          0.5,
+          1.0
+        ],
+        "learning_rate": [
+          0.0001,
+          0.001
+        ]
+      },
+      "fixed_params": {
+        "seed": 42,
+        "device": null,
+        "input_dim": 384,
+        "prop_steps": 2,
+        "num_epochs": 20,
+        "batch_size": 256,
+        "val_split": 0.2,
+        "weight_decay": 0.0001,
+        "top_k": 6,
+        "topologies": null,
+        "n_epochs_lr_reduce": 5,
+        "lr_reduce_improvement_pct": 0.5,
+        "lr_reduce_factor": 0.5,
+        "min_lr": 1e-06,
+        "n_epochs_early_stop": 12,
+        "early_stop_improvement_pct": 0.5
+      },
+      "early_stopping": {
+        "enabled": true,
+        "patience": 5,
+        "min_improvement_pct": 1.0,
+        "stopped_early": true,
+        "stalled_trials": 5,
+        "best_value": 26.948344929172837
+      },
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "value": 9.24831602025132,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 43,
+          "duration_seconds": 4.595
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "value": 26.948344929172837,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.001
+          },
+          "seed": 44,
+          "duration_seconds": 3.151
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "value": 12.445671862520513,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 1.0,
+            "gamma": 1.0,
+            "learning_rate": 0.0001
+          },
+          "seed": 45,
+          "duration_seconds": 3.374
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "value": 8.49959917746786,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.0001
+          },
+          "seed": 46,
+          "duration_seconds": 3.24
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "value": 12.782991551481484,
+          "params": {
+            "emb_dim": 256,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 47,
+          "duration_seconds": 3.173
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "value": 5.5401294811953266,
+          "params": {
+            "emb_dim": 64,
+            "alpha": 0.5,
+            "gamma": 0.5,
+            "learning_rate": 0.0001
+          },
+          "seed": 48,
+          "duration_seconds": 3.307
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "value": 18.926869361924684,
+          "params": {
+            "emb_dim": 128,
+            "alpha": 0.5,
+            "gamma": 1.0,
+            "learning_rate": 0.001
+          },
+          "seed": 49,
+          "duration_seconds": 3.299
+        }
+      ],
+      "best_trial": {
+        "number": 1,
+        "value": 26.948344929172837,
+        "params": {
+          "emb_dim": 256,
+          "alpha": 0.5,
+          "gamma": 1.0,
+          "learning_rate": 0.001
+        },
+        "seed": 44
+      },
+      "final_model": {
+        "params": {
+          "emb_dim": 256,
+          "alpha": 0.5,
+          "gamma": 1.0,
+          "learning_rate": 0.001
+        },
+        "saved_path": null
+      },
+      "started_at": "2026-09-29T21:48:39.843079+00:00",
+      "duration_seconds": 28.271,
+      "data": {
+        "n_debates": 300,
+        "n_rounds": 672,
+        "n_agents": 13440,
+        "n_train_debates": 210,
+        "n_val_debates": 90,
+        "n_train_agents": 9360,
+        "n_val_agents": 4080,
+        "topology_distribution": {
+          "random": 300
+        },
+        "dataset_distribution": {
+          "MMLUPRO": 300
+        },
+        "split_seed": 42,
+        "gaussian_seed": 42
+      }
+    },
+    "CASPIAN": {
+      "model_name": "CASPIAN",
+      "status": "completed",
+      "feature_keys": [
+        "st_embedding"
+      ],
+      "n_trials": 10,
+      "effective_trial_cap": 10,
+      "executed_trials": 10,
+      "search_space_size": 36,
+      "run_seed": 42,
+      "split_seed": 42,
+      "gaussian_seed": 42,
+      "search_space": {
+        "base_weight": [
+          0.1,
+          0.2,
+          0.4
+        ],
+        "reciprocity_weight": [
+          0.1,
+          0.2
+        ],
+        "persistence_weight": [
+          0.4,
+          0.8
+        ],
+        "pair_weight": [
+          0.5,
+          1.0,
+          1.5
+        ]
+      },
+      "fixed_params": {
+        "seed": 42,
+        "device": null,
+        "top_k": 6,
+        "cluster_weight": 1.0,
+        "deviation_weight": 0.3,
+        "topologies": null,
+        "n_epochs_lr_reduce": 5,
+        "lr_reduce_improvement_pct": 0.5,
+        "lr_reduce_factor": 0.5,
+        "min_lr": 1e-06,
+        "n_epochs_early_stop": 12,
+        "early_stop_improvement_pct": 0.5
+      },
+      "early_stopping": {
+        "enabled": true,
+        "patience": 5,
+        "min_improvement_pct": 1.0,
+        "stopped_early": false,
+        "stalled_trials": 4,
+        "best_value": 0.001262758170581568
+      },
+      "trials": [
+        {
+          "number": 0,
+          "state": "COMPLETE",
+          "value": 0.0001354211067934022,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 0.5
+          },
+          "seed": 43,
+          "duration_seconds": 1.689
+        },
+        {
+          "number": 1,
+          "state": "COMPLETE",
+          "value": 0.00010074568083345297,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.8,
+            "pair_weight": 0.5
+          },
+          "seed": 44,
+          "duration_seconds": 1.805
+        },
+        {
+          "number": 2,
+          "state": "COMPLETE",
+          "value": 0.0005291313475161828,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 45,
+          "duration_seconds": 1.656
+        },
+        {
+          "number": 3,
+          "state": "COMPLETE",
+          "value": 0.0005291313475161828,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 46,
+          "duration_seconds": 1.807
+        },
+        {
+          "number": 4,
+          "state": "COMPLETE",
+          "value": 0.0005003319143342992,
+          "params": {
+            "base_weight": 0.2,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.0
+          },
+          "seed": 47,
+          "duration_seconds": 1.715
+        },
+        {
+          "number": 5,
+          "state": "COMPLETE",
+          "value": 0.001262758170581568,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.5
+          },
+          "seed": 48,
+          "duration_seconds": 1.723
+        },
+        {
+          "number": 6,
+          "state": "COMPLETE",
+          "value": 0.0006142804743156754,
+          "params": {
+            "base_weight": 0.4,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.4,
+            "pair_weight": 1.5
+          },
+          "seed": 49,
+          "duration_seconds": 1.757
+        },
+        {
+          "number": 7,
+          "state": "COMPLETE",
+          "value": 0.0004364213538072821,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.1,
+            "persistence_weight": 0.8,
+            "pair_weight": 1.0
+          },
+          "seed": 50,
+          "duration_seconds": 1.692
+        },
+        {
+          "number": 8,
+          "state": "COMPLETE",
+          "value": 0.00039005111834202583,
+          "params": {
+            "base_weight": 0.1,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.8,
+            "pair_weight": 1.0
+          },
+          "seed": 51,
+          "duration_seconds": 1.648
+        },
+        {
+          "number": 9,
+          "state": "COMPLETE",
+          "value": 5.4639700133984015e-05,
+          "params": {
+            "base_weight": 0.4,
+            "reciprocity_weight": 0.2,
+            "persistence_weight": 0.8,
+            "pair_weight": 0.5
+          },
+          "seed": 52,
+          "duration_seconds": 1.618
+        }
+      ],
+      "best_trial": {
+        "number": 5,
+        "value": 0.001262758170581568,
+        "params": {
+          "base_weight": 0.1,
+          "reciprocity_weight": 0.1,
+          "persistence_weight": 0.4,
+          "pair_weight": 1.5
+        },
+        "seed": 48
+      },
+      "final_model": {
+        "params": {
+          "base_weight": 0.1,
+          "reciprocity_weight": 0.1,
+          "persistence_weight": 0.4,
+          "pair_weight": 1.5
+        },
+        "saved_path": null
+      },
+      "started_at": "2026-09-29T21:49:07.809735+00:00",
+      "duration_seconds": 17.735,
+      "data": {
+        "n_debates": 300,
+        "n_rounds": 672,
+        "n_agents": 13440,
+        "n_train_debates": 210,
+        "n_val_debates": 90,
+        "n_train_agents": 9360,
+        "n_val_agents": 4080,
+        "topology_distribution": {
+          "random": 300
+        },
+        "dataset_distribution": {
+          "MMLUPRO": 300
+        },
+        "split_seed": 42,
+        "gaussian_seed": 42
+      }
+    }
+  }
+}
