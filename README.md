@@ -1,3 +1,5 @@
+<img width="600" height="326" alt="logo_small" src="https://github.com/user-attachments/assets/5db6ea9f-b247-420b-a5a1-2fa0098a67c0" />
+
 # GAMMAF: Graph-Based Anomaly Monitoring Benchmarking for LLM Multi-Agent Systems
 
 This repository contains the source code for our [paper](https://arxiv.org/abs/2604.24477) introducing the **GAMMAF** framework.
