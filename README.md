@@ -11,7 +11,7 @@ This repository contains the source code for our [paper](https://arxiv.org/abs/2
 
 Main components: a data-generation pipeline, a defense-benchmarking pipeline, an unsupervised hyperparameter search, pluggable task datasets, pluggable text-to-embedding processors, and pluggable defense models.
 
-[completediagram-major.pdf](https://github.com/user-attachments/files/33101099/completediagram-major.pdf)
+<img width="5711" height="6096" alt="functionDiagram-major" src="https://github.com/user-attachments/assets/fdfc80a0-02bb-4f18-8096-c4656f214a2a" />
 
 ### Project structure
 
@@ -335,6 +335,13 @@ Notes:
 - Expand the framework to support heterogeneous agents and agents with different roles.
 - Expand the framework to support more channels (such as tools and memory), not only communication.
 - Increase efficiency and support process sharding for bigger multi-agent systems.
+
+## Timeline
+
+* 🚀 **21st Apr 2026:** First version published.
+* 📤 **13th May 2026:** Submitted to *Information Sciences*.
+* ✨ **29th Sep 2026:** Second version published.
+* 📝 **1st Oct 2026:** Review submitted to *Information Sciences*.
 
 ## License
 
